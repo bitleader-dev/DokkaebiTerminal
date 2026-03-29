@@ -1,0 +1,19 @@
+# 변경 내역
+
+## 최근 변경
+- 2026-03-29: 타이틀바 로그인/사용자 메뉴 기능 삭제
+  - Sign In 버튼, User Menu 버튼 렌더링 제거 (`title_bar.rs`)
+  - 통화 컨트롤, 접속 상태 표시, 화면 공유 UI 제거 (`collab.rs`)
+  - `TitleBarSettings`에서 `show_sign_in`, `show_user_menu`, `show_user_picture` 필드 제거
+  - `settings_content`, `default.json`, `settings_ui`에서 해당 설정 항목 제거
+  - `PlanChip` 모듈 참조 제거, 미사용 import 정리
+- 2026-03-29: 시작 시 Welcome 화면 비활성화 및 센터 터미널 표시
+- 2026-03-29: i18n (국제화) 시스템 추가 — 1단계: 앱 메뉴 한국어/영어 전환
+  - `crates/i18n/` 크레이트 신규 생성 (번역 시스템)
+  - `assets/locales/en.json`, `ko.json` 리소스 파일 추가 (메뉴 문자열 120+개)
+  - `settings_content`에 `Locale` enum 및 `locale` 설정 필드 추가
+  - `assets/settings/default.json`에 `"locale": "en"` 기본값 추가
+  - `app_menus.rs` 전체 메뉴 문자열을 `i18n::t()` 호출로 교체
+  - `main.rs`에서 설정 변경 감지 → 실시간 메뉴 언어 전환
+  - `assets.rs`에 `locales/**/*` 포함 설정 추가
+  - 사용법: settings.json에 `"locale": "ko"` 설정 시 한국어 메뉴 표시

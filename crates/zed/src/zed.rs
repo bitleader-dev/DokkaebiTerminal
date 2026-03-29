@@ -653,6 +653,7 @@ fn initialize_panels(
     cx: &mut Context<Workspace>,
 ) -> Task<anyhow::Result<()>> {
     cx.spawn_in(window, async move |workspace_handle, cx| {
+        let workspace_group_panel = workspace::WorkspaceGroupPanel::load(workspace_handle.clone(), cx.clone());
         let project_panel = ProjectPanel::load(workspace_handle.clone(), cx.clone());
         let outline_panel = OutlinePanel::load(workspace_handle.clone(), cx.clone());
         let terminal_panel = TerminalPanel::load(workspace_handle.clone(), cx.clone());
@@ -681,6 +682,7 @@ fn initialize_panels(
         }
 
         futures::join!(
+            add_panel_when_ready(workspace_group_panel, workspace_handle.clone(), cx.clone()),
             add_panel_when_ready(project_panel, workspace_handle.clone(), cx.clone()),
             add_panel_when_ready(outline_panel, workspace_handle.clone(), cx.clone()),
             add_panel_when_ready(terminal_panel, workspace_handle.clone(), cx.clone()),
@@ -5020,6 +5022,7 @@ mod tests {
             project_panel::init(cx);
             outline_panel::init(cx);
             terminal_view::init(cx);
+            workspace::workspace_group_panel::init(cx);
             copilot_chat::init(
                 app_state.fs.clone(),
                 app_state.client.http_client(),

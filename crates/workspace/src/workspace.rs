@@ -23,6 +23,8 @@ mod theme_preview;
 mod toast_layer;
 mod toolbar;
 pub mod welcome;
+pub mod workspace_group;
+pub mod workspace_group_panel;
 mod workspace_settings;
 
 pub use crate::notifications::NotificationFrame;
@@ -34,6 +36,8 @@ pub use multi_workspace::{
 };
 pub use path_list::{PathList, SerializedPathList};
 pub use toast_layer::{ToastAction, ToastLayer, ToastView};
+pub use workspace_group::WorkspaceGroupState;
+pub use workspace_group_panel::WorkspaceGroupPanel;
 
 use anyhow::{Context as _, Result, anyhow};
 use client::{
@@ -1337,6 +1341,10 @@ pub struct Workspace {
     _panels_task: Option<Task<Result<()>>>,
     sidebar_focus_handle: Option<FocusHandle>,
     multi_workspace: Option<WeakEntity<MultiWorkspace>>,
+    /// 워크스페이스 그룹 목록 (비활성 그룹 상태 저장용)
+    workspace_groups: Vec<WorkspaceGroupState>,
+    /// 현재 활성 워크스페이스 그룹 인덱스
+    active_group_index: usize,
 }
 
 impl EventEmitter<Event> for Workspace {}
@@ -1697,6 +1705,16 @@ impl Workspace {
         center.set_is_center(true);
         center.mark_positions(cx);
 
+        // 기본 워크스페이스 그룹 생성
+        let default_group = WorkspaceGroupState {
+            name: "워크스페이스 1".to_string(),
+            center: center.clone(),
+            panes: vec![center_pane.clone()],
+            active_pane: center_pane.clone(),
+            last_active_center_pane: Some(center_pane.downgrade()),
+            panes_by_item: Default::default(),
+        };
+
         Workspace {
             weak_self: weak_handle.clone(),
             zoomed: None,
@@ -1755,6 +1773,8 @@ impl Workspace {
             removing: false,
             sidebar_focus_handle: None,
             multi_workspace,
+            workspace_groups: vec![default_group],
+            active_group_index: 0,
         }
     }
 
@@ -5239,6 +5259,183 @@ impl Workspace {
 
     pub fn active_pane(&self) -> &Entity<Pane> {
         &self.active_pane
+    }
+
+    // === 워크스페이스 그룹 관리 ===
+
+    /// 워크스페이스 그룹 목록 반환
+    pub fn workspace_groups(&self) -> &[WorkspaceGroupState] {
+        &self.workspace_groups
+    }
+
+    /// 현재 활성 워크스페이스 그룹 인덱스
+    pub fn active_group_index(&self) -> usize {
+        self.active_group_index
+    }
+
+    /// 워크스페이스 그룹 개수
+    pub fn workspace_group_count(&self) -> usize {
+        self.workspace_groups.len()
+    }
+
+    /// 현재 상태를 활성 그룹에 동기화
+    fn sync_active_group(&mut self) {
+        if self.active_group_index < self.workspace_groups.len() {
+            self.workspace_groups[self.active_group_index] = WorkspaceGroupState::capture(
+                self.workspace_groups[self.active_group_index].name.clone(),
+                &self.center,
+                &self.panes,
+                &self.active_pane,
+                &self.last_active_center_pane,
+                &self.panes_by_item,
+            );
+        }
+    }
+
+    /// 워크스페이스 그룹 전환
+    pub fn switch_workspace_group(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if index == self.active_group_index || index >= self.workspace_groups.len() {
+            return;
+        }
+
+        // 현재 상태를 활성 그룹에 저장
+        self.sync_active_group();
+
+        // 새 그룹 상태 로드
+        let new_group = &self.workspace_groups[index];
+        self.center = new_group.center.clone();
+        self.panes = new_group.panes.clone();
+        self.active_pane = new_group.active_pane.clone();
+        self.last_active_center_pane = new_group.last_active_center_pane.clone();
+        self.panes_by_item = new_group.panes_by_item.clone();
+        self.active_group_index = index;
+
+        // 포커스 이동
+        window.focus(&self.active_pane.focus_handle(cx), cx);
+        cx.notify();
+    }
+
+    /// 새 워크스페이스 그룹 추가 (빈 패인 + 터미널 1개)
+    pub fn add_workspace_group(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // 현재 상태 저장
+        self.sync_active_group();
+
+        // 새 패인 생성
+        let new_pane = cx.new(|cx| {
+            let mut pane = Pane::new(
+                self.weak_self.clone(),
+                self.project.clone(),
+                self.pane_history_timestamp.clone(),
+                None,
+                NewFile.boxed_clone(),
+                true,
+                window,
+                cx,
+            );
+            pane.set_can_split(Some(Arc::new(|_, _, _, _| true)));
+            pane.set_should_display_welcome_page(false);
+            pane
+        });
+        cx.subscribe_in(&new_pane, window, Self::handle_pane_event)
+            .detach();
+
+        // 새 PaneGroup 생성
+        let mut new_center = PaneGroup::new(new_pane.clone());
+        new_center.set_is_center(true);
+        new_center.mark_positions(cx);
+
+        let group_index = self.workspace_groups.len();
+        let group_name = format!("워크스페이스 {}", group_index + 1);
+
+        // 새 그룹 상태 추가
+        let new_group = WorkspaceGroupState {
+            name: group_name,
+            center: new_center.clone(),
+            panes: vec![new_pane.clone()],
+            active_pane: new_pane.clone(),
+            last_active_center_pane: Some(new_pane.downgrade()),
+            panes_by_item: HashMap::default(),
+        };
+        self.workspace_groups.push(new_group);
+
+        // 새 그룹으로 전환
+        self.center = new_center;
+        self.panes = vec![new_pane.clone()];
+        self.active_pane = new_pane.clone();
+        self.last_active_center_pane = Some(new_pane.downgrade());
+        self.panes_by_item = HashMap::default();
+        self.active_group_index = group_index;
+
+        // 포커스 이동
+        window.focus(&new_pane.focus_handle(cx), cx);
+        cx.emit(Event::PaneAdded(new_pane));
+        cx.notify();
+
+        // 새 그룹에 터미널 1개 자동 추가 (렌더 후 디스패치)
+        cx.defer_in(window, |_this, window, cx| {
+            window.dispatch_action(
+                Box::new(NewCenterTerminal::default()),
+                cx,
+            );
+        });
+    }
+
+    /// 워크스페이스 그룹 삭제 (최소 1개는 유지)
+    pub fn remove_workspace_group(
+        &mut self,
+        index: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.workspace_groups.len() <= 1 || index >= self.workspace_groups.len() {
+            return;
+        }
+
+        // 삭제할 그룹이 활성 그룹이면 다른 그룹으로 전환
+        if index == self.active_group_index {
+            let new_index = if index > 0 { index - 1 } else { 0 };
+            // 먼저 현재 상태 저장 후 전환
+            self.sync_active_group();
+
+            // 삭제 대상 제거
+            self.workspace_groups.remove(index);
+
+            // 새 활성 인덱스 조정
+            let adjusted_index = if new_index >= self.workspace_groups.len() {
+                self.workspace_groups.len() - 1
+            } else {
+                new_index
+            };
+
+            // 새 그룹 상태 로드
+            let new_group = &self.workspace_groups[adjusted_index];
+            self.center = new_group.center.clone();
+            self.panes = new_group.panes.clone();
+            self.active_pane = new_group.active_pane.clone();
+            self.last_active_center_pane = new_group.last_active_center_pane.clone();
+            self.panes_by_item = new_group.panes_by_item.clone();
+            self.active_group_index = adjusted_index;
+
+            window.focus(&self.active_pane.focus_handle(cx), cx);
+        } else {
+            // 비활성 그룹 삭제
+            self.workspace_groups.remove(index);
+            // 활성 인덱스 조정
+            if self.active_group_index > index {
+                self.active_group_index -= 1;
+            }
+        }
+
+        cx.notify();
     }
 
     pub fn focused_pane(&self, window: &Window, cx: &App) -> Entity<Pane> {

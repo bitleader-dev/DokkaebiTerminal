@@ -1,6 +1,18 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-03-29: 워크스페이스 그룹 패널 버그 수정
+  - `init()` observe_new 콜백이 실행되지 않아 toggle action이 등록되지 않는 문제
+  - action 등록을 `init()` → `new()` 내부로 이동 (workspace context에서 직접 등록)
+  - 아이콘을 `ListTree` → `Library`로 변경 (OutlinePanel과 중복 해소)
+  - `new()`/`load()` 시그니처를 ProjectPanel과 동일하게 변경
+  - `Ctrl+Shift+W` 키바인딩 추가 (default-windows.json)
+- 2026-03-29: 워크스페이스 그룹 기능 추가
+  - `workspace_group.rs`: WorkspaceGroupState 데이터 구조 (독립 작업 그룹 상태)
+  - `workspace_group_panel.rs`: 좌측 독 패널 UI (추가/전환/삭제)
+  - `workspace.rs`: Workspace에 다중 그룹 관리 (switch/add/remove) 메서드 추가
+  - `zed.rs`: WorkspaceGroupPanel 패널 등록 및 init 호출 추가
+  - 새 그룹 추가 시 터미널 1개 자동 생성, 그룹 1개일 때 삭제 버튼 숨김
 - 2026-03-29: 타이틀바 로그인/사용자 메뉴 기능 삭제
   - Sign In 버튼, User Menu 버튼 렌더링 제거 (`title_bar.rs`)
   - 통화 컨트롤, 접속 상태 표시, 화면 공유 UI 제거 (`collab.rs`)

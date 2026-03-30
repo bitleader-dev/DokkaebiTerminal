@@ -723,11 +723,33 @@ impl ProjectPanel {
                     project::Event::WorktreeRemoved(id) => {
                         this.state.expanded_dir_ids.remove(id);
                         this.update_visible_entries(None, false, false, window, cx);
+                        // worktree가 모두 제거되면 패널 닫기 (spawn으로 이중 업데이트 방지)
+                        if !project.read(cx).worktrees(cx).next().is_some() {
+                            let workspace = this.workspace.clone();
+                            cx.spawn_in(window, async move |_, cx| {
+                                if let Some(workspace) = workspace.upgrade() {
+                                    let _ = workspace.update_in(cx, |workspace, window, cx| {
+                                        workspace.close_panel::<ProjectPanel>(window, cx);
+                                    });
+                                }
+                            }).detach();
+                        }
                         cx.notify();
                     }
                     project::Event::WorktreeUpdatedEntries(_, _)
                     | project::Event::WorktreeAdded(_)
                     | project::Event::WorktreeOrderChanged => {
+                        // worktree가 추가되면 패널 열기 (spawn으로 이중 업데이트 방지)
+                        if matches!(event, project::Event::WorktreeAdded(_)) {
+                            let workspace = this.workspace.clone();
+                            cx.spawn_in(window, async move |_, cx| {
+                                if let Some(workspace) = workspace.upgrade() {
+                                    let _ = workspace.update_in(cx, |workspace, window, cx| {
+                                        workspace.open_panel::<ProjectPanel>(window, cx);
+                                    });
+                                }
+                            }).detach();
+                        }
                         this.update_visible_entries(None, false, false, window, cx);
                         cx.notify();
                     }
@@ -7071,44 +7093,6 @@ impl Render for ProjectPanel {
                 .justify_center()
                 .gap_1()
                 .track_focus(&self.focus_handle(cx))
-                .child(
-                    Button::new("open_project", "Open Project")
-                        .full_width()
-                        .key_binding(KeyBinding::for_action_in(
-                            &workspace::Open::default(),
-                            &focus_handle,
-                            cx,
-                        ))
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.workspace
-                                .update(cx, |_, cx| {
-                                    window.dispatch_action(
-                                        workspace::Open::default().boxed_clone(),
-                                        cx,
-                                    );
-                                })
-                                .log_err();
-                        })),
-                )
-                .child(
-                    h_flex()
-                        .w_1_2()
-                        .gap_2()
-                        .child(Divider::horizontal())
-                        .child(Label::new("or").size(LabelSize::XSmall).color(Color::Muted))
-                        .child(Divider::horizontal()),
-                )
-                .child(
-                    Button::new("clone_repo", "Clone Repository")
-                        .full_width()
-                        .on_click(cx.listener(|this, _, window, cx| {
-                            this.workspace
-                                .update(cx, |_, cx| {
-                                    window.dispatch_action(git::Clone.boxed_clone(), cx);
-                                })
-                                .log_err();
-                        })),
-                )
                 .when(is_local, |div| {
                     div.when(panel_settings.drag_and_drop, |div| {
                         div.drag_over::<ExternalPaths>(|style, _, _, cx| {

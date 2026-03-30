@@ -13,13 +13,14 @@ use chrono::Utc;
 use editor::Editor;
 use feature_flags::{AgentV2FeatureFlag, FeatureFlagViewExt as _};
 use gpui::{
-    Action as _, AnyElement, App, Context, Entity, FocusHandle, Focusable, KeyContext, ListState,
-    Pixels, Render, SharedString, WeakEntity, Window, WindowHandle, list, prelude::*, px,
+    Action as _, AnyElement, App, Context, DismissEvent, Entity, FocusHandle, Focusable,
+    KeyContext, ListState, MouseButton, MouseDownEvent, PathPromptOptions, Pixels, Point, Render,
+    SharedString, WeakEntity, Window, WindowHandle, anchored, deferred, list, prelude::*, px,
 };
 use menu::{
     Cancel, Confirm, SelectChild, SelectFirst, SelectLast, SelectNext, SelectParent, SelectPrevious,
 };
-use project::{Event as ProjectEvent, linked_worktree_short_name};
+use project::{DirectoryLister, Event as ProjectEvent, linked_worktree_short_name};
 use recent_projects::sidebar_recent_projects::SidebarRecentProjects;
 use ui::utils::platform_title_bar_height;
 
@@ -36,7 +37,7 @@ use ui::{
 use util::ResultExt as _;
 use util::path_list::PathList;
 use workspace::{
-    AddFolderToProject, FocusWorkspaceSidebar, MultiWorkspace, MultiWorkspaceEvent, Open,
+    AddFolderToProject, FocusWorkspaceSidebar, MultiWorkspace, MultiWorkspaceEvent,
     Sidebar as WorkspaceSidebar, SidebarSide, ToggleWorkspaceSidebar, Workspace, WorkspaceId,
     sidebar_side_context_menu,
 };
@@ -315,6 +316,8 @@ pub struct Sidebar {
     view: SidebarView,
     recent_projects_popover_handle: PopoverMenuHandle<SidebarRecentProjects>,
     project_header_menu_ix: Option<usize>,
+    /// 프로젝트 항목 우클릭 컨텍스트 메뉴 상태 (메뉴 엔티티, 표시 위치, 구독)
+    project_context_menu: Option<(Entity<ContextMenu>, Point<Pixels>, gpui::Subscription)>,
     _subscriptions: Vec<gpui::Subscription>,
     _draft_observation: Option<gpui::Subscription>,
 }
@@ -407,6 +410,7 @@ impl Sidebar {
             view: SidebarView::default(),
             recent_projects_popover_handle: PopoverMenuHandle::default(),
             project_header_menu_ix: None,
+            project_context_menu: None,
             _subscriptions: Vec::new(),
             _draft_observation: None,
         }
@@ -887,135 +891,17 @@ impl Sidebar {
                 }
             }
 
-            if !query.is_empty() {
-                let workspace_highlight_positions =
-                    fuzzy_match_positions(&query, &label).unwrap_or_default();
-                let workspace_matched = !workspace_highlight_positions.is_empty();
-
-                let mut matched_threads: Vec<ThreadEntry> = Vec::new();
-                for mut thread in threads {
-                    let title = thread
-                        .session_info
-                        .title
-                        .as_ref()
-                        .map(|s| s.as_ref())
-                        .unwrap_or("");
-                    if let Some(positions) = fuzzy_match_positions(&query, title) {
-                        thread.highlight_positions = positions;
-                    }
-                    let mut worktree_matched = false;
-                    for worktree in &mut thread.worktrees {
-                        if let Some(positions) = fuzzy_match_positions(&query, &worktree.name) {
-                            worktree.highlight_positions = positions;
-                            worktree_matched = true;
-                        }
-                    }
-                    if workspace_matched
-                        || !thread.highlight_positions.is_empty()
-                        || worktree_matched
-                    {
-                        matched_threads.push(thread);
-                    }
-                }
-
-                if matched_threads.is_empty() && !workspace_matched {
-                    continue;
-                }
-
-                project_header_indices.push(entries.len());
-                entries.push(ListEntry::ProjectHeader {
-                    path_list: path_list.clone(),
-                    label,
-                    workspace: representative_workspace.clone(),
-                    highlight_positions: workspace_highlight_positions,
-                    has_running_threads,
-                    waiting_thread_count,
-                    is_active,
-                });
-
-                for thread in matched_threads {
-                    current_session_ids.insert(thread.session_info.session_id.clone());
-                    entries.push(thread.into());
-                }
-            } else {
-                let thread_count = threads.len();
-                let is_draft_for_workspace = self.agent_panel_visible
-                    && self.active_thread_is_draft
-                    && self.focused_thread.is_none()
-                    && is_active;
-
-                let show_new_thread_entry = thread_count == 0 || is_draft_for_workspace;
-
-                project_header_indices.push(entries.len());
-                entries.push(ListEntry::ProjectHeader {
-                    path_list: path_list.clone(),
-                    label,
-                    workspace: representative_workspace.clone(),
-                    highlight_positions: Vec::new(),
-                    has_running_threads,
-                    waiting_thread_count,
-                    is_active,
-                });
-
-                if is_collapsed {
-                    continue;
-                }
-
-                if show_new_thread_entry {
-                    entries.push(ListEntry::NewThread {
-                        path_list: path_list.clone(),
-                        workspace: representative_workspace.clone(),
-                        is_active_draft: is_draft_for_workspace,
-                    });
-                }
-
-                let total = threads.len();
-
-                let extra_batches = self.expanded_groups.get(&path_list).copied().unwrap_or(0);
-                let threads_to_show =
-                    DEFAULT_THREADS_SHOWN + (extra_batches * DEFAULT_THREADS_SHOWN);
-                let count = threads_to_show.min(total);
-
-                let mut promoted_threads: HashSet<acp::SessionId> = HashSet::new();
-
-                // Build visible entries in a single pass. Threads within
-                // the cutoff are always shown. Threads beyond it are shown
-                // only if they should be promoted (running, waiting, or
-                // focused)
-                for (index, thread) in threads.into_iter().enumerate() {
-                    let is_hidden = index >= count;
-
-                    let session_id = &thread.session_info.session_id;
-                    if is_hidden {
-                        let is_promoted = thread.status == AgentThreadStatus::Running
-                            || thread.status == AgentThreadStatus::WaitingForConfirmation
-                            || notified_threads.contains(session_id)
-                            || self
-                                .focused_thread
-                                .as_ref()
-                                .is_some_and(|id| id == session_id);
-                        if is_promoted {
-                            promoted_threads.insert(session_id.clone());
-                        }
-                        if !promoted_threads.contains(session_id) {
-                            continue;
-                        }
-                    }
-
-                    current_session_ids.insert(session_id.clone());
-                    entries.push(thread.into());
-                }
-
-                let visible = count + promoted_threads.len();
-                let is_fully_expanded = visible >= total;
-
-                if total > DEFAULT_THREADS_SHOWN {
-                    entries.push(ListEntry::ViewMore {
-                        path_list: path_list.clone(),
-                        is_fully_expanded,
-                    });
-                }
-            }
+            // 프로젝트 그룹 헤더만 표시 (스레드/검색/아카이브 제거)
+            project_header_indices.push(entries.len());
+            entries.push(ListEntry::ProjectHeader {
+                path_list: path_list.clone(),
+                label,
+                workspace: representative_workspace.clone(),
+                highlight_positions: Vec::new(),
+                has_running_threads: false,
+                waiting_thread_count: 0,
+                is_active,
+            });
         }
 
         // Prune stale notifications using the session IDs we collected during
@@ -1191,7 +1077,7 @@ impl Sidebar {
             .blend(color.element_background.opacity(0.2));
 
         h_flex()
-            .id(id)
+            .id(id.clone())
             .group(&group_name)
             .h(Tab::content_height(cx))
             .w_full()
@@ -1220,36 +1106,7 @@ impl Sidebar {
                                 .color(Color::Custom(cx.theme().colors().icon_muted.opacity(0.5))),
                         ),
                     )
-                    .child(label)
-                    .when(is_collapsed, |this| {
-                        this.when(has_running_threads, |this| {
-                            this.child(
-                                Icon::new(IconName::LoadCircle)
-                                    .size(IconSize::XSmall)
-                                    .color(Color::Muted)
-                                    .with_rotate_animation(2),
-                            )
-                        })
-                        .when(waiting_thread_count > 0, |this| {
-                            let tooltip_text = if waiting_thread_count == 1 {
-                                "1 thread is waiting for confirmation".to_string()
-                            } else {
-                                format!(
-                                    "{waiting_thread_count} threads are waiting for confirmation",
-                                )
-                            };
-                            this.child(
-                                div()
-                                    .id(format!("{id_prefix}waiting-indicator-{ix}"))
-                                    .child(
-                                        Icon::new(IconName::Warning)
-                                            .size(IconSize::XSmall)
-                                            .color(Color::Warning),
-                                    )
-                                    .tooltip(Tooltip::text(tooltip_text)),
-                            )
-                        })
-                    }),
+                    .child(label),
             )
             .child({
                 let workspace_for_new_thread = workspace.clone();
@@ -1262,34 +1119,7 @@ impl Sidebar {
                     .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
                         cx.stop_propagation();
                     })
-                    .child(self.render_project_header_menu(
-                        ix,
-                        id_prefix,
-                        &workspace_for_menu,
-                        &workspace_for_remove,
-                        cx,
-                    ))
-                    .when(view_more_expanded && !is_collapsed, |this| {
-                        this.child(
-                            IconButton::new(
-                                SharedString::from(format!(
-                                    "{id_prefix}project-header-collapse-{ix}",
-                                )),
-                                IconName::ListCollapse,
-                            )
-                            .icon_size(IconSize::Small)
-                            .icon_color(Color::Muted)
-                            .tooltip(Tooltip::text("Collapse Displayed Threads"))
-                            .on_click(cx.listener({
-                                let path_list_for_collapse = path_list_for_collapse.clone();
-                                move |this, _, _window, cx| {
-                                    this.selection = None;
-                                    this.expanded_groups.remove(&path_list_for_collapse);
-                                    this.update_entries(cx);
-                                }
-                            })),
-                        )
-                    })
+                    // 스레드 관련 버튼 제거 — Activate Workspace만 유지
                     .when(!is_active, |this| {
                         this.child(
                             IconButton::new(
@@ -1319,35 +1149,73 @@ impl Sidebar {
                             })),
                         )
                     })
-                    .when(show_new_thread_button, |this| {
-                        this.child(
-                            IconButton::new(
-                                SharedString::from(format!(
-                                    "{id_prefix}project-header-new-thread-{ix}",
-                                )),
-                                IconName::Plus,
-                            )
-                            .icon_size(IconSize::Small)
-                            .icon_color(Color::Muted)
-                            .tooltip(Tooltip::text("New Thread"))
-                            .on_click(cx.listener({
-                                let workspace_for_new_thread = workspace_for_new_thread.clone();
-                                let path_list_for_new_thread = path_list_for_new_thread.clone();
-                                move |this, _, window, cx| {
-                                    // Uncollapse the group if collapsed so
-                                    // the new-thread entry becomes visible.
-                                    this.collapsed_groups.remove(&path_list_for_new_thread);
-                                    this.selection = None;
-                                    this.create_new_thread(&workspace_for_new_thread, window, cx);
-                                }
-                            })),
-                        )
-                    })
             })
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.selection = None;
                 this.toggle_collapse(&path_list_for_toggle, window, cx);
             }))
+            // 우클릭 컨텍스트 메뉴 — 프로젝트 삭제
+            .on_mouse_down(
+                MouseButton::Right,
+                cx.listener({
+                    let workspace_for_remove = workspace_for_remove.clone();
+                    move |this, event: &MouseDownEvent, window, cx| {
+                        let workspace_for_remove = workspace_for_remove.clone();
+                        let multi_workspace = this.multi_workspace.clone();
+                        let menu = ContextMenu::build(window, cx, move |menu, _window, _cx| {
+                            menu.entry("삭제", None, {
+                                let workspace_for_remove = workspace_for_remove.clone();
+                                let multi_workspace = multi_workspace.clone();
+                                move |window, cx| {
+                                    if let Some(mw) = multi_workspace.upgrade() {
+                                        let ws = workspace_for_remove.clone();
+                                        mw.update(cx, |multi_workspace, cx| {
+                                            if let Some(index) = multi_workspace
+                                                .workspaces()
+                                                .iter()
+                                                .position(|w| *w == ws)
+                                            {
+                                                // 마지막 1개일 때는 worktree만 모두 제거
+                                                if multi_workspace.workspaces().len() <= 1 {
+                                                    ws.update(cx, |workspace, cx| {
+                                                        let worktree_ids: Vec<_> = workspace
+                                                            .project()
+                                                            .read(cx)
+                                                            .worktrees(cx)
+                                                            .map(|wt| wt.read(cx).id())
+                                                            .collect();
+                                                        for id in worktree_ids {
+                                                            workspace.project().update(
+                                                                cx,
+                                                                |project, cx| {
+                                                                    project
+                                                                        .remove_worktree(id, cx);
+                                                                },
+                                                            );
+                                                        }
+                                                    });
+                                                } else {
+                                                    multi_workspace
+                                                        .remove_workspace(index, window, cx);
+                                                }
+                                            }
+                                        });
+                                    }
+                                }
+                            })
+                        });
+                        window.focus(&menu.focus_handle(cx), cx);
+                        let subscription =
+                            cx.subscribe(&menu, |this, _, _: &DismissEvent, cx| {
+                                this.project_context_menu.take();
+                                cx.notify();
+                            });
+                        this.project_context_menu =
+                            Some((menu, event.position, subscription));
+                        cx.notify();
+                    }
+                }),
+            )
             .into_any_element()
     }
 
@@ -2740,32 +2608,70 @@ impl Sidebar {
             .child(
                 Button::new("open_project", "Open Project")
                     .full_width()
-                    .key_binding(KeyBinding::for_action(&workspace::Open::default(), cx))
-                    .on_click(|_, window, cx| {
-                        window.dispatch_action(
-                            Open {
-                                create_new_window: false,
-                            }
-                            .boxed_clone(),
-                            cx,
-                        );
-                    }),
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.add_project_folder(window, cx);
+                    })),
             )
-            .child(
-                h_flex()
-                    .w_1_2()
-                    .gap_2()
-                    .child(Divider::horizontal())
-                    .child(Label::new("or").size(LabelSize::XSmall).color(Color::Muted))
-                    .child(Divider::horizontal()),
+    }
+
+    /// 프로젝트 추가 — 폴더 선택 다이얼로그 표시 후 새 워크스페이스로 추가
+    fn add_project_folder(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(multi_workspace) = self.multi_workspace.upgrade() else {
+            return;
+        };
+        let mw = multi_workspace.read(cx);
+        let idx = mw.active_workspace_index();
+        let Some(workspace) = mw.workspaces().get(idx).cloned() else {
+            return;
+        };
+
+        // 폴더 선택 다이얼로그 표시
+        let paths_rx = workspace.update(cx, |workspace, cx| {
+            workspace.prompt_for_open_path(
+                PathPromptOptions {
+                    files: false,
+                    directories: true,
+                    multiple: false,
+                    prompt: None,
+                },
+                project::DirectoryLister::Project(workspace.project().clone()),
+                window,
+                cx,
             )
-            .child(
-                Button::new("clone_repo", "Clone Repository")
-                    .full_width()
-                    .on_click(|_, window, cx| {
-                        window.dispatch_action(git::Clone.boxed_clone(), cx);
-                    }),
-            )
+        });
+
+        // 현재 워크스페이스에 worktree가 없으면 기존 워크스페이스에 폴더 추가,
+        // 있으면 새 워크스페이스 생성
+        let has_worktree = workspace.read(cx).project().read(cx).worktrees(cx).next().is_some();
+        cx.spawn_in(window, async move |_this, cx| {
+            if let Some(paths) = paths_rx.await.ok().flatten() {
+                if has_worktree {
+                    multi_workspace
+                        .update_in(cx, |multi_workspace, window, cx| {
+                            multi_workspace.open_project(paths, window, cx)
+                        })?
+                        .await?;
+                } else {
+                    // 빈 워크스페이스에 폴더 직접 추가 (터미널 탭 유지)
+                    workspace
+                        .update_in(cx, |workspace, window, cx| {
+                            workspace.open_paths(
+                                paths,
+                                workspace::OpenOptions {
+                                    visible: Some(workspace::OpenVisible::All),
+                                    ..Default::default()
+                                },
+                                None,
+                                window,
+                                cx,
+                            )
+                        })?
+                        .await;
+                }
+            }
+            anyhow::Ok(())
+        })
+        .detach_and_log_err(cx);
     }
 
     fn render_sidebar_header(
@@ -2793,41 +2699,23 @@ impl Sidebar {
             })
             .pr_1p5()
             .gap_1()
-            .when(!no_open_projects, |this| {
-                this.border_b_1()
-                    .border_color(cx.theme().colors().border)
-                    .when(traffic_lights, |this| {
-                        this.child(Divider::vertical().color(ui::DividerColor::Border))
-                    })
-                    .child(
-                        div().ml_1().child(
-                            Icon::new(IconName::MagnifyingGlass)
-                                .size(IconSize::Small)
-                                .color(Color::Muted),
-                        ),
-                    )
-                    .child(self.render_filter_input(cx))
-                    .child(
-                        h_flex()
-                            .gap_1()
-                            .when(
-                                self.selection.is_some()
-                                    && !self.filter_editor.focus_handle(cx).is_focused(window),
-                                |this| this.child(KeyBinding::for_action(&FocusSidebarFilter, cx)),
-                            )
-                            .when(has_query, |this| {
-                                this.child(
-                                    IconButton::new("clear_filter", IconName::Close)
-                                        .icon_size(IconSize::Small)
-                                        .tooltip(Tooltip::text("Clear Search"))
-                                        .on_click(cx.listener(|this, _, window, cx| {
-                                            this.reset_filter_editor_text(window, cx);
-                                            this.update_entries(cx);
-                                        })),
-                                )
-                            }),
-                    )
-            })
+            .border_b_1()
+            .border_color(cx.theme().colors().border)
+            .justify_between()
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(cx.theme().colors().text_muted)
+                    .child("프로젝트"),
+            )
+            .child(
+                IconButton::new("add-project-folder", IconName::Plus)
+                    .icon_size(IconSize::Small)
+                    .tooltip(Tooltip::text("프로젝트 추가"))
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.add_project_folder(window, cx);
+                    })),
+            )
     }
 
     fn render_sidebar_toggle_button(&self, _cx: &mut Context<Self>) -> impl IntoElement {
@@ -2886,21 +2774,7 @@ impl Sidebar {
 
     fn render_sidebar_bottom_bar(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let on_right = self.side(cx) == SidebarSide::Right;
-        let is_archive = matches!(self.view, SidebarView::Archive(..));
-        let action_buttons = h_flex()
-            .gap_1()
-            .child(
-                IconButton::new("archive", IconName::Archive)
-                    .icon_size(IconSize::Small)
-                    .toggle_state(is_archive)
-                    .tooltip(move |_, cx| {
-                        Tooltip::for_action("Toggle Archived Threads", &ToggleArchive, cx)
-                    })
-                    .on_click(cx.listener(|this, _, window, cx| {
-                        this.toggle_archive(&ToggleArchive, window, cx);
-                    })),
-            )
-            .child(self.render_recent_projects_button(cx));
+        // 아카이브 버튼 제거 — 사이드바 토글 버튼만 표시
         let border_color = cx.theme().colors().border;
         let toggle_button = self.render_sidebar_toggle_button(cx);
 
@@ -2912,9 +2786,9 @@ impl Sidebar {
             .border_color(border_color);
 
         if on_right {
-            bar.child(action_buttons).child(toggle_button)
+            bar.child(toggle_button)
         } else {
-            bar.child(toggle_button).child(action_buttons)
+            bar.child(toggle_button)
         }
     }
 
@@ -3098,8 +2972,18 @@ impl Render for Sidebar {
                             )
                         }
                     }),
-                SidebarView::Archive(archive_view) => this.child(archive_view.clone()),
+                SidebarView::Archive(_) => this, // 아카이브 뷰 제거
             })
+            // 프로젝트 항목 우클릭 컨텍스트 메뉴 오버레이
+            .children(self.project_context_menu.as_ref().map(|(menu, position, _)| {
+                deferred(
+                    anchored()
+                        .position(*position)
+                        .anchor(gpui::Corner::TopLeft)
+                        .child(menu.clone()),
+                )
+                .with_priority(3)
+            }))
             .child(self.render_sidebar_bottom_bar(cx))
     }
 }

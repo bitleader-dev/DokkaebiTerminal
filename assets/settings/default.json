@@ -17,7 +17,7 @@
   "icon_theme": "Zed (Default)",
   // The language used for the UI.
   // "en" for English, "ko" for Korean.
-  "locale": "en",
+  "locale": "ko",
   // The name of a base set of key bindings to use.
   // This setting can take six values, each named after another
   // text editor:

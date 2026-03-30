@@ -1,6 +1,25 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-03-30: 빈 워크스페이스에서 프로젝트 추가 시 버그 2건 수정
+  - 터미널 탭 사라짐: `render_empty_state`의 "Open Project" 버튼이 `Open` 액션 → 새 워크스페이스 생성(터미널 없음). `add_project_folder()` 호출로 변경하여 기존 워크스페이스에 폴더 추가
+  - 이중 업데이트 패닉: `ProjectPanel` 구독 핸들러 내에서 `open_panel/close_panel` 호출 시 동일 엔티티 이중 lease. `cx.defer_in`으로 지연 호출하여 해결
+- 2026-03-30: 프로젝트 항목 우클릭 컨텍스트 메뉴 추가
+  - 프로젝트 헤더 항목에서 우클릭 시 "삭제" 메뉴 표시
+  - `on_mouse_down(MouseButton::Right)` + `deferred(anchored())` 방식으로 구현
+  - `project_context_menu` 필드로 메뉴 상태 관리, `DismissEvent` 구독으로 자동 정리
+  - 다중 워크스페이스: `remove_workspace(index)` 호출하여 삭제
+  - 마지막 1개: worktree만 모두 제거하여 빈 워크스페이스로 전환
+- 2026-03-30: 빈 워크스페이스에서 프로젝트 추가 시 터미널 탭 유지
+  - 빈 워크스페이스(worktree 없음): `open_paths`로 기존 워크스페이스에 폴더 추가 (터미널 유지)
+  - worktree 있는 워크스페이스: `open_project`로 새 워크스페이스 생성 (기존 동작)
+- 2026-03-30: Sidebar 상단에 "프로젝트 추가" 버튼 추가
+  - + 버튼 클릭 시 폴더 선택 다이얼로그 표시, 선택한 폴더를 워크스페이스에 추가
+  - `add_project_folder()` 메서드 추가, `open_project` 활용
+- 2026-03-30: Threads Sidebar에서 프로젝트 그룹 헤더만 남기고 나머지 제거
+  - AI 스레드 목록, 스레드 항목, 활성 스레드 정보, 아카이브 뷰, 검색 필터, 새 스레드 생성 제거
+  - rebuild_contents에서 ProjectHeader만 생성, 스레드/ViewMore/NewThread 엔트리 스킵
+  - 상단 검색 바, 하단 아카이브 버튼, 프로젝트 헤더의 running/waiting 인디케이터 제거
 - 2026-03-30: UI 패널 버튼 숨김 및 edit prediction 제거
   - 왼쪽 하단: Collab Panel, Outline Panel, Project Search, Diagnostics 버튼 숨김 + 단축키 제거
   - 오른쪽 하단: Terminal Panel, Debug Panel, Notification Panel 버튼 숨김 + 단축키 제거

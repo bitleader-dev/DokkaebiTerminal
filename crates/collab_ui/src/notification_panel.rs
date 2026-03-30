@@ -606,17 +606,17 @@ impl Panel for NotificationPanel {
         }
     }
 
-    fn icon(&self, _: &Window, cx: &App) -> Option<IconName> {
-        let show_button = NotificationPanelSettings::get_global(cx).button;
-        if !show_button {
-            return None;
-        }
-
-        if self.unseen_notifications.is_empty() {
-            return Some(IconName::Bell);
-        }
-
-        Some(IconName::BellDot)
+    fn icon(&self, _: &Window, _cx: &App) -> Option<IconName> {
+        // 버튼 숨김 (추후 복원 시 아래 코드 사용)
+        // let show_button = NotificationPanelSettings::get_global(cx).button;
+        // if !show_button {
+        //     return None;
+        // }
+        // if self.unseen_notifications.is_empty() {
+        //     return Some(IconName::Bell);
+        // }
+        // Some(IconName::BellDot)
+        None
     }
 
     fn icon_tooltip(&self, _window: &Window, _cx: &App) -> Option<&'static str> {

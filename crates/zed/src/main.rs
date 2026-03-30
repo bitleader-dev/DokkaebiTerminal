@@ -665,11 +665,11 @@ fn main() {
         acp_tools::init(cx);
         zed::telemetry_log::init(cx);
         zed::remote_debug::init(cx);
-        edit_prediction_ui::init(cx);
+        // edit_prediction_ui::init(cx); // edit prediction 기능 제거
         web_search::init(cx);
         web_search_providers::init(app_state.client.clone(), app_state.user_store.clone(), cx);
         snippet_provider::init(cx);
-        edit_prediction_registry::init(app_state.client.clone(), app_state.user_store.clone(), cx);
+        // edit_prediction_registry::init(app_state.client.clone(), app_state.user_store.clone(), cx); // edit prediction 기능 제거
         let prompt_builder = PromptBuilder::load(app_state.fs.clone(), stdout_is_a_pty(), cx);
         project::AgentRegistryStore::init_global(
             cx,
@@ -743,7 +743,7 @@ fn main() {
         settings_ui::init(cx);
         keymap_editor::init(cx);
         extensions_ui::init(cx);
-        edit_prediction::init(cx);
+        // edit_prediction::init(cx); // edit prediction 기능 제거
         inspector_ui::init(app_state.clone(), cx);
         json_schema_store::init(cx);
         miniprofiler_ui::init(*STARTUP_TIME.get().unwrap(), cx);

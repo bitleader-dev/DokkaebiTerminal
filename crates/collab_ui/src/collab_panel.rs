@@ -3372,10 +3372,12 @@ impl Panel for CollabPanel {
         CollaborationPanelSettings::get_global(cx).default_width
     }
 
-    fn icon(&self, _window: &Window, cx: &App) -> Option<ui::IconName> {
-        CollaborationPanelSettings::get_global(cx)
-            .button
-            .then_some(ui::IconName::UserGroup)
+    fn icon(&self, _window: &Window, _cx: &App) -> Option<ui::IconName> {
+        // 버튼 숨김 (추후 복원 시 아래 코드 사용)
+        // CollaborationPanelSettings::get_global(cx)
+        //     .button
+        //     .then_some(ui::IconName::UserGroup)
+        None
     }
 
     fn icon_tooltip(&self, _window: &Window, _cx: &App) -> Option<&'static str> {

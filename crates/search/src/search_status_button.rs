@@ -22,6 +22,10 @@ impl Render for SearchButton {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl ui::IntoElement {
         let button = div();
 
+        // 버튼 숨김 (추후 복원 시 아래 `true`를 `!EditorSettings::get_global(cx).search.button`로 변경)
+        if true {
+            return button.hidden();
+        }
         if !EditorSettings::get_global(cx).search.button {
             return button.hidden();
         }

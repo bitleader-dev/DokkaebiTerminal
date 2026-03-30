@@ -1345,6 +1345,10 @@ pub struct Workspace {
     workspace_groups: Vec<WorkspaceGroupState>,
     /// 현재 활성 워크스페이스 그룹 인덱스
     active_group_index: usize,
+    /// 워크스페이스 그룹 추가 시 호출되는 콜백 목록
+    on_group_added_callbacks: Vec<Box<dyn Fn(&mut Self, &mut Window, &mut Context<Self>)>>,
+    /// 마지막 워크스페이스 그룹의 모든 탭이 닫혔을 때 호출되는 콜백 목록
+    on_last_group_empty_callbacks: Vec<Box<dyn Fn(&mut Self, &mut Window, &mut Context<Self>)>>,
 }
 
 impl EventEmitter<Event> for Workspace {}
@@ -1775,6 +1779,8 @@ impl Workspace {
             multi_workspace,
             workspace_groups: vec![default_group],
             active_group_index: 0,
+            on_group_added_callbacks: Vec::new(),
+            on_last_group_empty_callbacks: Vec::new(),
         }
     }
 
@@ -5089,6 +5095,27 @@ impl Workspace {
                 cx.emit(Event::ItemRemoved {
                     item_id: item.item_id(),
                 });
+
+                // 워크스페이스 그룹: 모든 패인의 탭이 비었는지 확인
+                let all_panes_empty = self
+                    .panes
+                    .iter()
+                    .all(|p| p.read(cx).items().next().is_none());
+                if all_panes_empty {
+                    if self.workspace_groups.len() > 1 {
+                        // 다중 그룹 → 현재 그룹 삭제
+                        let index = self.active_group_index;
+                        self.remove_workspace_group(index, window, cx);
+                    } else {
+                        // 마지막 그룹 → 등록된 콜백 호출 (터미널 추가)
+                        let callbacks =
+                            std::mem::take(&mut self.on_last_group_empty_callbacks);
+                        for callback in &callbacks {
+                            callback(self, window, cx);
+                        }
+                        self.on_last_group_empty_callbacks = callbacks;
+                    }
+                }
             }
             pane::Event::Focus => {
                 window.invalidate_character_coordinates();
@@ -5380,13 +5407,12 @@ impl Workspace {
         cx.emit(Event::PaneAdded(new_pane));
         cx.notify();
 
-        // 새 그룹에 터미널 1개 자동 추가 (렌더 후 디스패치)
-        cx.defer_in(window, |_this, window, cx| {
-            window.dispatch_action(
-                Box::new(NewCenterTerminal::default()),
-                cx,
-            );
-        });
+        // 등록된 콜백 호출 (터미널 자동 추가 등)
+        let callbacks = std::mem::take(&mut self.on_group_added_callbacks);
+        for callback in &callbacks {
+            callback(self, window, cx);
+        }
+        self.on_group_added_callbacks = callbacks;
     }
 
     /// 워크스페이스 그룹 삭제 (최소 1개는 유지)
@@ -7340,6 +7366,22 @@ impl Workspace {
             .active_pane
             .update(cx, |pane, cx| window.focus(&pane.focus_handle(cx), cx));
         workspace
+    }
+
+    /// 워크스페이스 그룹 추가 시 호출될 콜백 등록
+    pub fn on_workspace_group_added(
+        &mut self,
+        callback: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
+    ) {
+        self.on_group_added_callbacks.push(Box::new(callback));
+    }
+
+    /// 마지막 워크스페이스 그룹의 모든 탭이 닫혔을 때 호출될 콜백 등록
+    pub fn on_last_workspace_group_empty(
+        &mut self,
+        callback: impl Fn(&mut Self, &mut Window, &mut Context<Self>) + 'static,
+    ) {
+        self.on_last_group_empty_callbacks.push(Box::new(callback));
     }
 
     pub fn register_action<A: Action>(

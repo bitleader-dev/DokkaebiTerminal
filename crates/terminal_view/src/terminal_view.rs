@@ -105,6 +105,24 @@ pub fn init(cx: &mut App) {
 
     cx.observe_new(|workspace: &mut Workspace, _window, _cx| {
         workspace.register_action(TerminalView::deploy);
+        // 워크스페이스 그룹 추가 시 터미널 1개 자동 생성
+        workspace.on_workspace_group_added(|workspace, window, cx| {
+            TerminalView::deploy(
+                workspace,
+                &workspace::NewCenterTerminal { local: false },
+                window,
+                cx,
+            );
+        });
+        // 마지막 워크스페이스 그룹의 모든 탭이 닫혔을 때 터미널 추가
+        workspace.on_last_workspace_group_empty(|workspace, window, cx| {
+            TerminalView::deploy(
+                workspace,
+                &workspace::NewCenterTerminal { local: false },
+                window,
+                cx,
+            );
+        });
     })
     .detach();
     SlashCommandRegistry::global(cx).register_command(TerminalSlashCommand, true);

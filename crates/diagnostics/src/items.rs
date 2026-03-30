@@ -29,6 +29,10 @@ pub struct DiagnosticIndicator {
 impl Render for DiagnosticIndicator {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let indicator = h_flex().gap_2().min_w_0().overflow_x_hidden();
+        // 버튼 숨김 (추후 복원 시 아래 `true`를 `!ProjectSettings::get_global(cx).diagnostics.button`로 변경)
+        if true {
+            return indicator.hidden();
+        }
         if !ProjectSettings::get_global(cx).diagnostics.button {
             return indicator.hidden();
         }

@@ -39,7 +39,6 @@
       "f10": "debugger::StepOver",
       "shift-f11": "debugger::StepOut",
       "f11": "zed::ToggleFullScreen",
-      "ctrl-shift-i": "edit_prediction::ToggleMenu",
       "shift-alt-l": "lsp_tool::ToggleMenu",
       "ctrl-shift-alt-c": "editor::DisplayCursorNames",
       "ctrl-shift-alt-s": "workspace::ToggleWorktreeSecurity",
@@ -125,7 +124,6 @@
       "alt-g r": "git::ReviewDiff",
       "menu": "editor::OpenContextMenu",
       "shift-f10": "editor::OpenContextMenu",
-      "ctrl-alt-e": "editor::ToggleEditPrediction",
       "f9": "editor::ToggleBreakpoint",
       "shift-f9": "editor::EditLogBreakpoint",
     },
@@ -148,21 +146,6 @@
       "ctrl-shift-backspace": "editor::GoToPreviousChange",
       "ctrl-shift-alt-backspace": "editor::GoToNextChange",
       "alt-enter": "editor::OpenSelectionsInMultibuffer",
-    },
-  },
-  {
-    "context": "Editor && mode == full && edit_prediction",
-    "use_key_equivalents": true,
-    "bindings": {
-      "alt-]": "editor::NextEditPrediction",
-      "alt-[": "editor::PreviousEditPrediction",
-    },
-  },
-  {
-    "context": "Editor && !edit_prediction",
-    "use_key_equivalents": true,
-    "bindings": {
-      "alt-\\": "editor::ShowEditPrediction",
     },
   },
   {
@@ -491,7 +474,6 @@
       "alt-right": "pane::GoForward",
       "f3": "search::SelectNextMatch",
       "shift-f3": "search::SelectPreviousMatch",
-      "ctrl-shift-f": "project_search::ToggleFocus",
       "shift-alt-h": "search::ToggleReplace",
       "alt-l": "search::ToggleSelection",
       "alt-enter": "search::SelectAllMatches",
@@ -607,7 +589,6 @@
       "ctrl-shift-s": "workspace::SaveAs",
       "ctrl-n": "workspace::NewFile",
       "ctrl-shift-n": "workspace::NewWindow",
-      "ctrl-`": "terminal_panel::Toggle",
       "f10": ["app_menu::OpenApplicationMenu", "Zed"],
       "alt-1": ["workspace::ActivatePane", 0],
       "alt-2": ["workspace::ActivatePane", 1],
@@ -643,11 +624,8 @@
       "ctrl-e": "file_finder::Toggle",
       "f1": "command_palette::Toggle",
       "ctrl-shift-p": "command_palette::Toggle",
-      "ctrl-shift-m": "diagnostics::Deploy",
       "ctrl-shift-e": "project_panel::ToggleFocus",
-      "ctrl-shift-b": "outline_panel::ToggleFocus",
       "ctrl-shift-g": "git_panel::ToggleFocus",
-      "ctrl-shift-d": "debug_panel::ToggleFocus",
       "ctrl-shift-w": "workspace_group_panel::ToggleWorkspaceGroupPanel",
       "ctrl-shift-/": "agent::ToggleFocus",
       "ctrl-k s": "workspace::SaveAll",
@@ -782,27 +760,6 @@
       "shift-tab": "editor::PreviousSnippetTabstop",
     },
   },
-  // Bindings for accepting edit predictions
-  //
-  // alt-l is provided as an alternative to tab/alt-tab. and will be displayed in the UI. This is
-  // because alt-tab may not be available, as it is often used for window switching.
-  {
-    "context": "Editor && edit_prediction",
-    "use_key_equivalents": true,
-    "bindings": {
-      "alt-tab": "editor::AcceptEditPrediction",
-      "alt-l": "editor::AcceptEditPrediction",
-      "alt-k": "editor::AcceptNextWordEditPrediction",
-      "alt-j": "editor::AcceptNextLineEditPrediction",
-    },
-  },
-  {
-    "context": "Editor && edit_prediction && edit_prediction_mode == eager && !showing_completions",
-    "use_key_equivalents": true,
-    "bindings": {
-      "tab": "editor::AcceptEditPrediction",
-    },
-  },
   {
     "context": "Editor && showing_code_actions",
     "use_key_equivalents": true,
@@ -837,13 +794,6 @@
       "ctrl-shift-alt-f": "workspace::FollowNextCollaborator",
       // Only available in debug builds: opens an element inspector for development.
       "shift-alt-i": "dev::ToggleInspector",
-    },
-  },
-  {
-    "context": "!Terminal",
-    "use_key_equivalents": true,
-    "bindings": {
-      "ctrl-shift-c": "collab_panel::ToggleFocus",
     },
   },
   {

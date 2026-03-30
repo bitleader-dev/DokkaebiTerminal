@@ -1,6 +1,21 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-03-30: UI 패널 버튼 숨김 및 edit prediction 제거
+  - 왼쪽 하단: Collab Panel, Outline Panel, Project Search, Diagnostics 버튼 숨김 + 단축키 제거
+  - 오른쪽 하단: Terminal Panel, Debug Panel, Notification Panel 버튼 숨김 + 단축키 제거
+  - Edit Prediction 버튼/초기화/단축키 완전 제거 (zed.rs, main.rs, default-windows.json)
+  - 숨긴 패널은 기능 유지 (icon() → None 반환), 추후 복원 가능
+- 2026-03-30: 워크스페이스 그룹 탭 전체 닫기 시 자동 처리 추가
+  - 다중 그룹: 활성 그룹의 모든 탭 닫으면 해당 그룹 자동 삭제
+  - 단일 그룹: 모든 탭 닫으면 터미널 탭 자동 추가
+  - `handle_pane_event`의 `RemovedItem` 이벤트에서 빈 패인 감지
+  - `on_last_group_empty_callbacks` 콜백 메커니즘 추가
+- 2026-03-29: 워크스페이스 그룹 추가 시 터미널 미표시 버그 수정
+  - 원인: `dispatch_action`의 이중 defer로 새 패인 렌더링 전 액션 실행 → 핸들러 미도달
+  - Workspace에 `on_workspace_group_added` 콜백 등록 메커니즘 추가
+  - `terminal_view::init`에서 콜백 등록 → `TerminalView::deploy` 직접 호출
+  - `add_workspace_group()`에서 콜백 직접 실행 (dispatch_action 우회)
 - 2026-03-29: 워크스페이스 그룹 패널 버그 수정
   - `init()` observe_new 콜백이 실행되지 않아 toggle action이 등록되지 않는 문제
   - action 등록을 `init()` → `new()` 내부로 이동 (workspace context에서 직접 등록)

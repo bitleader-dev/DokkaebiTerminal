@@ -1631,10 +1631,16 @@ impl Panel for TerminalPanel {
         TERMINAL_PANEL_KEY
     }
 
-    fn icon(&self, _window: &Window, cx: &App) -> Option<IconName> {
-        if (self.is_enabled(cx) || !self.has_no_terminals(cx))
-            && TerminalSettings::get_global(cx).button
-        {
+    fn icon(&self, _window: &Window, _cx: &App) -> Option<IconName> {
+        // 버튼 숨김 (추후 복원 시 아래 코드 사용)
+        // if (self.is_enabled(cx) || !self.has_no_terminals(cx))
+        //     && TerminalSettings::get_global(cx).button
+        // {
+        //     Some(IconName::TerminalAlt)
+        // } else {
+        //     None
+        // }
+        if false {
             Some(IconName::TerminalAlt)
         } else {
             None

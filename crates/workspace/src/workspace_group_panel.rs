@@ -129,7 +129,8 @@ impl Panel for WorkspaceGroupPanel {
     }
 
     fn icon(&self, _window: &Window, _cx: &App) -> Option<IconName> {
-        Some(IconName::Library)
+        // dock 버튼 목록에는 표시하지 않음 (타이틀바에서 토글)
+        None
     }
 
     fn icon_tooltip(&self, _window: &Window, _cx: &App) -> Option<&'static str> {

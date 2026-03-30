@@ -14,11 +14,6 @@ pub use platform_title_bar::{
 };
 use project::linked_worktree_short_name;
 
-#[cfg(not(target_os = "macos"))]
-use crate::application_menu::{
-    ActivateDirection, ActivateMenuLeft, ActivateMenuRight, OpenApplicationMenu,
-};
-
 use call::ActiveCall;
 use client::{Client, UserStore};
 
@@ -37,13 +32,14 @@ use std::sync::Arc;
 use theme::ActiveTheme;
 use title_bar_settings::TitleBarSettings;
 use ui::{
-    ButtonLike, IconWithIndicator, Indicator, PopoverMenu,
+    ButtonLike, ContextMenu, IconWithIndicator, Indicator, PopoverMenu, PopoverMenuHandle,
     TintColor, Tooltip, prelude::*, utils::platform_title_bar_height,
 };
 use update_version::UpdateVersion;
 use util::ResultExt;
 use workspace::{
     MultiWorkspace, ToggleWorktreeSecurity, Workspace, WorkspaceId,
+    workspace_group_panel::ToggleWorkspaceGroupPanel,
 };
 use zed_actions::OpenRemote;
 
@@ -91,52 +87,6 @@ pub fn init(cx: &mut App) {
                 });
             }
         });
-
-        #[cfg(not(target_os = "macos"))]
-        workspace.register_action(|workspace, action: &OpenApplicationMenu, window, cx| {
-            if let Some(titlebar) = workspace
-                .titlebar_item()
-                .and_then(|item| item.downcast::<TitleBar>().ok())
-            {
-                titlebar.update(cx, |titlebar, cx| {
-                    if let Some(ref menu) = titlebar.application_menu {
-                        menu.update(cx, |menu, cx| menu.open_menu(action, window, cx));
-                    }
-                });
-            }
-        });
-
-        #[cfg(not(target_os = "macos"))]
-        workspace.register_action(|workspace, _: &ActivateMenuRight, window, cx| {
-            if let Some(titlebar) = workspace
-                .titlebar_item()
-                .and_then(|item| item.downcast::<TitleBar>().ok())
-            {
-                titlebar.update(cx, |titlebar, cx| {
-                    if let Some(ref menu) = titlebar.application_menu {
-                        menu.update(cx, |menu, cx| {
-                            menu.navigate_menus_in_direction(ActivateDirection::Right, window, cx)
-                        });
-                    }
-                });
-            }
-        });
-
-        #[cfg(not(target_os = "macos"))]
-        workspace.register_action(|workspace, _: &ActivateMenuLeft, window, cx| {
-            if let Some(titlebar) = workspace
-                .titlebar_item()
-                .and_then(|item| item.downcast::<TitleBar>().ok())
-            {
-                titlebar.update(cx, |titlebar, cx| {
-                    if let Some(ref menu) = titlebar.application_menu {
-                        menu.update(cx, |menu, cx| {
-                            menu.navigate_menus_in_direction(ActivateDirection::Left, window, cx)
-                        });
-                    }
-                });
-            }
-        });
     })
     .detach();
 }
@@ -148,7 +98,8 @@ pub struct TitleBar {
     client: Arc<Client>,
     workspace: WeakEntity<Workspace>,
     multi_workspace: Option<WeakEntity<MultiWorkspace>>,
-    application_menu: Option<Entity<ApplicationMenu>>,
+    /// 타이틀바 오른쪽 설정 버튼 메뉴 핸들
+    settings_menu_handle: PopoverMenuHandle<ContextMenu>,
     _subscriptions: Vec<Subscription>,
     banner: Entity<OnboardingBanner>,
     update_version: Entity<UpdateVersion>,
@@ -197,69 +148,87 @@ impl Render for TitleBar {
             });
         }
 
-        children.push(
-            h_flex()
-                .h_full()
-                .gap_0p5()
-                .map(|title_bar| {
-                    let mut render_project_items = title_bar_settings.show_branch_name
-                        || title_bar_settings.show_project_items;
-                    title_bar
-                        .when_some(
-                            self.application_menu.clone().filter(|_| !show_menus),
-                            |title_bar, menu| {
-                                render_project_items &=
-                                    !menu.update(cx, |menu, cx| menu.all_menus_shown(cx));
-                                title_bar.child(menu)
-                            },
-                        )
-                        .children(self.render_restricted_mode(cx))
-                        .when(render_project_items, |title_bar| {
-                            title_bar
-                                .when(title_bar_settings.show_project_items, |title_bar| {
-                                    title_bar
-                                        .children(self.render_project_host(cx))
-                                        .child(self.render_project_name(project_name, window, cx))
-                                })
-                                .when_some(
-                                    repository.filter(|_| title_bar_settings.show_branch_name),
-                                    |title_bar, repository| {
-                                        title_bar.children(self.render_project_branch(
-                                            repository,
-                                            linked_worktree_name,
-                                            cx,
-                                        ))
-                                    },
-                                )
-                        })
-                })
-                .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                .into_any_element(),
-        );
-
-        children.push(self.render_collaborator_list(window, cx).into_any_element());
-
-        if title_bar_settings.show_onboarding_banner {
-            children.push(self.banner.clone().into_any_element())
+        // 왼쪽: 패널 토글 버튼
+        {
+            let workspace = self.workspace.clone();
+            children.push(
+                h_flex()
+                    .h_full()
+                    .gap_0p5()
+                    .child(
+                        IconButton::new("toggle-workspace-group-panel", ui::IconName::ThreadsSidebarLeftClosed)
+                            .style(ButtonStyle::Subtle)
+                            .icon_size(IconSize::Small)
+                            .tooltip(Tooltip::for_action_title(
+                                "워크스페이스 그룹 패널",
+                                &ToggleWorkspaceGroupPanel,
+                            ))
+                            .on_click(move |_, window, cx| {
+                                if let Some(ws) = workspace.upgrade() {
+                                    ws.update(cx, |ws, cx| {
+                                        let is_open = ws.left_dock().read(cx).is_open()
+                                            && ws.left_dock().read(cx)
+                                                .active_panel()
+                                                .map_or(false, |p| {
+                                                    p.persistent_name() == "WorkspaceGroupPanel"
+                                                });
+                                        if is_open {
+                                            ws.close_panel::<workspace::WorkspaceGroupPanel>(window, cx);
+                                        } else {
+                                            ws.open_panel::<workspace::WorkspaceGroupPanel>(window, cx);
+                                        }
+                                    });
+                                }
+                            }),
+                    )
+                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+                    .into_any_element(),
+            );
         }
 
+        // 가운데: 워크스페이스 그룹 이름 (flex-1로 남은 공간 차지 후 가운데 정렬)
+        {
+            let group_name = self
+                .workspace
+                .upgrade()
+                .and_then(|ws| {
+                    let ws = ws.read(cx);
+                    let groups = ws.workspace_groups();
+                    let active = ws.active_group_index();
+                    groups.get(active).map(|g| g.name.clone())
+                })
+                .unwrap_or_default();
+
+            children.push(
+                h_flex()
+                    .flex_1()
+                    .h_full()
+                    .justify_center()
+                    .child(
+                        div()
+                            .text_sm()
+                            .text_color(cx.theme().colors().text_muted)
+                            .child(group_name),
+                    )
+                    .into_any_element(),
+            );
+        }
+
+        // 오른쪽: 설정 버튼
         children.push(
             h_flex()
                 .pr_1()
                 .gap_1()
                 .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                 .child(self.update_version.clone())
+                .child(self.render_settings_button(cx))
                 .into_any_element(),
         );
 
         if show_menus {
             self.platform_titlebar.update(cx, |this, _| {
                 this.set_button_layout(button_layout);
-                this.set_children(
-                    self.application_menu
-                        .clone()
-                        .map(|menu| menu.into_any_element()),
-                );
+                this.set_children(None::<gpui::AnyElement>);
             });
 
             let height = platform_title_bar_height(window);
@@ -303,20 +272,6 @@ impl TitleBar {
         let user_store = workspace.app_state().user_store.clone();
         let client = workspace.app_state().client.clone();
         let active_call = ActiveCall::global(cx);
-
-        let platform_style = PlatformStyle::platform();
-        let application_menu = match platform_style {
-            PlatformStyle::Mac => {
-                if option_env!("ZED_USE_CROSS_PLATFORM_MENU").is_some() {
-                    Some(cx.new(|cx| ApplicationMenu::new(window, cx)))
-                } else {
-                    None
-                }
-            }
-            PlatformStyle::Linux | PlatformStyle::Windows => {
-                Some(cx.new(|cx| ApplicationMenu::new(window, cx)))
-            }
-        };
 
         let mut subscriptions = Vec::new();
         subscriptions.push(
@@ -382,12 +337,12 @@ impl TitleBar {
 
         let mut this = Self {
             platform_titlebar,
-            application_menu,
             workspace: workspace.weak_handle(),
             multi_workspace,
             project,
             user_store,
             client,
+            settings_menu_handle: PopoverMenuHandle::default(),
             _subscriptions: subscriptions,
             banner,
             update_version,
@@ -397,6 +352,181 @@ impl TitleBar {
         this.observe_diagnostics(cx);
 
         this
+    }
+
+    /// 타이틀바 왼쪽에 표시되는 워크스페이스 그룹 전환 버튼
+    fn render_workspace_group_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let workspace = self.workspace.clone();
+
+        // 현재 워크스페이스에서 그룹 정보 읽기
+        let (group_name, group_count) = self
+            .workspace
+            .upgrade()
+            .map(|ws| {
+                let ws = ws.read(cx);
+                let groups = ws.workspace_groups();
+                let active = ws.active_group_index();
+                let name = groups
+                    .get(active)
+                    .map(|g| g.name.clone())
+                    .unwrap_or_default();
+                (name, groups.len())
+            })
+            .unwrap_or_default();
+
+        let display_name: SharedString = group_name.into();
+
+        div()
+            .id("workspace-group-menu-item")
+            .occlude()
+            .child(
+                PopoverMenu::new("workspace-group-menu-popover")
+                    .menu(move |window, cx| {
+                        let workspace = workspace.clone();
+                        let ws = workspace.upgrade()?;
+                        let ws_read = ws.read(cx);
+                        let groups: Vec<(usize, String)> = ws_read
+                            .workspace_groups()
+                            .iter()
+                            .enumerate()
+                            .map(|(i, g)| (i, g.name.clone()))
+                            .collect();
+                        let active_index = ws_read.active_group_index();
+                        let count = groups.len();
+
+                        Some(ContextMenu::build(window, cx, move |mut menu, _window, _cx| {
+                            for (index, name) in groups {
+                                let is_active = index == active_index;
+                                let ws_handle = workspace.clone();
+                                menu = menu.toggleable_entry(
+                                    SharedString::from(name),
+                                    is_active,
+                                    ui::IconPosition::Start,
+                                    None,
+                                    move |window, cx| {
+                                        if let Some(ws) = ws_handle.upgrade() {
+                                            ws.update(cx, |ws, cx| {
+                                                ws.switch_workspace_group(index, window, cx);
+                                            });
+                                        }
+                                    },
+                                );
+                            }
+
+                            menu = menu.separator();
+
+                            // 그룹 추가 버튼
+                            let ws_add = workspace.clone();
+                            menu = menu.entry(
+                                "그룹 추가",
+                                None,
+                                move |window, cx| {
+                                    if let Some(ws) = ws_add.upgrade() {
+                                        ws.update(cx, |ws, cx| {
+                                            ws.add_workspace_group(window, cx);
+                                        });
+                                    }
+                                },
+                            );
+
+                            // 그룹이 2개 이상일 때만 삭제 버튼 표시
+                            if count > 1 {
+                                let ws_remove = workspace.clone();
+                                let remove_index = active_index;
+                                menu = menu.entry(
+                                    "현재 그룹 삭제",
+                                    None,
+                                    move |window, cx| {
+                                        if let Some(ws) = ws_remove.upgrade() {
+                                            ws.update(cx, |ws, cx| {
+                                                ws.remove_workspace_group(remove_index, window, cx);
+                                            });
+                                        }
+                                    },
+                                );
+                            }
+
+                            menu
+                        }))
+                    })
+                    .trigger(
+                        Button::new("workspace-group-trigger", display_name)
+                            .style(ButtonStyle::Subtle)
+                            .label_size(LabelSize::Small)
+                            .when(group_count > 1, |btn| {
+                                btn.end_icon(
+                                    Icon::new(IconName::ChevronDown)
+                                        .size(IconSize::XSmall)
+                                        .color(Color::Muted),
+                                )
+                            })
+                            .tooltip(Tooltip::text("워크스페이스 그룹")),
+                    ),
+            )
+    }
+
+    /// 타이틀바 오른쪽에 표시되는 설정 버튼 (Zed 메뉴 팝오버)
+    fn render_settings_button(&self, _cx: &mut Context<Self>) -> impl IntoElement {
+        let handle = self.settings_menu_handle.clone();
+
+        div()
+            .id("settings-menu-item")
+            .occlude()
+            .child(
+                PopoverMenu::new("settings-menu-popover")
+                    .menu(move |window, cx| {
+                        let menus = cx.get_menus().unwrap_or_default();
+                        let Some(zed_menu) = menus.into_iter().next() else {
+                            return None;
+                        };
+                        let sanitized_items =
+                            ApplicationMenu::sanitize_menu_items(zed_menu.items);
+                        Some(ContextMenu::build(window, cx, |menu, window, cx| {
+                            let menu = menu.when_some(
+                                window.focused(cx),
+                                |menu, focused| menu.context(focused),
+                            );
+                            sanitized_items
+                                .into_iter()
+                                .fold(menu, |menu, item| match item {
+                                    gpui::OwnedMenuItem::Separator => menu.separator(),
+                                    gpui::OwnedMenuItem::Action {
+                                        name,
+                                        action,
+                                        checked,
+                                        disabled,
+                                        ..
+                                    } => menu.action_checked_with_disabled(
+                                        name, action, checked, disabled,
+                                    ),
+                                    gpui::OwnedMenuItem::Submenu(submenu) => submenu
+                                        .items
+                                        .into_iter()
+                                        .fold(menu, |menu, item| match item {
+                                            gpui::OwnedMenuItem::Separator => menu.separator(),
+                                            gpui::OwnedMenuItem::Action {
+                                                name,
+                                                action,
+                                                checked,
+                                                disabled,
+                                                ..
+                                            } => menu.action_checked_with_disabled(
+                                                name, action, checked, disabled,
+                                            ),
+                                            _ => menu,
+                                        }),
+                                    _ => menu,
+                                })
+                        }))
+                    })
+                    .trigger(
+                        IconButton::new("settings-menu-trigger", ui::IconName::Settings)
+                            .style(ButtonStyle::Subtle)
+                            .icon_size(IconSize::Small)
+                            .tooltip(Tooltip::text("설정")),
+                    )
+                    .with_handle(handle),
+            )
     }
 
     fn worktree_count(&self, cx: &App) -> usize {

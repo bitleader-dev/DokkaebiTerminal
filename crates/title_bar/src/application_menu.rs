@@ -62,7 +62,7 @@ impl ApplicationMenu {
         }
     }
 
-    fn sanitize_menu_items(items: Vec<OwnedMenuItem>) -> Vec<OwnedMenuItem> {
+    pub fn sanitize_menu_items(items: Vec<OwnedMenuItem>) -> Vec<OwnedMenuItem> {
         let mut cleaned = Vec::new();
         let mut last_was_separator = false;
 

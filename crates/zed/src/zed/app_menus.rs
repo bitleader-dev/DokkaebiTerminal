@@ -260,74 +260,12 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
             ],
         },
         Menu {
-            name: t("menu.run", cx),
-            disabled: false,
-            items: vec![
-                MenuItem::action(
-                    t("menu.run.spawn_task", cx),
-                    zed_actions::Spawn::ViaModal {
-                        reveal_target: None,
-                    },
-                ),
-                MenuItem::action(t("menu.run.start_debugger", cx), debugger_ui::Start),
-                MenuItem::separator(),
-                MenuItem::action(t("menu.run.edit_tasks_json", cx), crate::zed::OpenProjectTasks),
-                MenuItem::action(t("menu.run.edit_debug_json", cx), zed_actions::OpenProjectDebugTasks),
-                MenuItem::separator(),
-                MenuItem::action(t("menu.run.continue", cx), debugger_ui::Continue),
-                MenuItem::action(t("menu.run.step_over", cx), debugger_ui::StepOver),
-                MenuItem::action(t("menu.run.step_into", cx), debugger_ui::StepInto),
-                MenuItem::action(t("menu.run.step_out", cx), debugger_ui::StepOut),
-                MenuItem::separator(),
-                MenuItem::action(t("menu.run.toggle_breakpoint", cx), editor::actions::ToggleBreakpoint),
-                MenuItem::action(t("menu.run.edit_breakpoint", cx), editor::actions::EditLogBreakpoint),
-                MenuItem::action(t("menu.run.clear_all_breakpoints", cx), debugger_ui::ClearAllBreakpoints),
-            ],
-        },
-        Menu {
             name: t("menu.window", cx),
             disabled: false,
             items: vec![
                 MenuItem::action(t("menu.window.minimize", cx), super::Minimize),
                 MenuItem::action(t("menu.window.zoom", cx), super::Zoom),
                 MenuItem::separator(),
-            ],
-        },
-        Menu {
-            name: t("menu.help", cx),
-            disabled: false,
-            items: vec![
-                MenuItem::action(
-                    t("menu.help.view_release_notes", cx),
-                    auto_update_ui::ViewReleaseNotesLocally,
-                ),
-                MenuItem::action(t("menu.help.view_telemetry", cx), zed_actions::OpenTelemetryLog),
-                MenuItem::action(t("menu.help.view_dependency_licenses", cx), zed_actions::OpenLicenses),
-                MenuItem::action(t("menu.help.show_welcome", cx), onboarding::ShowWelcome),
-                MenuItem::separator(),
-                MenuItem::action(t("menu.help.file_bug_report", cx), zed_actions::feedback::FileBugReport),
-                MenuItem::action(t("menu.help.request_feature", cx), zed_actions::feedback::RequestFeature),
-                MenuItem::action(t("menu.help.email_us", cx), zed_actions::feedback::EmailZed),
-                MenuItem::separator(),
-                MenuItem::action(
-                    t("menu.help.documentation", cx),
-                    super::OpenBrowser {
-                        url: "https://zed.dev/docs".into(),
-                    },
-                ),
-                MenuItem::action(t("menu.help.zed_repository", cx), feedback::OpenZedRepo),
-                MenuItem::action(
-                    t("menu.help.zed_twitter", cx),
-                    super::OpenBrowser {
-                        url: "https://twitter.com/zeddotdev".into(),
-                    },
-                ),
-                MenuItem::action(
-                    t("menu.help.join_the_team", cx),
-                    super::OpenBrowser {
-                        url: "https://zed.dev/jobs".into(),
-                    },
-                ),
             ],
         },
     ]

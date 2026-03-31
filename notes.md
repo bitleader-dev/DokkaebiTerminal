@@ -1,6 +1,16 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-03-31: 불필요 crate 삭제 — edit_prediction_cli, eval, eval_cli, eval_utils
+  - 루트 `Cargo.toml`: workspace members 및 workspace dependencies에서 4개 crate 제거
+  - `crates/agent/Cargo.toml`: dev-dependencies에서 eval_utils 참조 제거
+  - `crates/agent_ui/Cargo.toml`: test-support feature, optional dependency, dev-dependencies에서 eval_utils 참조 제거
+  - 4개 디렉토리 삭제: `crates/edit_prediction_cli/`, `crates/eval/`, `crates/eval_cli/`, `crates/eval_utils/`
+- 2026-03-31: 설정 화면(Settings UI) 전체 한글화
+  - `settings_ui/Cargo.toml`: `i18n` 의존성 추가
+  - `settings_ui.rs`: 모든 렌더링 포인트에서 `i18n::t()` 호출로 번역 적용 (섹션 헤더, 설정 제목/설명, 내비게이션, UI 크롬 문자열)
+  - `display_name()` 메서드에 `cx: &App` 매개변수 추가하여 "User"/"Project"/"Server" 번역 지원
+  - `en.json`/`ko.json`: 설정 UI 문자열 약 480개 추가 (14개 페이지의 섹션 헤더/설정 제목/설명 전체 + 언어 설정 서브페이지 전체)
 - 2026-03-31: 프로젝트/실행파일 이름을 "Dokkaebi"로 변경, 앱 아이콘 교체
   - `crates/zed/Cargo.toml`: binary name `zed` → `dokkaebi`, default-run 변경
   - `crates/zed/build.rs`: Windows 리소스 아이콘을 `app-icon-dokkaebi.ico`로 변경, FileDescription/ProductName을 "Dokkaebi"로 변경

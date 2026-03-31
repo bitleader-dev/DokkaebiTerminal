@@ -16,7 +16,6 @@ doctest = false
 test-support = [
     "assistant_text_thread/test-support",
     "acp_thread/test-support",
-    "eval_utils",
     "gpui/test-support",
     "language/test-support",
     "reqwest_client",
@@ -50,7 +49,6 @@ component.workspace = true
 context_server.workspace = true
 db.workspace = true
 editor.workspace = true
-eval_utils = { workspace = true, optional = true }
 extension.workspace = true
 extension_host.workspace = true
 feature_flags.workspace = true
@@ -123,7 +121,6 @@ buffer_diff = { workspace = true, features = ["test-support"] }
 
 db = { workspace = true, features = ["test-support"] }
 editor = { workspace = true, features = ["test-support"] }
-eval_utils.workspace = true
 gpui = { workspace = true, "features" = ["test-support"] }
 indoc.workspace = true
 language = { workspace = true, "features" = ["test-support"] }

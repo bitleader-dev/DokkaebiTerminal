@@ -6,6 +6,7 @@ use anyhow::{Context as _, Result};
 use editor::{Editor, EditorEvent};
 use futures::{StreamExt, channel::mpsc};
 use fuzzy::StringMatchCandidate;
+use i18n::t;
 use gpui::{
     Action, App, AsyncApp, ClipboardItem, DEFAULT_ADDITIONAL_WINDOW_SIZE, Div, Entity, FocusHandle,
     Focusable, Global, KeyContext, ListState, ReadGlobal as _, ScrollHandle, Stateful,
@@ -432,12 +433,12 @@ fn init_renderers(cx: &mut App) {
                     settings_window,
                     item,
                     settings_file,
-                    Button::new("open-in-settings-file", "Edit in settings.json")
+                    Button::new("open-in-settings-file", t("Edit in settings.json", cx))
                         .style(ButtonStyle::Outlined)
                         .size(ButtonSize::Medium)
                         .tab_index(0_isize)
                         .tooltip(Tooltip::for_action_title_in(
-                            "Edit in settings.json",
+                            t("Edit in settings.json", cx),
                             &OpenCurrentFile,
                             &settings_window.focus_handle,
                         ))
@@ -941,7 +942,7 @@ impl SettingsPageItem {
 
         match self {
             SettingsPageItem::SectionHeader(header) => {
-                SettingsSectionHeader::new(SharedString::new_static(header)).into_any_element()
+                SettingsSectionHeader::new(t(header, cx)).into_any_element()
             }
             SettingsPageItem::SettingItem(setting_item) => {
                 let (field_with_padding, _) =
@@ -969,12 +970,12 @@ impl SettingsPageItem {
                                 .relative()
                                 .w_full()
                                 .max_w_1_2()
-                                .child(Label::new(sub_page_link.title.clone()))
+                                .child(Label::new(t(sub_page_link.title.as_ref(), cx)))
                                 .when_some(
                                     sub_page_link.description.as_ref(),
                                     |this, description| {
                                         this.child(
-                                            Label::new(description.clone())
+                                            Label::new(t(description.as_ref(), cx))
                                                 .size(LabelSize::Small)
                                                 .color(Color::Muted),
                                         )
@@ -984,7 +985,7 @@ impl SettingsPageItem {
                         .child(
                             Button::new(
                                 ("sub-page".into(), sub_page_link.title.clone()),
-                                "Configure",
+                                t("Configure", cx),
                             )
                             .tab_index(0_isize)
                             .end_icon(
@@ -1103,12 +1104,12 @@ impl SettingsPageItem {
                                 .relative()
                                 .w_full()
                                 .max_w_1_2()
-                                .child(Label::new(action_link.title.clone()))
+                                .child(Label::new(t(action_link.title.as_ref(), cx)))
                                 .when_some(
                                     action_link.description.as_ref(),
                                     |this, description| {
                                         this.child(
-                                            Label::new(description.clone())
+                                            Label::new(t(description.as_ref(), cx))
                                                 .size(LabelSize::Small)
                                                 .color(Color::Muted),
                                         )
@@ -1118,7 +1119,7 @@ impl SettingsPageItem {
                         .child(
                             Button::new(
                                 ("action-link".into(), action_link.title.clone()),
-                                action_link.button_text.clone(),
+                                t(action_link.button_text.as_ref(), cx),
                             )
                             .tab_index(0_isize)
                             .end_icon(
@@ -1167,7 +1168,7 @@ fn render_settings_item(
                     h_flex()
                         .w_full()
                         .gap_1()
-                        .child(Label::new(SharedString::new_static(setting_item.title)))
+                        .child(Label::new(t(setting_item.title, cx)))
                         .when_some(
                             if sub_field {
                                 None
@@ -1181,7 +1182,7 @@ fn render_settings_item(
                                     IconButton::new("reset-to-default-btn", IconName::Undo)
                                         .icon_color(Color::Muted)
                                         .icon_size(IconSize::Small)
-                                        .tooltip(Tooltip::text("Reset to Default"))
+                                        .tooltip(Tooltip::text(t("Reset to Default", cx)))
                                         .on_click({
                                             move |_, window, cx| {
                                                 reset_to_default(window, cx);
@@ -1197,7 +1198,7 @@ fn render_settings_item(
                                     Label::new(format!(
                                         "—  Modified in {}",
                                         settings_window
-                                            .display_name(&file_set_in)
+                                            .display_name(&file_set_in, cx)
                                             .expect("File name should exist")
                                     ))
                                     .color(Color::Muted)
@@ -1207,7 +1208,7 @@ fn render_settings_item(
                         ),
                 )
                 .child(
-                    Label::new(SharedString::new_static(setting_item.description))
+                    Label::new(t(setting_item.description, cx))
                         .size(LabelSize::Small)
                         .color(Color::Muted),
                 ),
@@ -1259,7 +1260,7 @@ fn render_settings_item_link(
                 .icon_color(link_icon_color)
                 .icon_size(IconSize::Small)
                 .shape(IconButtonShape::Square)
-                .tooltip(Tooltip::text("Copy Link"))
+                .tooltip(Tooltip::text(t("Copy Link", cx)))
                 .when_some(json_path, |this, path| {
                     this.on_click(cx.listener(move |_, _, _, cx| {
                         let link = format!("zed://settings/{}", path);
@@ -1479,7 +1480,8 @@ impl SettingsWindow {
         let current_file = SettingsUiFile::User;
         let search_bar = cx.new(|cx| {
             let mut editor = Editor::single_line(window, cx);
-            editor.set_placeholder_text("Search settings…", window, cx);
+            let search_placeholder = t("Search settings…", cx);
+            editor.set_placeholder_text(search_placeholder.as_ref(), window, cx);
             editor
         });
         cx.subscribe(&search_bar, |this, _, event: &EditorEvent, cx| {
@@ -2290,7 +2292,7 @@ impl SettingsWindow {
             |ix, file: &SettingsUiFile, focus_handle, cx: &mut Context<SettingsWindow>| {
                 Button::new(
                     ix,
-                    self.display_name(&file)
+                    self.display_name(&file, cx)
                         .expect("Files should always have a name"),
                 )
                 .toggle_state(file == &self.current_file)
@@ -2346,7 +2348,7 @@ impl SettingsWindow {
                                     DropdownMenu::new(
                                         "more-files",
                                         format!("+{}", self.files.len() - (OVERFLOW_LIMIT + 1)),
-                                        ContextMenu::build(window, cx, move |mut menu, _, _| {
+                                        ContextMenu::build(window, cx, move |mut menu, _, cx| {
                                             for (mut ix, (file, focus_handle)) in self
                                                 .files
                                                 .iter()
@@ -2357,12 +2359,12 @@ impl SettingsWindow {
                                                     if selected_file_ix == ix {
                                                         ix = OVERFLOW_LIMIT;
                                                         (
-                                                            self.display_name(&self.files[ix].0),
+                                                            self.display_name(&self.files[ix].0, cx),
                                                             self.files[ix].1.clone(),
                                                         )
                                                     } else {
                                                         (
-                                                            self.display_name(&file),
+                                                            self.display_name(&file, cx),
                                                             focus_handle.clone(),
                                                         )
                                                     };
@@ -2387,7 +2389,7 @@ impl SettingsWindow {
                                         }),
                                     )
                                     .style(DropdownStyle::Subtle)
-                                    .trigger_tooltip(Tooltip::text("View Other Projects"))
+                                    .trigger_tooltip(Tooltip::text(t("View Other Projects", cx)))
                                     .trigger_icon(IconName::ChevronDown)
                                     .attach(gpui::Corner::BottomLeft)
                                     .offset(gpui::Point {
@@ -2400,11 +2402,11 @@ impl SettingsWindow {
                     }),
             )
             .child(
-                Button::new(edit_in_json_id, "Edit in settings.json")
+                Button::new(edit_in_json_id, t("Edit in settings.json", cx))
                     .tab_index(0_isize)
                     .style(ButtonStyle::OutlinedGhost)
                     .tooltip(Tooltip::for_action_title_in(
-                        "Edit in settings.json",
+                        t("Edit in settings.json", cx),
                         &OpenCurrentFile,
                         &self.focus_handle,
                     ))
@@ -2414,9 +2416,9 @@ impl SettingsWindow {
             )
     }
 
-    pub(crate) fn display_name(&self, file: &SettingsUiFile) -> Option<String> {
+    pub(crate) fn display_name(&self, file: &SettingsUiFile, cx: &App) -> Option<String> {
         match file {
-            SettingsUiFile::User => Some("User".to_string()),
+            SettingsUiFile::User => Some(t("User", cx).to_string()),
             SettingsUiFile::Project((worktree_id, path)) => self
                 .worktree_root_dirs
                 .get(&worktree_id)
@@ -2481,7 +2483,7 @@ impl SettingsWindow {
     ) -> impl IntoElement {
         let visible_count = self.visible_navbar_entries().count();
 
-        let focus_keybind_label = if self
+        let focus_keybind_label: SharedString = if self
             .navbar_focus_handle
             .read(cx)
             .handle
@@ -2490,9 +2492,9 @@ impl SettingsWindow {
                 .visible_navbar_entries()
                 .any(|(_, entry)| entry.focus_handle.is_focused(window))
         {
-            "Focus Content"
+            t("Focus Content", cx)
         } else {
-            "Focus Navbar"
+            t("Focus Navbar", cx)
         };
 
         let mut key_context = KeyContext::new_with_defaults();
@@ -2647,7 +2649,7 @@ impl SettingsWindow {
                                     .map(|(entry_index, entry)| {
                                         TreeViewItem::new(
                                             ("settings-ui-navbar-entry", entry_index),
-                                            entry.title,
+                                            t(entry.title, cx),
                                         )
                                         .track_focus(&entry.focus_handle)
                                         .root_item(entry.is_root)
@@ -2896,15 +2898,16 @@ impl SettingsWindow {
 
     fn render_no_results(&self, cx: &App) -> impl IntoElement {
         let search_query = self.search_bar.read(cx).text(cx);
+        let no_match_text = t("No settings match", cx);
 
         v_flex()
             .size_full()
             .items_center()
             .justify_center()
             .gap_1()
-            .child(Label::new("No Results"))
+            .child(Label::new(t("No Results", cx)))
             .child(
-                Label::new(format!("No settings match \"{}\"", search_query))
+                Label::new(format!("{no_match_text} \"{search_query}\""))
                     .size(LabelSize::Small)
                     .color(Color::Muted),
             )
@@ -2946,7 +2949,7 @@ impl SettingsWindow {
                             .when(this.sub_page_stack.is_empty(), |this| {
                                 this.when_some(root_nav_label, |this, title| {
                                     this.child(
-                                        Label::new(title).size(LabelSize::Large).mt_2().mb_3(),
+                                        Label::new(t(title, cx)).size(LabelSize::Large).mt_2().mb_3(),
                                     )
                                 })
                             })
@@ -3063,7 +3066,7 @@ impl SettingsWindow {
             page_content
                 .when(self.sub_page_stack.is_empty(), |this| {
                     this.when_some(root_nav_label, |this, title| {
-                        this.child(Label::new(title).size(LabelSize::Large).mt_2().mb_3())
+                        this.child(Label::new(t(title, cx)).size(LabelSize::Large).mt_2().mb_3())
                     })
                 })
                 .children(items.clone().into_iter().enumerate().map(
@@ -3125,11 +3128,11 @@ impl SettingsWindow {
                 .when(current_sub_page.link.in_json, |this| {
                     this.child(
                         div().flex_shrink_0().child(
-                            Button::new("open-in-settings-file", "Edit in settings.json")
+                            Button::new("open-in-settings-file", t("Edit in settings.json", cx))
                                 .tab_index(0_isize)
                                 .style(ButtonStyle::OutlinedGhost)
                                 .tooltip(Tooltip::for_action_title_in(
-                                    "Edit in settings.json",
+                                    t("Edit in settings.json", cx),
                                     &OpenCurrentFile,
                                     &self.focus_handle,
                                 ))

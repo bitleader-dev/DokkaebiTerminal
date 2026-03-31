@@ -1,6 +1,24 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-03-31: 설정 > 창 및 레이아웃 > 제목 표시줄에서 5개 항목 삭제
+  - 삭제: 브랜치 아이콘 표시, 브랜치 이름 표시, 프로젝트 항목 표시, 메뉴 표시, 버튼 레이아웃
+  - `page_data.rs`: `title_bar_section` 배열 크기 7→2, 관련 코드 제거
+  - `en.json`, `ko.json`: 관련 번역 키 10개 삭제
+- 2026-03-31: 설정 화면에서 네트워크(Network) 페이지 삭제
+  - `page_data.rs`: `network_page()` 함수 및 호출 제거
+  - `en.json`, `ko.json`: 네트워크 관련 번역 키 6개 삭제 (Network, Proxy, Server URL 등)
+- 2026-03-31: 협업(Collaboration) 기능 전체 삭제
+  - 6개 crate 삭제: `call`, `channel`, `collab`, `collab_ui`, `livekit_api`, `livekit_client` (~30,000줄)
+  - 설정 UI에서 "협업" 페이지 제거 (참여 시 음소거, 화면 공유, 오디오 테스트/장치 설정)
+  - `settings_content`에서 `CallSettingsContent` 구조체 및 `calls` 필드 제거
+  - `zed` 바이너리: `call::init()`, `channel::init()`, `collab_ui::init()` 호출 제거, 채널 URL 핸들러 제거
+  - `title_bar`: `collab.rs` 삭제, ActiveCall 관련 코드 제거, actions 네임스페이스 `collab` → `title_bar`
+  - `notifications`: `ChannelStore` 의존성 제거, `ChannelInvitation` 처리 비활성화
+  - `file_finder`: `Match::Channel` 변형 및 채널 검색 기능 제거
+  - `git_ui`: `potential_co_authors()` 빈 결과 반환으로 변경
+  - `app_menus.rs`: 협업 패널 메뉴 항목 제거
+  - 루트 `Cargo.toml`: workspace members/dependencies에서 6개 crate 제거, livekit patch 정리
 - 2026-03-31: 불필요 crate 삭제 — edit_prediction_cli, eval, eval_cli, eval_utils
   - 루트 `Cargo.toml`: workspace members 및 workspace dependencies에서 4개 crate 제거
   - `crates/agent/Cargo.toml`: dev-dependencies에서 eval_utils 참조 제거

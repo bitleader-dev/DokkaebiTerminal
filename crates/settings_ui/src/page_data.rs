@@ -1,10 +1,7 @@
 use feature_flags::{AgentV2FeatureFlag, FeatureFlagAppExt as _};
 use gpui::{Action as _, App};
 use itertools::Itertools as _;
-use settings::{
-    AudioInputDeviceName, AudioOutputDeviceName, LanguageSettingsContent, SemanticTokens,
-    SettingsContent,
-};
+use settings::{LanguageSettingsContent, SemanticTokens, SettingsContent};
 use std::sync::{Arc, OnceLock};
 use strum::{EnumMessage, IntoDiscriminant as _, VariantArray};
 use ui::IntoElement;
@@ -12,10 +9,7 @@ use ui::IntoElement;
 use crate::{
     ActionLink, DynamicItem, PROJECT, SettingField, SettingItem, SettingsFieldMetadata,
     SettingsPage, SettingsPageItem, SubPageLink, USER, active_language, all_language_names,
-    pages::{
-        open_audio_test_window, render_edit_prediction_setup_page,
-        render_tool_permissions_setup_page,
-    },
+    pages::{render_edit_prediction_setup_page, render_tool_permissions_setup_page},
 };
 
 const DEFAULT_STRING: String = String::new();
@@ -23,10 +17,7 @@ const DEFAULT_STRING: String = String::new();
 /// to avoid the "NO DEFAULT" case.
 const DEFAULT_EMPTY_STRING: Option<&String> = Some(&DEFAULT_STRING);
 
-const DEFAULT_AUDIO_OUTPUT: AudioOutputDeviceName = AudioOutputDeviceName(None);
-const DEFAULT_EMPTY_AUDIO_OUTPUT: Option<&AudioOutputDeviceName> = Some(&DEFAULT_AUDIO_OUTPUT);
-const DEFAULT_AUDIO_INPUT: AudioInputDeviceName = AudioInputDeviceName(None);
-const DEFAULT_EMPTY_AUDIO_INPUT: Option<&AudioInputDeviceName> = Some(&DEFAULT_AUDIO_INPUT);
+
 
 macro_rules! concat_sections {
     (@vec, $($arr:expr),+ $(,)?) => {{
@@ -74,9 +65,8 @@ pub(crate) fn settings_data(cx: &App) -> Vec<SettingsPage> {
         debugger_page(),
         terminal_page(),
         version_control_page(),
-        collaboration_page(),
+
         ai_page(cx),
-        network_page(),
     ]
 }
 
@@ -3498,75 +3488,9 @@ fn window_and_layout_page() -> SettingsPage {
         ]
     }
 
-    fn title_bar_section() -> [SettingsPageItem; 7] {
+    fn title_bar_section() -> [SettingsPageItem; 2] {
         [
             SettingsPageItem::SectionHeader("Title Bar"),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "Show Branch Icon",
-                description: "Show the branch icon beside branch switcher in the titlebar.",
-                field: Box::new(SettingField {
-                    json_path: Some("title_bar.show_branch_icon"),
-                    pick: |settings_content| {
-                        settings_content
-                            .title_bar
-                            .as_ref()?
-                            .show_branch_icon
-                            .as_ref()
-                    },
-                    write: |settings_content, value| {
-                        settings_content
-                            .title_bar
-                            .get_or_insert_default()
-                            .show_branch_icon = value;
-                    },
-                }),
-                metadata: None,
-                files: USER,
-            }),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "Show Branch Name",
-                description: "Show the branch name button in the titlebar.",
-                field: Box::new(SettingField {
-                    json_path: Some("title_bar.show_branch_name"),
-                    pick: |settings_content| {
-                        settings_content
-                            .title_bar
-                            .as_ref()?
-                            .show_branch_name
-                            .as_ref()
-                    },
-                    write: |settings_content, value| {
-                        settings_content
-                            .title_bar
-                            .get_or_insert_default()
-                            .show_branch_name = value;
-                    },
-                }),
-                metadata: None,
-                files: USER,
-            }),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "Show Project Items",
-                description: "Show the project host and name in the titlebar.",
-                field: Box::new(SettingField {
-                    json_path: Some("title_bar.show_project_items"),
-                    pick: |settings_content| {
-                        settings_content
-                            .title_bar
-                            .as_ref()?
-                            .show_project_items
-                            .as_ref()
-                    },
-                    write: |settings_content, value| {
-                        settings_content
-                            .title_bar
-                            .get_or_insert_default()
-                            .show_project_items = value;
-                    },
-                }),
-                metadata: None,
-                files: USER,
-            }),
             SettingsPageItem::SettingItem(SettingItem {
                 title: "Show Onboarding Banner",
                 description: "Show banners announcing new features in the titlebar.",
@@ -3588,140 +3512,6 @@ fn window_and_layout_page() -> SettingsPage {
                 }),
                 metadata: None,
                 files: USER,
-            }),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "Show Menus",
-                description: "Show the menus in the titlebar.",
-                field: Box::new(SettingField {
-                    json_path: Some("title_bar.show_menus"),
-                    pick: |settings_content| {
-                        settings_content.title_bar.as_ref()?.show_menus.as_ref()
-                    },
-                    write: |settings_content, value| {
-                        settings_content
-                            .title_bar
-                            .get_or_insert_default()
-                            .show_menus = value;
-                    },
-                }),
-                metadata: None,
-                files: USER,
-            }),
-            SettingsPageItem::DynamicItem(DynamicItem {
-                discriminant: SettingItem {
-                    files: USER,
-                    title: "Button Layout",
-                    description:
-                        "(Linux only) choose how window control buttons are laid out in the titlebar.",
-                    field: Box::new(SettingField {
-                        json_path: Some("title_bar.button_layout$"),
-                        pick: |settings_content| {
-                            Some(
-                                &dynamic_variants::<settings::WindowButtonLayoutContent>()[settings_content
-                                    .title_bar
-                                    .as_ref()?
-                                    .button_layout
-                                    .as_ref()?
-                                    .discriminant()
-                                    as usize],
-                            )
-                        },
-                        write: |settings_content, value| {
-                            let Some(value) = value else {
-                                settings_content
-                                    .title_bar
-                                    .get_or_insert_default()
-                                    .button_layout = None;
-                                return;
-                            };
-
-                            let current_custom_layout = settings_content
-                                .title_bar
-                                .as_ref()
-                                .and_then(|title_bar| title_bar.button_layout.as_ref())
-                                .and_then(|button_layout| match button_layout {
-                                    settings::WindowButtonLayoutContent::Custom(layout) => {
-                                        Some(layout.clone())
-                                    }
-                                    _ => None,
-                                });
-
-                            let button_layout = match value {
-                                settings::WindowButtonLayoutContentDiscriminants::PlatformDefault => {
-                                    settings::WindowButtonLayoutContent::PlatformDefault
-                                }
-                                settings::WindowButtonLayoutContentDiscriminants::Standard => {
-                                    settings::WindowButtonLayoutContent::Standard
-                                }
-                                settings::WindowButtonLayoutContentDiscriminants::Custom => {
-                                    settings::WindowButtonLayoutContent::Custom(
-                                        current_custom_layout.unwrap_or_else(|| {
-                                            "close:minimize,maximize".to_string()
-                                        }),
-                                    )
-                                }
-                            };
-
-                            settings_content
-                                .title_bar
-                                .get_or_insert_default()
-                                .button_layout = Some(button_layout);
-                        },
-                    }),
-                    metadata: None,
-                },
-                pick_discriminant: |settings_content| {
-                    Some(
-                        settings_content
-                            .title_bar
-                            .as_ref()?
-                            .button_layout
-                            .as_ref()?
-                            .discriminant() as usize,
-                    )
-                },
-                fields: dynamic_variants::<settings::WindowButtonLayoutContent>()
-                    .into_iter()
-                    .map(|variant| match variant {
-                        settings::WindowButtonLayoutContentDiscriminants::PlatformDefault => {
-                            vec![]
-                        }
-                        settings::WindowButtonLayoutContentDiscriminants::Standard => vec![],
-                        settings::WindowButtonLayoutContentDiscriminants::Custom => vec![
-                            SettingItem {
-                                files: USER,
-                                title: "Custom Button Layout",
-                                description:
-                                    "GNOME-style layout string such as \"close:minimize,maximize\".",
-                                field: Box::new(SettingField {
-                                    json_path: Some("title_bar.button_layout"),
-                                    pick: |settings_content| match settings_content
-                                        .title_bar
-                                        .as_ref()?
-                                        .button_layout
-                                        .as_ref()?
-                                    {
-                                        settings::WindowButtonLayoutContent::Custom(layout) => {
-                                            Some(layout)
-                                        }
-                                        _ => DEFAULT_EMPTY_STRING,
-                                    },
-                                    write: |settings_content, value| {
-                                        settings_content
-                                            .title_bar
-                                            .get_or_insert_default()
-                                            .button_layout = value
-                                            .map(settings::WindowButtonLayoutContent::Custom);
-                                    },
-                                }),
-                                metadata: Some(Box::new(SettingsFieldMetadata {
-                                    placeholder: Some("close:minimize,maximize"),
-                                    ..Default::default()
-                                })),
-                            },
-                        ],
-                    })
-                    .collect(),
             }),
         ]
     }
@@ -6984,106 +6774,6 @@ fn version_control_page() -> SettingsPage {
     }
 }
 
-fn collaboration_page() -> SettingsPage {
-    fn calls_section() -> [SettingsPageItem; 3] {
-        [
-            SettingsPageItem::SectionHeader("Calls"),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "Mute On Join",
-                description: "Whether the microphone should be muted when joining a channel or a call.",
-                field: Box::new(SettingField {
-                    json_path: Some("calls.mute_on_join"),
-                    pick: |settings_content| settings_content.calls.as_ref()?.mute_on_join.as_ref(),
-                    write: |settings_content, value| {
-                        settings_content.calls.get_or_insert_default().mute_on_join = value;
-                    },
-                }),
-                metadata: None,
-                files: USER,
-            }),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "Share On Join",
-                description: "Whether your current project should be shared when joining an empty channel.",
-                field: Box::new(SettingField {
-                    json_path: Some("calls.share_on_join"),
-                    pick: |settings_content| {
-                        settings_content.calls.as_ref()?.share_on_join.as_ref()
-                    },
-                    write: |settings_content, value| {
-                        settings_content.calls.get_or_insert_default().share_on_join = value;
-                    },
-                }),
-                metadata: None,
-                files: USER,
-            }),
-        ]
-    }
-
-    fn audio_settings() -> [SettingsPageItem; 3] {
-        [
-            SettingsPageItem::ActionLink(ActionLink {
-                title: "Test Audio".into(),
-                description: Some("Test your microphone and speaker setup".into()),
-                button_text: "Test Audio".into(),
-                on_click: Arc::new(|_settings_window, window, cx| {
-                    open_audio_test_window(window, cx);
-                }),
-                files: USER,
-            }),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "Output Audio Device",
-                description: "Select output audio device",
-                field: Box::new(SettingField {
-                    json_path: Some("audio.experimental.output_audio_device"),
-                    pick: |settings_content| {
-                        settings_content
-                            .audio
-                            .as_ref()?
-                            .output_audio_device
-                            .as_ref()
-                            .or(DEFAULT_EMPTY_AUDIO_OUTPUT)
-                    },
-                    write: |settings_content, value| {
-                        settings_content
-                            .audio
-                            .get_or_insert_default()
-                            .output_audio_device = value;
-                    },
-                }),
-                metadata: None,
-                files: USER,
-            }),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "Input Audio Device",
-                description: "Select input audio device",
-                field: Box::new(SettingField {
-                    json_path: Some("audio.experimental.input_audio_device"),
-                    pick: |settings_content| {
-                        settings_content
-                            .audio
-                            .as_ref()?
-                            .input_audio_device
-                            .as_ref()
-                            .or(DEFAULT_EMPTY_AUDIO_INPUT)
-                    },
-                    write: |settings_content, value| {
-                        settings_content
-                            .audio
-                            .get_or_insert_default()
-                            .input_audio_device = value;
-                    },
-                }),
-                metadata: None,
-                files: USER,
-            }),
-        ]
-    }
-
-    SettingsPage {
-        title: "Collaboration",
-        items: concat_sections![calls_section(), audio_settings()],
-    }
-}
 
 fn ai_page(cx: &App) -> SettingsPage {
     fn general_section() -> [SettingsPageItem; 2] {
@@ -7441,51 +7131,6 @@ fn ai_page(cx: &App) -> SettingsPage {
             edit_prediction_language_settings_section(),
             edit_prediction_display_sub_section()
         ],
-    }
-}
-
-fn network_page() -> SettingsPage {
-    fn network_section() -> [SettingsPageItem; 3] {
-        [
-            SettingsPageItem::SectionHeader("Network"),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "Proxy",
-                description: "The proxy to use for network requests.",
-                field: Box::new(SettingField {
-                    json_path: Some("proxy"),
-                    pick: |settings_content| settings_content.proxy.as_ref(),
-                    write: |settings_content, value| {
-                        settings_content.proxy = value;
-                    },
-                }),
-                metadata: Some(Box::new(SettingsFieldMetadata {
-                    placeholder: Some("socks5h://localhost:10808"),
-                    ..Default::default()
-                })),
-                files: USER,
-            }),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "Server URL",
-                description: "The URL of the Zed server to connect to.",
-                field: Box::new(SettingField {
-                    json_path: Some("server_url"),
-                    pick: |settings_content| settings_content.server_url.as_ref(),
-                    write: |settings_content, value| {
-                        settings_content.server_url = value;
-                    },
-                }),
-                metadata: Some(Box::new(SettingsFieldMetadata {
-                    placeholder: Some("https://zed.dev"),
-                    ..Default::default()
-                })),
-                files: USER,
-            }),
-        ]
-    }
-
-    SettingsPage {
-        title: "Network",
-        items: concat_sections![network_section()],
     }
 }
 

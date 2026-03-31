@@ -1,5 +1,5 @@
 mod application_menu;
-pub mod collab;
+
 mod onboarding_banner;
 mod title_bar_settings;
 mod update_version;
@@ -14,7 +14,6 @@ pub use platform_title_bar::{
 };
 use project::linked_worktree_short_name;
 
-use call::ActiveCall;
 use client::{Client, UserStore};
 
 use gpui::{
@@ -53,7 +52,7 @@ const MAX_BRANCH_NAME_LENGTH: usize = 40;
 const MAX_SHORT_SHA_LENGTH: usize = 8;
 
 actions!(
-    collab,
+    title_bar,
     [
         /// Toggles the user menu dropdown.
         ToggleUserMenu,
@@ -103,7 +102,7 @@ pub struct TitleBar {
     _subscriptions: Vec<Subscription>,
     banner: Entity<OnboardingBanner>,
     update_version: Entity<UpdateVersion>,
-    _diagnostics_subscription: Option<gpui::Subscription>,
+
 }
 
 impl Render for TitleBar {
@@ -271,8 +270,6 @@ impl TitleBar {
         let git_store = project.read(cx).git_store().clone();
         let user_store = workspace.app_state().user_store.clone();
         let client = workspace.app_state().client.clone();
-        let active_call = ActiveCall::global(cx);
-
         let mut subscriptions = Vec::new();
         subscriptions.push(
             cx.observe(&workspace.weak_handle().upgrade().unwrap(), |_, _, cx| {
@@ -289,7 +286,7 @@ impl TitleBar {
                 }
             }),
         );
-        subscriptions.push(cx.observe(&active_call, |this, _, cx| this.active_call_changed(cx)));
+
         subscriptions.push(cx.observe_window_activation(window, Self::window_activation_changed));
         subscriptions.push(
             cx.subscribe(&git_store, move |this, _, event, cx| match event {
@@ -346,10 +343,9 @@ impl TitleBar {
             _subscriptions: subscriptions,
             banner,
             update_version,
-            _diagnostics_subscription: None,
+
         };
 
-        this.observe_diagnostics(cx);
 
         this
     }
@@ -1062,39 +1058,12 @@ impl TitleBar {
         )
     }
 
-    fn window_activation_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if window.is_window_active() {
-            ActiveCall::global(cx)
-                .update(cx, |call, cx| call.set_location(Some(&self.project), cx))
-                .detach_and_log_err(cx);
-        } else if cx.active_window().is_none() {
-            ActiveCall::global(cx)
-                .update(cx, |call, cx| call.set_location(None, cx))
-                .detach_and_log_err(cx);
-        }
+    fn window_activation_changed(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
         self.workspace
             .update(cx, |workspace, cx| {
-                workspace.update_active_view_for_followers(window, cx);
+                workspace.update_active_view_for_followers(_window, cx);
             })
             .ok();
-    }
-
-    fn active_call_changed(&mut self, cx: &mut Context<Self>) {
-        self.observe_diagnostics(cx);
-        cx.notify();
-    }
-
-    fn observe_diagnostics(&mut self, cx: &mut Context<Self>) {
-        let diagnostics = ActiveCall::global(cx)
-            .read(cx)
-            .room()
-            .and_then(|room| room.read(cx).diagnostics().cloned());
-
-        if let Some(diagnostics) = diagnostics {
-            self._diagnostics_subscription = Some(cx.observe(&diagnostics, |_, _, cx| cx.notify()));
-        } else {
-            self._diagnostics_subscription = None;
-        }
     }
 
 }

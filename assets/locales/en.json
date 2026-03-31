@@ -306,7 +306,6 @@
   "Version Control": "Version Control",
   "Collaboration": "Collaboration",
   "AI": "AI",
-  "Network": "Network",
 
   "General Settings": "General Settings",
   "Project Name": "Project Name",
@@ -503,14 +502,8 @@
   "Project Search Button": "Project Search Button",
   "Debugger Button": "Debugger Button",
   "Active File Name": "Active File Name",
-  "Show Branch Icon": "Show Branch Icon",
-  "Show Branch Name": "Show Branch Name",
   "Title Bar": "Title Bar",
-  "Show Project Items": "Show Project Items",
   "Show Onboarding Banner": "Show Onboarding Banner",
-  "Show Menus": "Show Menus",
-  "Button Layout": "Button Layout",
-  "Custom Button Layout": "Custom Button Layout",
   "Tab Bar": "Tab Bar",
   "Show Tab Bar": "Show Tab Bar",
   "Show Git Status In Tabs": "Show Git Status In Tabs",
@@ -847,8 +840,6 @@
   "When to show edit predictions previews in buffer. The eager mode displays them inline, while the subtle mode displays them only when holding a modifier key.": "When to show edit predictions previews in buffer. The eager mode displays them inline, while the subtle mode displays them only when holding a modifier key.",
   "Whether edit predictions are enabled when editing text threads in the agent panel.": "Whether edit predictions are enabled when editing text threads in the agent panel.",
 
-  "The proxy to use for network requests.": "The proxy to use for network requests.",
-  "The URL of the Zed server to connect to.": "The URL of the Zed server to connect to.",
 
   "Tab Size": "Tab Size",
   "How many columns a tab should occupy.": "How many columns a tab should occupy.",
@@ -1000,8 +991,5 @@
   "Show Edit Predictions": "Show Edit Predictions",
   "Controls whether edit predictions are shown immediately or manually.": "Controls whether edit predictions are shown immediately or manually.",
   "Disable in Language Scopes": "Disable in Language Scopes",
-  "Controls whether edit predictions are shown in the given language scopes.": "Controls whether edit predictions are shown in the given language scopes.",
-
-  "Proxy": "Proxy",
-  "Server URL": "Server URL"
+  "Controls whether edit predictions are shown in the given language scopes.": "Controls whether edit predictions are shown in the given language scopes."
 }

@@ -203,8 +203,6 @@ pub struct SettingsContent {
     /// Default: false
     pub vim_mode: Option<bool>,
 
-    // Settings related to calls in Zed
-    pub calls: Option<CallSettingsContent>,
 
     /// Settings for the which-key popup.
     pub which_key: Option<WhichKeySettingsContent>,
@@ -506,20 +504,6 @@ pub struct CargoWorkspaceCommandSettings {
     pub enabled: Option<bool>,
 }
 
-/// Configuration of voice calls in Zed.
-#[with_fallible_options]
-#[derive(Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, MergeFrom, Debug)]
-pub struct CallSettingsContent {
-    /// Whether the microphone should be muted when joining a channel or a call.
-    ///
-    /// Default: false
-    pub mute_on_join: Option<bool>,
-
-    /// Whether your current project should be shared when joining an empty channel.
-    ///
-    /// Default: false
-    pub share_on_join: Option<bool>,
-}
 
 #[with_fallible_options]
 #[derive(Clone, PartialEq, Default, Serialize, Deserialize, JsonSchema, MergeFrom, Debug)]

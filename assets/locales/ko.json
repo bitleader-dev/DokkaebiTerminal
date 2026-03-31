@@ -306,7 +306,6 @@
   "Version Control": "버전 관리",
   "Collaboration": "협업",
   "AI": "AI",
-  "Network": "네트워크",
 
   "General Settings": "일반 설정",
   "Project Name": "프로젝트 이름",
@@ -617,10 +616,6 @@
   "Show the project search button in the status bar.": "상태 표시줄에 프로젝트 검색 버튼을 표시합니다.",
   "Show the debugger button in the status bar.": "상태 표시줄에 디버거 버튼을 표시합니다.",
   "Show the name of the active file in the status bar.": "상태 표시줄에 활성 파일 이름을 표시합니다.",
-  "Show the branch icon beside branch switcher in the titlebar.": "제목 표시줄에 브랜치 전환기 옆에 브랜치 아이콘을 표시합니다.",
-  "Show the branch name button in the titlebar.": "제목 표시줄에 브랜치 이름 버튼을 표시합니다.",
-  "Show the project host and name in the titlebar.": "제목 표시줄에 프로젝트 호스트와 이름을 표시합니다.",
-  "Show the menus in the titlebar.": "제목 표시줄에 메뉴를 표시합니다.",
   "Show the tab bar in the editor.": "편집기에 탭 바를 표시합니다.",
   "Show the Git file status on a tab item.": "탭 항목에 Git 파일 상태를 표시합니다.",
   "Show the file icon for a tab.": "탭에 파일 아이콘을 표시합니다.",
@@ -645,14 +640,8 @@
   "Project Search Button": "프로젝트 검색 버튼",
   "Debugger Button": "디버거 버튼",
   "Active File Name": "활성 파일 이름",
-  "Show Branch Icon": "브랜치 아이콘 표시",
-  "Show Branch Name": "브랜치 이름 표시",
   "Title Bar": "제목 표시줄",
-  "Show Project Items": "프로젝트 항목 표시",
   "Show Onboarding Banner": "온보딩 배너 표시",
-  "Show Menus": "메뉴 표시",
-  "Button Layout": "버튼 레이아웃",
-  "Custom Button Layout": "사용자 지정 버튼 레이아웃",
   "Tab Bar": "탭 바",
   "Show Tab Bar": "탭 바 표시",
   "Show Git Status In Tabs": "탭에 Git 상태 표시",
@@ -989,8 +978,6 @@
   "When to show edit predictions previews in buffer. The eager mode displays them inline, while the subtle mode displays them only when holding a modifier key.": "버퍼에서 편집 예측 미리보기를 표시할 시점입니다. eager 모드는 인라인으로 표시하고, subtle 모드는 수정자 키를 누를 때만 표시합니다.",
   "Whether edit predictions are enabled when editing text threads in the agent panel.": "에이전트 패널에서 텍스트 스레드를 편집할 때 편집 예측을 활성화할지 여부입니다.",
 
-  "The proxy to use for network requests.": "네트워크 요청에 사용할 프록시입니다.",
-  "The URL of the Zed server to connect to.": "연결할 Zed 서버의 URL입니다.",
 
   "Tab Size": "탭 크기",
   "How many columns a tab should occupy.": "탭이 차지할 열 수입니다.",
@@ -1142,8 +1129,5 @@
   "Show Edit Predictions": "편집 예측 표시",
   "Controls whether edit predictions are shown immediately or manually.": "편집 예측을 즉시 또는 수동으로 표시할지 제어합니다.",
   "Disable in Language Scopes": "언어 범위에서 비활성화",
-  "Controls whether edit predictions are shown in the given language scopes.": "지정된 언어 범위에서 편집 예측을 표시할지 제어합니다.",
-
-  "Proxy": "프록시",
-  "Server URL": "서버 URL"
+  "Controls whether edit predictions are shown in the given language scopes.": "지정된 언어 범위에서 편집 예측을 표시할지 제어합니다."
 }

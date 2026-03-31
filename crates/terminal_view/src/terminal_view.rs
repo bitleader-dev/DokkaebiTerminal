@@ -50,6 +50,7 @@ use ui::{
     prelude::*,
     scrollbars::{self, GlobalSetting, ScrollbarVisibility},
 };
+use i18n::t;
 use util::ResultExt;
 use workspace::{
     CloseActiveItem, DraggedSelection, DraggedTab, NewCenterTerminal, NewTerminal, Pane,
@@ -524,24 +525,33 @@ impl TerminalView {
             .selection_text
             .as_ref()
             .is_some_and(|text| !text.is_empty());
+        // 번역 문자열 미리 생성 (내부 클로저에서 cx 접근 불가)
+        let label_new_terminal = t("terminal.menu.new_terminal", cx);
+        let label_copy = t("terminal.menu.copy", cx);
+        let label_paste = t("terminal.menu.paste", cx);
+        let label_select_all = t("terminal.menu.select_all", cx);
+        let label_clear = t("terminal.menu.clear", cx);
+        let label_inline_assist = t("terminal.menu.inline_assist", cx);
+        let label_add_to_agent = t("terminal.menu.add_to_agent", cx);
+        let label_close_tab = t("terminal.menu.close_tab", cx);
         let context_menu = ContextMenu::build(window, cx, |menu, _, _| {
             menu.context(self.focus_handle.clone())
-                .action("New Terminal", Box::new(NewTerminal::default()))
+                .action(label_new_terminal, Box::new(NewTerminal::default()))
                 .separator()
-                .action("Copy", Box::new(Copy))
-                .action("Paste", Box::new(Paste))
-                .action("Select All", Box::new(SelectAll))
-                .action("Clear", Box::new(Clear))
+                .action(label_copy, Box::new(Copy))
+                .action(label_paste, Box::new(Paste))
+                .action(label_select_all, Box::new(SelectAll))
+                .action(label_clear, Box::new(Clear))
                 .when(assistant_enabled, |menu| {
                     menu.separator()
-                        .action("Inline Assist", Box::new(InlineAssist::default()))
+                        .action(label_inline_assist, Box::new(InlineAssist::default()))
                         .when(has_selection, |menu| {
-                            menu.action("Add to Agent Thread", Box::new(AddSelectionToThread))
+                            menu.action(label_add_to_agent, Box::new(AddSelectionToThread))
                         })
                 })
                 .separator()
                 .action(
-                    "Close Terminal Tab",
+                    label_close_tab,
                     Box::new(CloseActiveItem {
                         save_intent: None,
                         close_pinned: true,
@@ -1595,7 +1605,7 @@ impl Item for TerminalView {
     ) -> Vec<(SharedString, Box<dyn gpui::Action>)> {
         let terminal = self.terminal.read(cx);
         if terminal.task().is_none() {
-            vec![("Rename".into(), Box::new(RenameTerminal))]
+            vec![(t("terminal.menu.rename", cx), Box::new(RenameTerminal))]
         } else {
             Vec::new()
         }

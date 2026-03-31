@@ -76,6 +76,7 @@ use workspace::{
     dock::{DockPosition, Panel, PanelEvent},
     notifications::{DetachAndPromptErr, NotifyResultExt, NotifyTaskExt},
 };
+use i18n::t;
 use worktree::CreatedEntry;
 use zed_actions::{
     project_panel::{Toggle, ToggleFocus},
@@ -1147,14 +1148,41 @@ impl ProjectPanel {
             let has_pasteable_content = self.has_pasteable_content(cx);
             let entity = cx.entity();
             let context_menu = ContextMenu::build(window, cx, |menu, _, cx| {
+                // 번역 문자열 ���리 생성 (내부 .when() 클로저에서 cx 접근 불가)
+                let label_search_inside = t("project_panel.menu.search_inside", cx);
+                let label_new_file = t("project_panel.menu.new_file", cx);
+                let label_new_folder = t("project_panel.menu.new_folder", cx);
+                let label_open_default_app = t("project_panel.menu.open_in_default_app", cx);
+                let label_open_in_terminal = t("project_panel.menu.open_in_terminal", cx);
+                let label_find_in_folder = t("project_panel.menu.find_in_folder", cx);
+                let label_unfold_directory = t("project_panel.menu.unfold_directory", cx);
+                let label_fold_directory = t("project_panel.menu.fold_directory", cx);
+                let label_compare_marked = t("project_panel.menu.compare_marked", cx);
+                let label_cut = t("project_panel.menu.cut", cx);
+                let label_copy = t("project_panel.menu.copy", cx);
+                let label_duplicate = t("project_panel.menu.duplicate", cx);
+                let label_paste = t("project_panel.menu.paste", cx);
+                let label_undo = t("project_panel.menu.undo", cx);
+                let label_download = t("project_panel.menu.download", cx);
+                let label_copy_path = t("project_panel.menu.copy_path", cx);
+                let label_copy_relative_path = t("project_panel.menu.copy_relative_path", cx);
+                let label_restore_file = t("project_panel.menu.restore_file", cx);
+                let label_view_file_history = t("project_panel.menu.view_file_history", cx);
+                let label_rename = t("project_panel.menu.rename", cx);
+                let label_trash = t("project_panel.menu.trash", cx);
+                let label_delete = t("project_panel.menu.delete", cx);
+                let label_add_project = t("project_panel.menu.add_project", cx);
+                let label_remove_from_workspace =
+                    t("project_panel.menu.remove_from_workspace", cx);
+                let label_collapse_all = t("project_panel.menu.collapse_all", cx);
                 menu.context(self.focus_handle.clone()).map(|menu| {
                     if is_read_only {
                         menu.when(is_dir, |menu| {
-                            menu.action("Search Inside", Box::new(NewSearchInDirectory))
+                            menu.action(label_search_inside, Box::new(NewSearchInDirectory))
                         })
                     } else {
-                        menu.action("New File", Box::new(NewFile))
-                            .action("New Folder", Box::new(NewDirectory))
+                        menu.action(label_new_file, Box::new(NewFile))
+                            .action(label_new_folder, Box::new(NewDirectory))
                             .separator()
                             .when(is_local, |menu| {
                                 menu.action(
@@ -1163,83 +1191,83 @@ impl ProjectPanel {
                                 )
                             })
                             .when(is_local, |menu| {
-                                menu.action("Open in Default App", Box::new(OpenWithSystem))
+                                menu.action(label_open_default_app, Box::new(OpenWithSystem))
                             })
-                            .action("Open in Terminal", Box::new(OpenInTerminal))
+                            .action(label_open_in_terminal, Box::new(OpenInTerminal))
                             .when(is_dir, |menu| {
                                 menu.separator()
-                                    .action("Find in Folder…", Box::new(NewSearchInDirectory))
+                                    .action(label_find_in_folder, Box::new(NewSearchInDirectory))
                             })
                             .when(is_unfoldable, |menu| {
-                                menu.action("Unfold Directory", Box::new(UnfoldDirectory))
+                                menu.action(label_unfold_directory, Box::new(UnfoldDirectory))
                             })
                             .when(is_foldable, |menu| {
-                                menu.action("Fold Directory", Box::new(FoldDirectory))
+                                menu.action(label_fold_directory, Box::new(FoldDirectory))
                             })
                             .when(should_show_compare, |menu| {
                                 menu.separator()
-                                    .action("Compare Marked Files", Box::new(CompareMarkedFiles))
+                                    .action(label_compare_marked, Box::new(CompareMarkedFiles))
                             })
                             .separator()
-                            .action("Cut", Box::new(Cut))
-                            .action("Copy", Box::new(Copy))
-                            .action("Duplicate", Box::new(Duplicate))
+                            .action(label_cut, Box::new(Cut))
+                            .action(label_copy, Box::new(Copy))
+                            .action(label_duplicate, Box::new(Duplicate))
                             // TODO: Paste should always be visible, cbut disabled when clipboard is empty
-                            .action_disabled_when(!has_pasteable_content, "Paste", Box::new(Paste))
+                            .action_disabled_when(!has_pasteable_content, label_paste, Box::new(Paste))
                             .when(cx.has_flag::<ProjectPanelUndoRedoFeatureFlag>(), |menu| {
                                 menu.action_disabled_when(
                                     !self.undo_manager.can_undo(),
-                                    "Undo",
+                                    label_undo,
                                     Box::new(Undo),
                                 )
                             })
                             .when(is_remote, |menu| {
                                 menu.separator()
-                                    .action("Download...", Box::new(DownloadFromRemote))
+                                    .action(label_download, Box::new(DownloadFromRemote))
                             })
                             .separator()
-                            .action("Copy Path", Box::new(zed_actions::workspace::CopyPath))
+                            .action(label_copy_path, Box::new(zed_actions::workspace::CopyPath))
                             .action(
-                                "Copy Relative Path",
+                                label_copy_relative_path,
                                 Box::new(zed_actions::workspace::CopyRelativePath),
                             )
                             .when(!is_dir && self.has_git_changes(entry_id), |menu| {
                                 menu.separator().action(
-                                    "Restore File",
+                                    label_restore_file,
                                     Box::new(git::RestoreFile { skip_prompt: false }),
                                 )
                             })
                             .when(has_git_repo, |menu| {
                                 menu.separator()
-                                    .action("View File History", Box::new(git::FileHistory))
+                                    .action(label_view_file_history, Box::new(git::FileHistory))
                             })
                             .when(!should_hide_rename, |menu| {
-                                menu.separator().action("Rename", Box::new(Rename))
+                                menu.separator().action(label_rename, Box::new(Rename))
                             })
                             .when(!is_root && !is_remote, |menu| {
-                                menu.action("Trash", Box::new(Trash { skip_prompt: false }))
+                                menu.action(label_trash, Box::new(Trash { skip_prompt: false }))
                             })
                             .when(!is_root, |menu| {
-                                menu.action("Delete", Box::new(Delete { skip_prompt: false }))
+                                menu.action(label_delete, Box::new(Delete { skip_prompt: false }))
                             })
                             .when(!is_collab && is_root, |menu| {
                                 menu.separator()
                                     .action(
-                                        "Add Project to Workspace…",
+                                        label_add_project,
                                         Box::new(workspace::AddFolderToProject),
                                     )
-                                    .action("Remove from Workspace", Box::new(RemoveFromProject))
+                                    .action(label_remove_from_workspace, Box::new(RemoveFromProject))
                             })
                             .when(is_dir && !is_root, |menu| {
                                 menu.separator().action(
-                                    "Collapse All",
+                                    label_collapse_all.clone(),
                                     Box::new(CollapseSelectedEntryAndChildren),
                                 )
                             })
                             .when(is_dir && is_root, |menu| {
                                 let entity = entity.clone();
                                 menu.separator().item(
-                                    ContextMenuEntry::new("Collapse All").handler(
+                                    ContextMenuEntry::new(label_collapse_all).handler(
                                         move |window, cx| {
                                             entity.update(cx, |this, cx| {
                                                 this.collapse_all_for_root(window, cx);

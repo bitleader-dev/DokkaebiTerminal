@@ -7,7 +7,8 @@ use std::{
 };
 
 use collections::{HashMap, HashSet};
-use gpui::{DismissEvent, EventEmitter, FocusHandle, Focusable, WeakEntity};
+use gpui::{App, DismissEvent, EventEmitter, FocusHandle, Focusable, WeakEntity};
+use i18n::t;
 
 use project::{
     WorktreeId,
@@ -70,12 +71,12 @@ impl Render for SecurityModal {
         }
 
         let header_label = if self.restricted_paths.len() == 1 {
-            "Unrecognized Project"
+            t("security.header.single", cx)
         } else {
-            "Unrecognized Projects"
+            t("security.header.multiple", cx)
         };
 
-        let trust_label = self.build_trust_label();
+        let trust_label = self.build_trust_label(cx);
 
         AlertModal::new("security-modal")
             .width(rems(40.))
@@ -135,24 +136,29 @@ impl Render for SecurityModal {
                     .child(
                         v_flex()
                             .child(
-                                Label::new(
-                                    "Untrusted projects are opened in Restricted Mode to protect your system.",
-                                )
-                                .color(Color::Muted),
+                                Label::new(t("security.desc.restricted_mode", cx))
+                                    .color(Color::Muted),
                             )
                             .child(
-                                Label::new(
-                                    "Review .zed/settings.json for any extensions or commands configured by this project.",
-                                )
-                                .color(Color::Muted),
+                                Label::new(t("security.desc.review_settings", cx))
+                                    .color(Color::Muted),
                             ),
                     )
                     .child(
                         v_flex()
-                            .child(Label::new("Restricted Mode prevents:").color(Color::Muted))
-                            .child(ListBulletItem::new("Project settings from being applied"))
-                            .child(ListBulletItem::new("Language servers from running"))
-                            .child(ListBulletItem::new("MCP Server integrations from installing")),
+                            .child(
+                                Label::new(t("security.restricted_prevents", cx))
+                                    .color(Color::Muted),
+                            )
+                            .child(ListBulletItem::new(t(
+                                "security.restricts.project_settings",
+                                cx,
+                            )))
+                            .child(ListBulletItem::new(t(
+                                "security.restricts.language_servers",
+                                cx,
+                            )))
+                            .child(ListBulletItem::new(t("security.restricts.mcp_servers", cx))),
                     )
                     .map(|this| match trust_label {
                         Some(trust_label) => this.child(
@@ -176,7 +182,7 @@ impl Render for SecurityModal {
                     .gap_1()
                     .justify_end()
                     .child(
-                        Button::new("rm", "Stay in Restricted Mode")
+                        Button::new("rm", t("security.btn.stay_restricted", cx))
                             .key_binding(
                                 KeyBinding::for_action(
                                     &ToggleWorktreeSecurity,
@@ -191,7 +197,7 @@ impl Render for SecurityModal {
                             })),
                     )
                     .child(
-                        Button::new("tc", "Trust and Continue")
+                        Button::new("tc", t("security.btn.trust_continue", cx))
                             .style(ButtonStyle::Filled)
                             .layer(ui::ElevationIndex::ModalSurface)
                             .key_binding(
@@ -228,7 +234,7 @@ impl SecurityModal {
         this
     }
 
-    fn build_trust_label(&self) -> Option<Cow<'static, str>> {
+    fn build_trust_label(&self, cx: &App) -> Option<SharedString> {
         let mut has_restricted_files = false;
         let available_parents = self
             .restricted_paths
@@ -242,16 +248,18 @@ impl SecurityModal {
         match available_parents.len() {
             0 => {
                 if has_restricted_files {
-                    Some(Cow::Borrowed("Trust all single files"))
+                    Some(t("security.trust.single_files", cx))
                 } else {
                     None
                 }
             }
-            1 => Some(Cow::Owned(format!(
-                "Trust all projects in the {:} folder",
-                self.shorten_path(available_parents[0]).display()
-            ))),
-            _ => Some(Cow::Borrowed("Trust all projects in the parent folders")),
+            1 => {
+                // 번역 템플릿의 {} 자리에 경로를 삽입
+                let path_str = self.shorten_path(available_parents[0]).display().to_string();
+                let label = t("security.trust.folder", cx).replace("{}", &path_str);
+                Some(SharedString::from(label))
+            }
+            _ => Some(t("security.trust.parent_folders", cx)),
         }
     }
 

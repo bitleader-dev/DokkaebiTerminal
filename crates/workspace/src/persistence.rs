@@ -48,7 +48,7 @@ use crate::{
 
 use model::{
     GroupId, ItemId, PaneId, RemoteConnectionId, SerializedItem, SerializedPane,
-    SerializedPaneGroup, SerializedWorkspace,
+    SerializedPaneGroup, SerializedWorkspace, SerializedWorkspaceGroup,
 };
 
 use self::model::{DockStructure, SerializedWorkspaceLocation, SessionWorkspace};
@@ -971,6 +971,24 @@ impl Domain for WorkspaceDb {
         sql!(
             ALTER TABLE remote_connections ADD COLUMN use_podman BOOLEAN;
         ),
+        // 워크스페이스 그룹 영속화: 그룹 테이블 생성, pane_groups/panes에 FK 추가
+        sql!(
+            CREATE TABLE workspace_groups(
+                workspace_group_id INTEGER PRIMARY KEY,
+                workspace_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                position INTEGER NOT NULL,
+                active INTEGER NOT NULL,
+                FOREIGN KEY(workspace_id) REFERENCES workspaces(workspace_id)
+                ON DELETE CASCADE
+                ON UPDATE CASCADE
+            ) STRICT;
+
+            ALTER TABLE pane_groups ADD COLUMN workspace_group_id INTEGER
+                REFERENCES workspace_groups(workspace_group_id) ON DELETE CASCADE;
+            ALTER TABLE panes ADD COLUMN workspace_group_id INTEGER
+                REFERENCES workspace_groups(workspace_group_id) ON DELETE CASCADE;
+        ),
     ];
 
     // Allow recovering from bad migration that was initially shipped to nightly
@@ -1089,6 +1107,9 @@ impl WorkspaceDb {
             None
         };
 
+        let workspace_groups = self.get_workspace_groups(workspace_id).unwrap_or_default();
+        let active_group_index = workspace_groups.iter().position(|g| g.active).unwrap_or(0);
+
         Some(SerializedWorkspace {
             id: workspace_id,
             location: match remote_connection_options {
@@ -1108,6 +1129,8 @@ impl WorkspaceDb {
             breakpoints: self.breakpoints(workspace_id),
             window_id,
             user_toolchains: self.user_toolchains(workspace_id, remote_connection_id),
+            workspace_groups,
+            active_group_index,
         })
     }
 
@@ -1179,6 +1202,9 @@ impl WorkspaceDb {
             None
         };
 
+        let workspace_groups = self.get_workspace_groups(workspace_id).unwrap_or_default();
+        let active_group_index = workspace_groups.iter().position(|g| g.active).unwrap_or(0);
+
         Some(SerializedWorkspace {
             id: workspace_id,
             location: match remote_connection_options {
@@ -1198,6 +1224,8 @@ impl WorkspaceDb {
             breakpoints: self.breakpoints(workspace_id),
             window_id,
             user_toolchains: self.user_toolchains(workspace_id, remote_connection_id),
+            workspace_groups,
+            active_group_index,
         })
     }
 
@@ -1336,11 +1364,12 @@ impl WorkspaceDb {
                     }
                 };
 
-                // Clear out panes and pane_groups
+                // Clear out workspace_groups, panes and pane_groups
                 conn.exec_bound(sql!(
                     DELETE FROM pane_groups WHERE workspace_id = ?1;
-                    DELETE FROM panes WHERE workspace_id = ?1;))?(workspace.id)
-                    .context("Clearing old panes")?;
+                    DELETE FROM panes WHERE workspace_id = ?1;
+                    DELETE FROM workspace_groups WHERE workspace_id = ?1;))?(workspace.id)
+                    .context("Clearing old panes and workspace groups")?;
 
                 conn.exec_bound(
                     sql!(
@@ -1469,9 +1498,29 @@ impl WorkspaceDb {
 
                 prepared_query(args).context("Updating workspace")?;
 
-                // Save center pane group
-                Self::save_pane_group(conn, workspace.id, &workspace.center_group, None)
-                    .context("save pane group in save workspace")?;
+                // 워크스페이스 그룹이 있으면 각 그룹별로 저장
+                if !workspace.workspace_groups.is_empty() {
+                    for (position, group) in workspace.workspace_groups.iter().enumerate() {
+                        let wg_id: i64 = conn.select_row_bound::<_, i64>(sql!(
+                            INSERT INTO workspace_groups(workspace_id, name, position, active)
+                            VALUES (?, ?, ?, ?)
+                            RETURNING workspace_group_id
+                        ))?((
+                            workspace.id,
+                            group.name.clone(),
+                            position,
+                            group.active,
+                        ))?
+                        .context("Could not insert workspace_group")?;
+
+                        Self::save_pane_group(conn, workspace.id, &group.center_group, None, Some(wg_id))
+                            .context("save pane group for workspace group")?;
+                    }
+                } else {
+                    // 레거시 호환: 그룹 없이 center_group만 저장
+                    Self::save_pane_group(conn, workspace.id, &workspace.center_group, None, None)
+                        .context("save pane group in save workspace")?;
+                }
 
                 Ok(())
             })
@@ -1936,8 +1985,17 @@ impl WorkspaceDb {
     }
 
     fn get_center_pane_group(&self, workspace_id: WorkspaceId) -> Result<SerializedPaneGroup> {
+        self.get_center_pane_group_for_wg(workspace_id, None)
+    }
+
+    /// 특정 워크스페이스 그룹의 센터 패인 그룹 로드
+    fn get_center_pane_group_for_wg(
+        &self,
+        workspace_id: WorkspaceId,
+        workspace_group_id: Option<i64>,
+    ) -> Result<SerializedPaneGroup> {
         Ok(self
-            .get_pane_group(workspace_id, None)?
+            .get_pane_group(workspace_id, None, workspace_group_id)?
             .into_iter()
             .next()
             .unwrap_or_else(|| {
@@ -1949,12 +2007,34 @@ impl WorkspaceDb {
             }))
     }
 
+    /// 워크스페이스 그룹 목록 로드
+    fn get_workspace_groups(&self, workspace_id: WorkspaceId) -> Result<Vec<SerializedWorkspaceGroup>> {
+        let rows: Vec<(i64, String, i64, bool)> = self.select_bound(sql!(
+            SELECT workspace_group_id, name, position, active
+            FROM workspace_groups
+            WHERE workspace_id = ?
+            ORDER BY position
+        ))?(workspace_id)?;
+
+        let mut groups = Vec::new();
+        for (wg_id, name, _position, active) in rows {
+            let center_group = self.get_center_pane_group_for_wg(workspace_id, Some(wg_id))?;
+            groups.push(SerializedWorkspaceGroup {
+                name,
+                center_group,
+                active,
+            });
+        }
+        Ok(groups)
+    }
+
     fn get_pane_group(
         &self,
         workspace_id: WorkspaceId,
         group_id: Option<GroupId>,
+        workspace_group_id: Option<i64>,
     ) -> Result<Vec<SerializedPaneGroup>> {
-        type GroupKey = (Option<GroupId>, WorkspaceId);
+        type GroupKey = (Option<GroupId>, WorkspaceId, Option<i64>);
         type GroupOrPane = (
             Option<GroupId>,
             Option<SerializedAxis>,
@@ -1974,7 +2054,8 @@ impl WorkspaceDb {
                         position,
                         parent_group_id,
                         workspace_id,
-                        flexes
+                        flexes,
+                        workspace_group_id
                       FROM pane_groups
                     UNION
                       SELECT
@@ -1986,12 +2067,13 @@ impl WorkspaceDb {
                         position,
                         parent_group_id,
                         panes.workspace_id as workspace_id,
-                        NULL
+                        NULL,
+                        panes.workspace_group_id
                       FROM center_panes
                       JOIN panes ON center_panes.pane_id = panes.pane_id)
-                WHERE parent_group_id IS ? AND workspace_id = ?
+                WHERE parent_group_id IS ? AND workspace_id = ? AND workspace_group_id IS ?
                 ORDER BY position
-        ))?((group_id, workspace_id))?
+        ))?((group_id, workspace_id, workspace_group_id))?
         .into_iter()
         .map(|(group_id, axis, pane_id, active, pinned_count, flexes)| {
             let maybe_pane = maybe!({ Some((pane_id?, active?, pinned_count?)) });
@@ -2002,7 +2084,7 @@ impl WorkspaceDb {
 
                 Ok(SerializedPaneGroup::Group {
                     axis,
-                    children: self.get_pane_group(workspace_id, Some(group_id))?,
+                    children: self.get_pane_group(workspace_id, Some(group_id), workspace_group_id)?,
                     flexes,
                 })
             } else if let Some((pane_id, active, pinned_count)) = maybe_pane {
@@ -2029,6 +2111,7 @@ impl WorkspaceDb {
         workspace_id: WorkspaceId,
         pane_group: &SerializedPaneGroup,
         parent: Option<(GroupId, usize)>,
+        workspace_group_id: Option<i64>,
     ) -> Result<()> {
         if parent.is_none() {
             log::debug!("Saving a pane group for workspace {workspace_id:?}");
@@ -2051,9 +2134,10 @@ impl WorkspaceDb {
                         parent_group_id,
                         position,
                         axis,
-                        flexes
+                        flexes,
+                        workspace_group_id
                     )
-                    VALUES (?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?)
                     RETURNING group_id
                 ))?((
                     workspace_id,
@@ -2061,17 +2145,18 @@ impl WorkspaceDb {
                     position,
                     *axis,
                     flex_string,
+                    workspace_group_id,
                 ))?
                 .context("Couldn't retrieve group_id from inserted pane_group")?;
 
                 for (position, group) in children.iter().enumerate() {
-                    Self::save_pane_group(conn, workspace_id, group, Some((group_id, position)))?
+                    Self::save_pane_group(conn, workspace_id, group, Some((group_id, position)), workspace_group_id)?
                 }
 
                 Ok(())
             }
             SerializedPaneGroup::Pane(pane) => {
-                Self::save_pane(conn, workspace_id, pane, parent)?;
+                Self::save_pane(conn, workspace_id, pane, parent, workspace_group_id)?;
                 Ok(())
             }
         }
@@ -2082,12 +2167,13 @@ impl WorkspaceDb {
         workspace_id: WorkspaceId,
         pane: &SerializedPane,
         parent: Option<(GroupId, usize)>,
+        workspace_group_id: Option<i64>,
     ) -> Result<PaneId> {
         let pane_id = conn.select_row_bound::<_, i64>(sql!(
-            INSERT INTO panes(workspace_id, active, pinned_count)
-            VALUES (?, ?, ?)
+            INSERT INTO panes(workspace_id, active, pinned_count, workspace_group_id)
+            VALUES (?, ?, ?, ?)
             RETURNING pane_id
-        ))?((workspace_id, pane.active, pane.pinned_count))?
+        ))?((workspace_id, pane.active, pane.pinned_count, workspace_group_id))?
         .context("Could not retrieve inserted pane_id")?;
 
         let (parent_id, order) = parent.unzip();

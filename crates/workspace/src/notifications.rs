@@ -1,4 +1,5 @@
 use crate::{MultiWorkspace, SuppressNotification, Toast, Workspace};
+use i18n::t;
 use anyhow::Context as _;
 use gpui::{
     AnyEntity, AnyView, App, AppContext as _, AsyncApp, AsyncWindowContext, ClickEvent, Context,
@@ -169,12 +170,12 @@ impl Workspace {
 
     pub fn show_portal_error(&mut self, err: String, cx: &mut Context<Self>) {
         struct PortalError;
-
+        let label_see_docs = t("notification.see_docs", cx);
         self.show_notification(NotificationId::unique::<PortalError>(), cx, |cx| {
             cx.new(|cx| {
                 ErrorMessagePrompt::new(err.to_string(), cx).with_link_button(
-                    "See docs",
-                    "https://zed.dev/docs/linux#i-cant-open-any-files",
+                    label_see_docs,
+                    SharedString::from("https://zed.dev/docs/linux#i-cant-open-any-files"),
                 )
             })
         });
@@ -364,23 +365,23 @@ impl Render for LanguageServerPrompt {
                                             "copy-description",
                                             request.message.clone(),
                                         )
-                                        .tooltip_label("Copy Description"),
+                                        .tooltip_label(t("notification.copy_description", cx)),
                                     )
                                     .child(
                                         IconButton::new(close_id, close_icon)
                                             .tooltip(move |_window, cx| {
                                                 if suppress {
                                                     Tooltip::with_meta(
-                                                        "Suppress",
+                                                        t("notification.suppress", cx),
                                                         Some(&SuppressNotification),
-                                                        "Click to close",
+                                                        t("notification.click_to_close", cx),
                                                         cx,
                                                     )
                                                 } else {
                                                     Tooltip::with_meta(
-                                                        "Close",
+                                                        t("notification.close", cx),
                                                         Some(&menu::Cancel),
-                                                        "Suppress with shift-click",
+                                                        t("notification.suppress_shift_click", cx),
                                                         cx,
                                                     )
                                                 }
@@ -531,7 +532,7 @@ impl Render for ErrorMessagePrompt {
                                     .gap_1()
                                     .child(
                                         CopyButton::new("copy-error-message", self.message.clone())
-                                            .tooltip_label("Copy Error Message"),
+                                            .tooltip_label(t("notification.copy_error_message", cx)),
                                     )
                                     .child(
                                         ui::IconButton::new("close", ui::IconName::Close).on_click(
@@ -666,20 +667,24 @@ impl RenderOnce for NotificationFrame {
                                     .tooltip(move |_window, cx| {
                                         if suppress {
                                             Tooltip::with_meta(
-                                                "Suppress",
+                                                t("notification.suppress", cx),
                                                 Some(&SuppressNotification),
-                                                "Click to Close",
+                                                t("notification.click_to_close", cx),
                                                 cx,
                                             )
                                         } else if show_suppress_button {
                                             Tooltip::with_meta(
-                                                "Close",
+                                                t("notification.close", cx),
                                                 Some(&menu::Cancel),
-                                                "Shift-click to Suppress",
+                                                t("notification.shift_suppress", cx),
                                                 cx,
                                             )
                                         } else {
-                                            Tooltip::for_action("Close", &menu::Cancel, cx)
+                                            Tooltip::for_action(
+                                                t("notification.close", cx),
+                                                &menu::Cancel,
+                                                cx,
+                                            )
                                         }
                                     })
                                     .on_click({

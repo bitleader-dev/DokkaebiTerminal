@@ -3,6 +3,7 @@ use crate::{
     item::{Item, ItemEvent},
     persistence::WorkspaceDb,
 };
+use i18n::t;
 use chrono::{DateTime, Utc};
 use git::Clone as GitClone;
 use gpui::WeakEntity;
@@ -154,7 +155,7 @@ impl SectionEntry {
     ) -> Option<impl IntoElement> {
         self.visibility_guard.is_visible(cx).then(|| {
             SectionButton::new(
-                self.title,
+                t(self.title, cx),
                 self.icon,
                 self.action,
                 button_index,
@@ -166,46 +167,46 @@ impl SectionEntry {
 
 const CONTENT: (Section<4>, Section<3>) = (
     Section {
-        title: "Get Started",
+        title: "welcome.section.get_started",
         entries: [
             SectionEntry {
                 icon: IconName::Plus,
-                title: "New File",
+                title: "welcome.action.new_file",
                 action: &NewFile,
                 visibility_guard: SectionVisibility::Always,
             },
             SectionEntry {
                 icon: IconName::FolderOpen,
-                title: "Open Project",
+                title: "welcome.action.open_project",
                 action: &Open::DEFAULT,
                 visibility_guard: SectionVisibility::Always,
             },
             SectionEntry {
                 icon: IconName::CloudDownload,
-                title: "Clone Repository",
+                title: "welcome.action.clone_repository",
                 action: &GitClone,
                 visibility_guard: SectionVisibility::Always,
             },
             SectionEntry {
                 icon: IconName::ListCollapse,
-                title: "Open Command Palette",
+                title: "welcome.action.open_command_palette",
                 action: &command_palette::Toggle,
                 visibility_guard: SectionVisibility::Always,
             },
         ],
     },
     Section {
-        title: "Configure",
+        title: "welcome.section.configure",
         entries: [
             SectionEntry {
                 icon: IconName::Settings,
-                title: "Open Settings",
+                title: "welcome.action.open_settings",
                 action: &OpenSettings,
                 visibility_guard: SectionVisibility::Always,
             },
             SectionEntry {
                 icon: IconName::ZedAssistant,
-                title: "View AI Settings",
+                title: "welcome.action.view_ai_settings",
                 action: &agent::OpenSettings,
                 visibility_guard: SectionVisibility::Conditional(|cx| {
                     !DisableAiSettings::get_global(cx).disable_ai
@@ -213,7 +214,7 @@ const CONTENT: (Section<4>, Section<3>) = (
             },
             SectionEntry {
                 icon: IconName::Blocks,
-                title: "Explore Extensions",
+                title: "welcome.action.explore_extensions",
                 action: &Extensions {
                     category_filter: None,
                     id: None,
@@ -233,7 +234,7 @@ impl<const COLS: usize> Section<COLS> {
     fn render(self, index_offset: usize, focus: &FocusHandle, cx: &App) -> impl IntoElement {
         v_flex()
             .min_w_full()
-            .child(SectionHeader::new(self.title))
+            .child(SectionHeader::new(t(self.title, cx)))
             .children(
                 self.entries
                     .iter()
@@ -341,10 +342,11 @@ impl WelcomePage {
     fn render_recent_project_section(
         &self,
         recent_projects: Vec<impl IntoElement>,
+        cx: &App,
     ) -> impl IntoElement {
         v_flex()
             .w_full()
-            .child(SectionHeader::new("Recent Projects"))
+            .child(SectionHeader::new(t("welcome.recent_projects", cx)))
             .children(recent_projects)
     }
 
@@ -354,6 +356,7 @@ impl WelcomePage {
         tab_index: usize,
         location: &SerializedWorkspaceLocation,
         paths: &PathList,
+        cx: &App,
     ) -> impl IntoElement {
         let (icon, title) = match location {
             SerializedWorkspaceLocation::Local => {
@@ -365,7 +368,7 @@ impl WelcomePage {
                 (IconName::Folder, name)
             }
             SerializedWorkspaceLocation::Remote(_) => {
-                (IconName::Server, "Remote Project".to_string())
+                (IconName::Server, t("welcome.remote_project", cx).to_string())
             }
         };
 
@@ -395,12 +398,12 @@ impl Render for WelcomePage {
             .take(5)
             .enumerate()
             .map(|(index, (_, loc, paths, _))| {
-                self.render_recent_project(index, first_section_entries + index, loc, paths)
+                self.render_recent_project(index, first_section_entries + index, loc, paths, cx)
             })
             .collect::<Vec<_>>();
 
         let second_section = if self.fallback_to_recent_projects && !recent_projects.is_empty() {
-            self.render_recent_project_section(recent_projects)
+            self.render_recent_project_section(recent_projects, cx)
                 .into_any_element()
         } else {
             second_section
@@ -408,11 +411,12 @@ impl Render for WelcomePage {
                 .into_any_element()
         };
 
-        let welcome_label = if self.fallback_to_recent_projects {
-            "Welcome back to Zed"
+        let welcome_key = if self.fallback_to_recent_projects {
+            "welcome.headline.returning"
         } else {
-            "Welcome to Zed"
+            "welcome.headline.first_time"
         };
+        let welcome_label = t(welcome_key, cx);
 
         h_flex()
             .key_context("Welcome")
@@ -447,7 +451,7 @@ impl Render for WelcomePage {
                                     .child(Vector::square(VectorName::ZedLogo, rems_from_px(45.)))
                                     .child(
                                         v_flex().child(Headline::new(welcome_label)).child(
-                                            Label::new("The editor for what's next")
+                                            Label::new(t("welcome.tagline", cx))
                                                 .size(LabelSize::Small)
                                                 .color(Color::Muted)
                                                 .italic(),
@@ -459,7 +463,7 @@ impl Render for WelcomePage {
                             .when(!self.fallback_to_recent_projects, |this| {
                                 this.child(
                                     v_flex().gap_1().child(Divider::horizontal()).child(
-                                        Button::new("welcome-exit", "Return to Onboarding")
+                                        Button::new("welcome-exit", t("welcome.return_to_onboarding", cx))
                                             .tab_index(last_index as isize)
                                             .full_width()
                                             .label_size(LabelSize::XSmall)
@@ -488,8 +492,8 @@ impl Focusable for WelcomePage {
 impl Item for WelcomePage {
     type Event = ItemEvent;
 
-    fn tab_content_text(&self, _detail: usize, _cx: &App) -> SharedString {
-        "Welcome".into()
+    fn tab_content_text(&self, _detail: usize, cx: &App) -> SharedString {
+        t("welcome.tab_title", cx)
     }
 
     fn telemetry_event_text(&self) -> Option<&'static str> {

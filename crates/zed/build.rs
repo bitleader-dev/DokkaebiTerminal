@@ -204,17 +204,9 @@ fn main() {
             }
         }
 
-        let release_channel = option_env!("RELEASE_CHANNEL").unwrap_or("dev");
-        let icon = match release_channel {
-            "stable" => "resources/windows/app-icon.ico",
-            "preview" => "resources/windows/app-icon-preview.ico",
-            "nightly" => "resources/windows/app-icon-nightly.ico",
-            "dev" => "resources/windows/app-icon-dev.ico",
-            _ => "resources/windows/app-icon-dev.ico",
-        };
+        let icon = "resources/windows/app-icon-dokkaebi.ico";
         let icon = std::path::Path::new(icon);
 
-        println!("cargo:rerun-if-env-changed=RELEASE_CHANNEL");
         println!("cargo:rerun-if-changed={}", icon.display());
 
         let mut res = winresource::WindowsResource::new();
@@ -226,8 +218,8 @@ fn main() {
             res.set_toolkit_path(explicit_rc_toolkit_path.as_str());
         }
         res.set_icon(icon.to_str().unwrap());
-        res.set("FileDescription", "Zed");
-        res.set("ProductName", "Zed");
+        res.set("FileDescription", "Dokkaebi");
+        res.set("ProductName", "Dokkaebi");
 
         if let Err(e) = res.compile() {
             eprintln!("{}", e);

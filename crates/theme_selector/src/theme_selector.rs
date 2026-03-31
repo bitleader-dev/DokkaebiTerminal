@@ -1,4 +1,5 @@
 mod icon_theme_selector;
+mod locale_selector;
 
 use fs::Fs;
 use fuzzy::{StringMatch, StringMatchCandidate, match_strings};
@@ -41,6 +42,7 @@ pub fn init(cx: &mut App) {
             toggle_icon_theme_selector(workspace, &action, window, cx);
         });
     });
+    locale_selector::init(cx);
 }
 
 fn toggle_theme_selector(

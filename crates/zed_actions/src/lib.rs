@@ -369,6 +369,18 @@ pub mod icon_theme_selector {
     }
 }
 
+pub mod locale_selector {
+    use gpui::Action;
+    use schemars::JsonSchema;
+    use serde::Deserialize;
+
+    /// UI 언어(로케일) 선택 인터페이스를 토글한다.
+    #[derive(PartialEq, Clone, Default, Debug, Deserialize, JsonSchema, Action)]
+    #[action(namespace = locale_selector)]
+    #[serde(deny_unknown_fields)]
+    pub struct Toggle;
+}
+
 pub mod search {
     use gpui::actions;
     actions!(

@@ -1,6 +1,41 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-03-31: 프로젝트/실행파일 이름을 "Dokkaebi"로 변경, 앱 아이콘 교체
+  - `crates/zed/Cargo.toml`: binary name `zed` → `dokkaebi`, default-run 변경
+  - `crates/zed/build.rs`: Windows 리소스 아이콘을 `app-icon-dokkaebi.ico`로 변경, FileDescription/ProductName을 "Dokkaebi"로 변경
+  - `crates/release_channel/src/lib.rs`: display_name, app_identifier, app_id를 "Dokkaebi"로 변경
+  - `crates/util/src/util.rs`, `crates/cli/src/main.rs`: zed.exe → dokkaebi.exe 참조 변경
+  - `crates/zed/resources/windows/app-icon-dokkaebi.ico`: 커스텀 아이콘 추가
+- 2026-03-31: 워크스페이스 그룹 영속화(Persistence) — 앱 재시작 시 그룹/탭 복원
+  - `persistence/model.rs`: `SerializedWorkspaceGroup` 구조체 추가, `SerializedWorkspace`에 `workspace_groups`/`active_group_index` 필드 추가
+  - `persistence.rs`: DB 마이그레이션 — `workspace_groups` 테이블 생성, `pane_groups`/`panes`에 `workspace_group_id` 컬럼 추가
+  - `persistence.rs`: `save_workspace`에서 모든 그룹 저장, `get_workspace_groups` 로드 메서드 추가
+  - `workspace.rs`: `serialize_workspace_internal`에서 전체 그룹 직렬화, `load_workspace`에서 비활성 그룹 복원
+- 2026-03-31: 워크스페이스 그룹 목록 우클릭 컨텍스트 메뉴 + 이름 변경 기능 추가
+  - `workspace_group_panel.rs`: 우클릭 시 "이름 변경"/"삭제" 컨텍스트 메뉴 표시, 인라인 텍스트 편집기(IME 지원) 구현
+  - `workspace.rs`: `rename_workspace_group()` 메서드 추가 (중복 이름 검증 포함)
+  - `Cargo.toml`: `unicode-segmentation` 의존성 추가
+  - 모든 UI 문자열 i18n 리소스로 이동 (`workspace_group.*` 키 8개 추가)
+  - `CLAUDE.md`: i18n 규칙 프로젝트 지침 추가
+- 2026-03-31: 설정 메뉴에 "언어 선택..." 항목 추가 — 테마 선택과 동일한 팝업 UI로 한국어/영어 전환
+  - `zed_actions/lib.rs`: `locale_selector::Toggle` 액션 추가 (기존 `language_selector`와 네임스페이스 충돌 방지)
+  - `theme_selector/Cargo.toml`: `i18n`, `settings_content` 의존성 추가
+  - `theme_selector/src/locale_selector.rs`: 로케일 선택기 구현 (LanguageSelector, LanguageSelectorDelegate)
+  - `theme_selector/src/theme_selector.rs`: `mod locale_selector` 추가, init에 등록
+  - `app_menus.rs`: "기본 설정 열기" 바로 아래 "언어 선택..." 메뉴 항목 추가
+  - `en.json`, `ko.json`: `menu.zed.settings.select_language`, `language_selector.placeholder` 키 추가
+- 2026-03-31: 전체 UI 한글화 — 하드코딩된 영문 문자열을 i18n 리소스로 교체
+  - `assets/locales/en.json`, `ko.json`에 110여 개 키 추가 (welcome/pane/security/notification/terminal/project_panel 네임스페이스)
+  - `welcome.rs`: 섹션 제목·액션명·헤드라인·태그라인·탭 제목 등 전체 번역
+  - `pane.rs`: 탭 컨텍스트 메뉴, 탭바 버튼(New/Split/Zoom), 다이얼로그 버튼, 툴팁, Go Back/Forward 등 번역
+  - `security_modal.rs`: 신뢰 확인 모달 전체 텍스트 번역 (build_trust_label → Option<SharedString> 반환으로 변경)
+  - `terminal_panel.rs`: 터미널 패널 버튼/메뉴/오류 화면 번역
+  - `terminal_view.rs`: 우클릭 컨텍스트 메뉴, 탭 이름 바꾸기 액션 레이블 번역
+  - `notifications.rs`: 알림 툴팁, Suppress/Close/Copy 버튼 번역
+  - `status_toast.rs`: Dismiss 버튼 툴팁 번역
+  - `project_panel.rs`: 파일 탐색기 컨텍스트 메뉴 전체 번역
+  - Cargo.toml 4개 크레이트에 `i18n.workspace = true` 추가 (workspace, terminal_view, project_panel, notifications)
 - 2026-03-30: 타이틀바 워크스페이스 그룹 이름을 가운데 텍스트로 표시 (버튼 제거)
 - 2026-03-30: 타이틀바 프로젝트 이름/호스트/브랜치 표시 제거
 - 2026-03-30: 타이틀바 왼쪽 메뉴 버튼(≡)을 워크스페이스 그룹 전환 버튼으로 교체

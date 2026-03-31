@@ -40,6 +40,7 @@ pub use workspace_group::WorkspaceGroupState;
 pub use workspace_group_panel::WorkspaceGroupPanel;
 
 use anyhow::{Context as _, Result, anyhow};
+use i18n::t;
 use client::{
     ChannelId, Client, ErrorExt, ParticipantIndex, Status, TypedEnvelope, User, UserStore,
     proto::{self, ErrorCode, PanelId, PeerId},
@@ -81,7 +82,7 @@ pub use pane_group::{
     ActivePaneDecorator, HANDLE_HITBOX_SIZE, Member, PaneAxis, PaneGroup, PaneRenderContext,
     SplitDirection,
 };
-use persistence::{SerializedWindowBounds, model::SerializedWorkspace};
+use persistence::{SerializedWindowBounds, model::{SerializedWorkspace, SerializedWorkspaceGroup}};
 pub use persistence::{
     WorkspaceDb, delete_unloaded_items,
     model::{
@@ -1711,7 +1712,7 @@ impl Workspace {
 
         // 기본 워크스페이스 그룹 생성
         let default_group = WorkspaceGroupState {
-            name: "워크스페이스 1".to_string(),
+            name: format!("{} 1", t("workspace_group.default_name", cx)),
             center: center.clone(),
             panes: vec![center_pane.clone()],
             active_pane: center_pane.clone(),
@@ -5381,7 +5382,7 @@ impl Workspace {
         new_center.mark_positions(cx);
 
         let group_index = self.workspace_groups.len();
-        let group_name = format!("워크스페이스 {}", group_index + 1);
+        let group_name = format!("{} {}", t("workspace_group.default_name", cx), group_index + 1);
 
         // 새 그룹 상태 추가
         let new_group = WorkspaceGroupState {
@@ -5413,6 +5414,34 @@ impl Workspace {
             callback(self, window, cx);
         }
         self.on_group_added_callbacks = callbacks;
+    }
+
+    /// 워크스페이스 그룹 이름 변경 (중복 이름 불가)
+    /// 성공 시 true, 중복 이름이면 false 반환
+    pub fn rename_workspace_group(
+        &mut self,
+        index: usize,
+        new_name: String,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if index >= self.workspace_groups.len() || new_name.trim().is_empty() {
+            return false;
+        }
+
+        // 중복 이름 검사 (자기 자신 제외)
+        let has_duplicate = self
+            .workspace_groups
+            .iter()
+            .enumerate()
+            .any(|(i, g)| i != index && g.name == new_name);
+
+        if has_duplicate {
+            return false;
+        }
+
+        self.workspace_groups[index].name = new_name;
+        cx.notify();
+        true
     }
 
     /// 워크스페이스 그룹 삭제 (최소 1개는 유지)
@@ -5758,31 +5787,7 @@ impl Workspace {
             title.push_str(name);
         }
 
-        if title.is_empty() {
-            title = "empty project".to_string();
-        }
-
-        if let Some(path) = self.active_item(cx).and_then(|item| item.project_path(cx)) {
-            let filename = path.path.file_name().or_else(|| {
-                Some(
-                    project
-                        .worktree_for_id(path.worktree_id, cx)?
-                        .read(cx)
-                        .root_name_str(),
-                )
-            });
-
-            if let Some(filename) = filename {
-                title.push_str(" — ");
-                title.push_str(filename.as_ref());
-            }
-        }
-
-        if project.is_via_collab() {
-            title.push_str(" ↙");
-        } else if project.is_shared() {
-            title.push_str(" ↗");
-        }
+        title = "Dokkaebi".to_string();
 
         if let Some(last_title) = self.last_window_title.as_ref()
             && &title == last_title
@@ -6645,9 +6650,29 @@ impl Workspace {
                     .user_toolchains(cx)
                     .unwrap_or_default();
 
+                // 현재 활성 그룹의 센터 패인 트리 (레거시 호환용)
                 let center_group = build_serialized_pane_group(&self.center.root, window, cx);
                 let docks = build_serialized_docks(self, window, cx);
                 let window_bounds = Some(SerializedWindowBounds(window.window_bounds()));
+
+                // 모든 워크스페이스 그룹 직렬화
+                let mut serialized_groups = Vec::new();
+                for (i, group) in self.workspace_groups.iter().enumerate() {
+                    let is_active = i == self.active_group_index;
+                    // 활성 그룹은 현재 self.center 상태를 사용
+                    let group_center = if is_active {
+                        build_serialized_pane_group(&self.center.root, window, cx)
+                    } else {
+                        build_serialized_pane_group(&group.center.root, window, cx)
+                    };
+                    serialized_groups.push(SerializedWorkspaceGroup {
+                        name: group.name.clone(),
+                        center_group: group_center,
+                        active: is_active,
+                    });
+                }
+
+                let active_group_index = self.active_group_index;
 
                 let serialized_workspace = SerializedWorkspace {
                     id: database_id,
@@ -6662,6 +6687,8 @@ impl Workspace {
                     breakpoints,
                     window_id: Some(window.window_handle().window_id().as_u64()),
                     user_toolchains,
+                    workspace_groups: serialized_groups,
+                    active_group_index,
                 };
 
                 let db = WorkspaceDb::global(cx);
@@ -6792,12 +6819,22 @@ impl Workspace {
         cx.spawn_in(window, async move |workspace, cx| {
             let project = workspace.read_with(cx, |workspace, _| workspace.project().clone())?;
 
+            let has_workspace_groups = !serialized_workspace.workspace_groups.is_empty();
+            let active_group_index = serialized_workspace.active_group_index;
+
+            // 활성 그룹의 center_group 결정
+            let active_center = if has_workspace_groups {
+                let idx = active_group_index.min(serialized_workspace.workspace_groups.len() - 1);
+                serialized_workspace.workspace_groups[idx].center_group.clone()
+            } else {
+                serialized_workspace.center_group.clone()
+            };
+
             let mut center_group = None;
             let mut center_items = None;
 
-            // Traverse the splits tree and add to things
-            if let Some((group, active_pane, items)) = serialized_workspace
-                .center_group
+            // 활성 그룹의 패인 트리 역직렬화
+            if let Some((group, active_pane, items)) = active_center
                 .deserialize(&project, serialized_workspace.id, workspace.clone(), cx)
                 .await
             {
@@ -6867,6 +6904,89 @@ impl Workspace {
 
                 cx.notify();
             })?;
+
+            // 비활성 워크스페이스 그룹 복원
+            if has_workspace_groups {
+                // 활성 그룹 정보 수집 (현재 workspace 상태에서)
+                let active_idx = active_group_index.min(serialized_workspace.workspace_groups.len() - 1);
+
+                // 비활성 그룹 역직렬화
+                let mut restored_groups: Vec<(usize, String, Member, Option<Entity<Pane>>)> = Vec::new();
+                for (i, sg) in serialized_workspace.workspace_groups.iter().enumerate() {
+                    if i == active_idx {
+                        continue;
+                    }
+                    if let Some((member, active_pane, items)) = sg.center_group.clone()
+                        .deserialize(&project, serialized_workspace.id, workspace.clone(), cx)
+                        .await
+                    {
+                        // 비활성 그룹 아이템도 item_ids_by_kind에 추가 (cleanup용)
+                        cx.update(|_, cx| {
+                            for item in items.into_iter().flatten() {
+                                if let Some(serializable_item_handle) = item.to_serializable_item_handle(cx) {
+                                    item_ids_by_kind
+                                        .entry(serializable_item_handle.serialized_item_kind())
+                                        .or_insert(Vec::new())
+                                        .push(item.item_id().as_u64() as ItemId);
+                                }
+                            }
+                        })?;
+                        restored_groups.push((i, sg.name.clone(), member, active_pane));
+                    }
+                }
+
+                // 워크스페이스에 그룹 상태 설정
+                workspace.update_in(cx, |workspace, _window, cx| {
+                    // 활성 그룹의 WorkspaceGroupState 갱신
+                    let active_name = serialized_workspace.workspace_groups[active_idx].name.clone();
+                    workspace.workspace_groups.clear();
+
+                    // 모든 그룹을 순서대로 재구성
+                    let total = serialized_workspace.workspace_groups.len();
+                    for i in 0..total {
+                        if i == active_idx {
+                            // 활성 그룹: 현재 workspace 상태에서 캡처
+                            workspace.workspace_groups.push(WorkspaceGroupState::capture(
+                                active_name.clone(),
+                                &workspace.center,
+                                &workspace.panes,
+                                &workspace.active_pane,
+                                &workspace.last_active_center_pane,
+                                &workspace.panes_by_item,
+                            ));
+                        } else if let Some(pos) = restored_groups.iter().position(|(idx, _, _, _)| *idx == i) {
+                            let (_, name, member, active_pane_opt) = restored_groups.remove(pos);
+                            let mut group_center = PaneGroup::with_root(member);
+                            group_center.set_is_center(true);
+                            group_center.mark_positions(cx);
+
+                            let panes: Vec<Entity<Pane>> = group_center.panes().into_iter().cloned().collect();
+                            let group_active_pane = active_pane_opt
+                                .or_else(|| panes.first().cloned())
+                                .unwrap_or_else(|| workspace.active_pane.clone());
+
+                            let mut panes_by_item = HashMap::default();
+                            for pane in &panes {
+                                for item in pane.read(cx).items() {
+                                    panes_by_item.insert(item.item_id(), pane.downgrade());
+                                }
+                            }
+
+                            workspace.workspace_groups.push(WorkspaceGroupState {
+                                name,
+                                center: group_center,
+                                panes,
+                                active_pane: group_active_pane.clone(),
+                                last_active_center_pane: Some(group_active_pane.downgrade()),
+                                panes_by_item,
+                            });
+                        }
+                    }
+                    workspace.active_group_index = active_idx;
+
+                    cx.notify();
+                })?;
+            }
 
             let _ = project
                 .update(cx, |project, cx| {

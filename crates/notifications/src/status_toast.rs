@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use gpui::{DismissEvent, Entity, EventEmitter, FocusHandle, Focusable, IntoElement};
+use i18n::t;
 use ui::{Tooltip, prelude::*};
 use workspace::{ToastAction, ToastView};
 use zed_actions::toast;
@@ -98,6 +99,7 @@ impl StatusToast {
 
 impl Render for StatusToast {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let label_dismiss = t("notification.dismiss", cx);
         let has_action_or_dismiss = self.action.is_some() || self.show_dismiss;
 
         h_flex()
@@ -140,7 +142,7 @@ impl Render for StatusToast {
                         .shape(ui::IconButtonShape::Square)
                         .icon_size(IconSize::Small)
                         .icon_color(Color::Muted)
-                        .tooltip(Tooltip::text("Dismiss"))
+                        .tooltip(Tooltip::text(label_dismiss))
                         .on_click(move |_click_event, _window, cx| {
                             handle.update(cx, |_, cx| {
                                 cx.emit(DismissEvent);

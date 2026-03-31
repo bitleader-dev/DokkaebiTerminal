@@ -73,6 +73,10 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
                     MenuItem::action(t("menu.zed.settings.open_project_settings", cx), zed_actions::OpenProjectSettings),
                     MenuItem::action(t("menu.zed.settings.open_project_settings_file", cx), super::OpenProjectSettingsFile),
                     MenuItem::action(t("menu.zed.settings.open_default_settings", cx), super::OpenDefaultSettings),
+                    MenuItem::action(
+                        t("menu.zed.settings.select_language", cx),
+                        zed_actions::locale_selector::Toggle,
+                    ),
                     MenuItem::separator(),
                     MenuItem::action(t("menu.zed.settings.open_keymap", cx), zed_actions::OpenKeymap),
                     MenuItem::action(t("menu.zed.settings.open_keymap_file", cx), zed_actions::OpenKeymapFile),

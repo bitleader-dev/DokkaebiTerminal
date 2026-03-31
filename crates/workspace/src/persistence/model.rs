@@ -75,6 +75,14 @@ pub struct SerializedMultiWorkspace {
     pub state: MultiWorkspaceState,
 }
 
+/// 직렬화된 워크스페이스 그룹 (이름 + 패인 트리 + 활성 여부)
+#[derive(Debug, PartialEq, Clone)]
+pub(crate) struct SerializedWorkspaceGroup {
+    pub(crate) name: String,
+    pub(crate) center_group: SerializedPaneGroup,
+    pub(crate) active: bool,
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) struct SerializedWorkspace {
     pub(crate) id: WorkspaceId,
@@ -89,6 +97,10 @@ pub(crate) struct SerializedWorkspace {
     pub(crate) breakpoints: BTreeMap<Arc<Path>, Vec<SourceBreakpoint>>,
     pub(crate) user_toolchains: BTreeMap<ToolchainScope, IndexSet<Toolchain>>,
     pub(crate) window_id: Option<u64>,
+    /// 저장된 워크스페이스 그룹 목록 (비어 있으면 center_group을 단일 그룹으로 사용)
+    pub(crate) workspace_groups: Vec<SerializedWorkspaceGroup>,
+    /// 활성 그룹 인덱스
+    pub(crate) active_group_index: usize,
 }
 
 #[derive(Debug, PartialEq, Clone, Default, Serialize, Deserialize)]

@@ -19,10 +19,11 @@ use futures::{StreamExt, stream::FuturesUnordered};
 use gpui::{
     Action, AnyElement, App, AsyncWindowContext, ClickEvent, ClipboardItem, Context, Corner, Div,
     DragMoveEvent, Entity, EntityId, EventEmitter, ExternalPaths, FocusHandle, FocusOutEvent,
-    Focusable, KeyContext, MouseButton, NavigationDirection, Pixels, Point, PromptLevel, Render,
-    ScrollHandle, Subscription, Task, WeakEntity, WeakFocusHandle, Window, actions, anchored,
-    deferred, prelude::*,
+    Focusable, KeyContext, MouseButton, NavigationDirection, Pixels, Point, PromptButton,
+    PromptLevel, Render, ScrollHandle, Subscription, Task, WeakEntity, WeakFocusHandle, Window,
+    actions, anchored, deferred, prelude::*,
 };
+use i18n::t;
 use itertools::Itertools;
 use language::{Capability, DiagnosticSeverity};
 use parking_lot::Mutex;
@@ -1945,7 +1946,11 @@ impl Pane {
                         PromptLevel::Warning,
                         "Do you want to save changes to the following files?",
                         Some(&detail),
-                        &["Save all", "Discard all", "Cancel"],
+                        &[
+                            PromptButton::new(t("dialog.save_all", cx)),
+                            PromptButton::new(t("dialog.discard_all", cx)),
+                            PromptButton::cancel(t("dialog.cancel", cx)),
+                        ],
                         cx,
                     )
                 })?;
@@ -1987,7 +1992,10 @@ impl Pane {
                                     PromptLevel::Warning,
                                     &format!("Unable to save file: {}", &err),
                                     Some(&detail),
-                                    &["Close Without Saving", "Cancel"],
+                                    &[
+                            PromptButton::new(t("dialog.close_without_saving", cx)),
+                            PromptButton::cancel(t("dialog.cancel", cx)),
+                        ],
                                     cx,
                                 )
                             })?;
@@ -2253,7 +2261,11 @@ impl Pane {
                         PromptLevel::Warning,
                         DELETED_MESSAGE,
                         None,
-                        &["Save", "Close", "Cancel"],
+                        &[
+                            PromptButton::ok(t("dialog.save", cx)),
+                            PromptButton::new(t("dialog.close", cx)),
+                            PromptButton::cancel(t("dialog.cancel", cx)),
+                        ],
                         cx,
                     )
                 })?;
@@ -2287,7 +2299,11 @@ impl Pane {
                         PromptLevel::Warning,
                         CONFLICT_MESSAGE,
                         None,
-                        &["Overwrite", "Discard", "Cancel"],
+                        &[
+                            PromptButton::new(t("dialog.overwrite", cx)),
+                            PromptButton::new(t("dialog.discard", cx)),
+                            PromptButton::cancel(t("dialog.cancel", cx)),
+                        ],
                         cx,
                     )
                 })?;
@@ -2329,7 +2345,11 @@ impl Pane {
                                 PromptLevel::Warning,
                                 &prompt,
                                 None,
-                                &["Save", "Don't Save", "Cancel"],
+                                &[
+                                    PromptButton::ok(t("dialog.save", cx)),
+                                    PromptButton::new(t("dialog.dont_save", cx)),
+                                    PromptButton::cancel(t("dialog.cancel", cx)),
+                                ],
                                 cx,
                             ))
                         } else {
@@ -2794,13 +2814,13 @@ impl Pane {
                 .tooltip(move |_, cx| {
                     if toggleable {
                         Tooltip::with_meta(
-                            "Unlock File",
+                            t("pane.tab.lock.unlock", cx),
                             None,
-                            "This will make this file editable",
+                            t("pane.tab.lock.unlock_desc", cx),
                             cx,
                         )
                     } else {
-                        Tooltip::with_meta("Locked File", None, "This file is read-only", cx)
+                        Tooltip::with_meta(t("pane.tab.lock.locked", cx), None, t("pane.tab.lock.readonly_desc", cx), cx)
                     }
                 })
                 .on_click(cx.listener(move |pane, _, window, cx| {
@@ -2834,7 +2854,9 @@ impl Pane {
                         let extra_actions = item_handle.tab_extra_context_menu_actions(window, cx);
                         if let Some((_, action)) = extra_actions
                             .into_iter()
-                            .find(|(label, _)| label.as_ref() == "Rename")
+                            .find(|(label, _)| {
+                                label.as_ref() == t("terminal.menu.rename", cx).as_ref()
+                            })
                         {
                             // Dispatch action directly through the focus handle to avoid
                             // relay_action's intermediate focus step which can interfere
@@ -2906,10 +2928,10 @@ impl Pane {
             .start_slot::<Indicator>(indicator)
             .map(|this| {
                 let end_slot_action: &'static dyn Action;
-                let end_slot_tooltip_text: &'static str;
+                let end_slot_tooltip_key: &'static str;
                 let end_slot = if is_pinned {
                     end_slot_action = &TogglePinTab;
-                    end_slot_tooltip_text = "Unpin Tab";
+                    end_slot_tooltip_key = "pane.tab.unpin";
                     IconButton::new("unpin tab", IconName::Pin)
                         .shape(IconButtonShape::Square)
                         .icon_color(Color::Muted)
@@ -2923,7 +2945,7 @@ impl Pane {
                         save_intent: None,
                         close_pinned: false,
                     };
-                    end_slot_tooltip_text = "Close Tab";
+                    end_slot_tooltip_key = "pane.tab.close";
                     match show_close_button {
                         ShowCloseButton::Always => IconButton::new("close tab", IconName::Close),
                         ShowCloseButton::Hover => {
@@ -2945,14 +2967,14 @@ impl Pane {
                         let focus_handle = focus_handle.clone();
                         this.tooltip(move |window, cx| {
                             Tooltip::for_action_in(
-                                end_slot_tooltip_text,
+                                t(end_slot_tooltip_key, cx),
                                 end_slot_action,
                                 &window.focused(cx).unwrap_or_else(|| focus_handle.clone()),
                                 cx,
                             )
                         })
                     } else {
-                        this.tooltip(Tooltip::text(end_slot_tooltip_text))
+                        this.tooltip(Tooltip::text(t(end_slot_tooltip_key, cx)))
                     }
                 });
                 this.end_slot(end_slot)
@@ -3043,9 +3065,25 @@ impl Pane {
                         close_pinned: false,
                     };
                     if let Some(pane) = pane.upgrade() {
+                        // 번역 문자열 미리 생성 (cx 캡처 불가 클로저 내에서 사용하기 위함)
+                        let label_close = t("pane.menu.close", cx);
+                        let label_close_others = t("pane.menu.close_others", cx);
+                        let label_close_multibuffers = t("pane.menu.close_multibuffers", cx);
+                        let label_close_left = t("pane.menu.close_left", cx);
+                        let label_close_right = t("pane.menu.close_right", cx);
+                        let label_close_clean = t("pane.menu.close_clean", cx);
+                        let label_close_all = t("pane.menu.close_all", cx);
+                        let label_unpin_tab = t("pane.menu.unpin_tab", cx);
+                        let label_pin_tab = t("pane.menu.pin_tab", cx);
+                        let label_read_only = if capability.editable() {
+                            t("pane.menu.make_readonly", cx)
+                        } else {
+                            t("pane.menu.make_editable", cx)
+                        };
+
                         menu = menu
                             .entry(
-                                "Close",
+                                label_close,
                                 Some(Box::new(close_active_item_action)),
                                 window.handler_for(&pane, move |pane, window, cx| {
                                     pane.close_item_by_id(item_id, SaveIntent::Close, window, cx)
@@ -3053,7 +3091,7 @@ impl Pane {
                                 }),
                             )
                             .item(ContextMenuItem::Entry(
-                                ContextMenuEntry::new("Close Others")
+                                ContextMenuEntry::new(label_close_others)
                                     .action(Box::new(close_inactive_items_action.clone()))
                                     .disabled(total_items == 1)
                                     .handler(window.handler_for(&pane, move |pane, window, cx| {
@@ -3069,7 +3107,7 @@ impl Pane {
                             // We make this optional, instead of using disabled as to not overwhelm the context menu unnecessarily
                             .extend(has_multibuffer_items.then(|| {
                                 ContextMenuItem::Entry(
-                                    ContextMenuEntry::new("Close Multibuffers")
+                                    ContextMenuEntry::new(label_close_multibuffers)
                                         .action(Box::new(close_multibuffers_action.clone()))
                                         .handler(window.handler_for(
                                             &pane,
@@ -3086,7 +3124,7 @@ impl Pane {
                             }))
                             .separator()
                             .item(ContextMenuItem::Entry(
-                                ContextMenuEntry::new("Close Left")
+                                ContextMenuEntry::new(label_close_left)
                                     .action(Box::new(close_items_to_the_left_action.clone()))
                                     .disabled(!has_items_to_left)
                                     .handler(window.handler_for(&pane, move |pane, window, cx| {
@@ -3100,7 +3138,7 @@ impl Pane {
                                     })),
                             ))
                             .item(ContextMenuItem::Entry(
-                                ContextMenuEntry::new("Close Right")
+                                ContextMenuEntry::new(label_close_right)
                                     .action(Box::new(close_items_to_the_right_action.clone()))
                                     .disabled(!has_items_to_right)
                                     .handler(window.handler_for(&pane, move |pane, window, cx| {
@@ -3115,7 +3153,7 @@ impl Pane {
                             ))
                             .separator()
                             .item(ContextMenuItem::Entry(
-                                ContextMenuEntry::new("Close Clean")
+                                ContextMenuEntry::new(label_close_clean)
                                     .action(Box::new(close_clean_items_action.clone()))
                                     .disabled(!has_clean_items)
                                     .handler(window.handler_for(&pane, move |pane, window, cx| {
@@ -3128,7 +3166,7 @@ impl Pane {
                                     })),
                             ))
                             .entry(
-                                "Close All",
+                                label_close_all,
                                 Some(Box::new(close_all_items_action.clone())),
                                 window.handler_for(&pane, move |pane, window, cx| {
                                     pane.close_all_items(&close_all_items_action, window, cx)
@@ -3140,7 +3178,7 @@ impl Pane {
                             menu.separator().map(|this| {
                                 if is_pinned {
                                     this.entry(
-                                        "Unpin Tab",
+                                        label_unpin_tab.clone(),
                                         Some(TogglePinTab.boxed_clone()),
                                         window.handler_for(&pane, move |pane, window, cx| {
                                             pane.unpin_tab_at(ix, window, cx);
@@ -3148,7 +3186,7 @@ impl Pane {
                                     )
                                 } else {
                                     this.entry(
-                                        "Pin Tab",
+                                        label_pin_tab.clone(),
                                         Some(TogglePinTab.boxed_clone()),
                                         window.handler_for(&pane, move |pane, window, cx| {
                                             pane.pin_tab_at(ix, window, cx);
@@ -3159,13 +3197,8 @@ impl Pane {
                         };
 
                         if capability != Capability::ReadOnly {
-                            let read_only_label = if capability.editable() {
-                                "Make File Read-Only"
-                            } else {
-                                "Make File Editable"
-                            };
                             menu = menu.separator().entry(
-                                read_only_label,
+                                label_read_only,
                                 None,
                                 window.handler_for(&pane, move |pane, window, cx| {
                                     if let Some(item) = pane.item_for_index(ix) {
@@ -3217,11 +3250,18 @@ impl Pane {
 
                             let entry_id = entry.to_proto();
 
+                            // 번역 문자열 미리 생성 (cx 캡처 불가 클로저 내에서 사용하기 위함)
+                            let label_copy_path = t("pane.menu.copy_path", cx);
+                            let label_copy_relative_path = t("pane.menu.copy_relative_path", cx);
+                            let label_reveal_in_project_panel =
+                                t("pane.menu.reveal_in_project_panel", cx);
+                            let label_open_in_terminal = t("pane.menu.open_in_terminal", cx);
+
                             menu = menu
                                 .separator()
                                 .when_some(entry_abs_path, |menu, abs_path| {
                                     menu.entry(
-                                        "Copy Path",
+                                        label_copy_path,
                                         Some(Box::new(zed_actions::workspace::CopyPath)),
                                         window.handler_for(&pane, move |_, _, cx| {
                                             cx.write_to_clipboard(ClipboardItem::new_string(
@@ -3232,7 +3272,7 @@ impl Pane {
                                 })
                                 .when_some(relative_path, |menu, relative_path| {
                                     menu.entry(
-                                        "Copy Relative Path",
+                                        label_copy_relative_path,
                                         Some(Box::new(zed_actions::workspace::CopyRelativePath)),
                                         window.handler_for(&pane, move |this, _, cx| {
                                             let Some(project) = this.project.upgrade() else {
@@ -3268,7 +3308,7 @@ impl Pane {
                                 .map(pin_tab_entries)
                                 .when(visible_in_project_panel, |menu| {
                                     menu.entry(
-                                        "Reveal In Project Panel",
+                                        label_reveal_in_project_panel,
                                         Some(Box::new(RevealInProjectPanel::default())),
                                         window.handler_for(&pane, move |pane, _, cx| {
                                             pane.project
@@ -3283,7 +3323,7 @@ impl Pane {
                                 })
                                 .when_some(parent_abs_path, |menu, parent_abs_path| {
                                     menu.entry(
-                                        "Open in Terminal",
+                                        label_open_in_terminal,
                                         Some(Box::new(OpenInTerminal)),
                                         window.handler_for(&pane, move |_, window, cx| {
                                             window.dispatch_action(
@@ -3337,7 +3377,7 @@ impl Pane {
                 let focus_handle = focus_handle.clone();
                 move |window, cx| {
                     Tooltip::for_action_in(
-                        "Go Back",
+                        t("pane.tooltip.go_back", cx),
                         &GoBack,
                         &window.focused(cx).unwrap_or_else(|| focus_handle.clone()),
                         cx,
@@ -3360,7 +3400,7 @@ impl Pane {
                 let focus_handle = focus_handle.clone();
                 move |window, cx| {
                     Tooltip::for_action_in(
-                        "Go Forward",
+                        t("pane.tooltip.go_forward", cx),
                         &GoForward,
                         &window.focused(cx).unwrap_or_else(|| focus_handle.clone()),
                         cx,
@@ -4132,17 +4172,23 @@ fn default_render_tab_bar_buttons(
             PopoverMenu::new("pane-tab-bar-popover-menu")
                 .trigger_with_tooltip(
                     IconButton::new("plus", IconName::Plus).icon_size(IconSize::Small),
-                    Tooltip::text("New..."),
+                    Tooltip::text(t("pane.tooltip.new", cx)),
                 )
                 .anchor(Corner::TopRight)
                 .with_handle(pane.new_item_context_menu_handle.clone())
                 .menu(move |window, cx| {
+                    // 번역 문자열 미리 생성 (내부 클로저에서 cx 접근 불가)
+                    let label_new_file = t("pane.action.new_file", cx);
+                    let label_open_file = t("pane.action.open_file", cx);
+                    let label_search_project = t("pane.action.search_project", cx);
+                    let label_search_symbols = t("pane.action.search_symbols", cx);
+                    let label_new_terminal = t("pane.action.new_terminal", cx);
                     Some(ContextMenu::build(window, cx, |menu, _, _| {
-                        menu.action("New File", NewFile.boxed_clone())
-                            .action("Open File", ToggleFileFinder::default().boxed_clone())
+                        menu.action(label_new_file, NewFile.boxed_clone())
+                            .action(label_open_file, ToggleFileFinder::default().boxed_clone())
                             .separator()
                             .action(
-                                "Search Project",
+                                label_search_project,
                                 DeploySearch {
                                     replace_enabled: false,
                                     included_files: None,
@@ -4150,9 +4196,9 @@ fn default_render_tab_bar_buttons(
                                 }
                                 .boxed_clone(),
                             )
-                            .action("Search Symbols", ToggleProjectSymbols.boxed_clone())
+                            .action(label_search_symbols, ToggleProjectSymbols.boxed_clone())
                             .separator()
-                            .action("New Terminal", NewTerminal::default().boxed_clone())
+                            .action(label_new_terminal, NewTerminal::default().boxed_clone())
                     }))
                 }),
         )
@@ -4162,23 +4208,28 @@ fn default_render_tab_bar_buttons(
                     IconButton::new("split", IconName::Split)
                         .icon_size(IconSize::Small)
                         .disabled(!can_clone && !can_split_move),
-                    Tooltip::text("Split Pane"),
+                    Tooltip::text(t("pane.tooltip.split_pane", cx)),
                 )
                 .anchor(Corner::TopRight)
                 .with_handle(pane.split_item_context_menu_handle.clone())
                 .menu(move |window, cx| {
+                    // 번역 문자열 미리 생성 (내부 클로저에서 cx 접근 불가)
+                    let label_split_right = t("pane.action.split_right", cx);
+                    let label_split_left = t("pane.action.split_left", cx);
+                    let label_split_up = t("pane.action.split_up", cx);
+                    let label_split_down = t("pane.action.split_down", cx);
                     ContextMenu::build(window, cx, |menu, _, _| {
                         let mode = SplitMode::MovePane;
                         if can_split_move {
-                            menu.action("Split Right", SplitRight { mode }.boxed_clone())
-                                .action("Split Left", SplitLeft { mode }.boxed_clone())
-                                .action("Split Up", SplitUp { mode }.boxed_clone())
-                                .action("Split Down", SplitDown { mode }.boxed_clone())
+                            menu.action(label_split_right.clone(), SplitRight { mode }.boxed_clone())
+                                .action(label_split_left.clone(), SplitLeft { mode }.boxed_clone())
+                                .action(label_split_up.clone(), SplitUp { mode }.boxed_clone())
+                                .action(label_split_down.clone(), SplitDown { mode }.boxed_clone())
                         } else {
-                            menu.action("Split Right", SplitRight::default().boxed_clone())
-                                .action("Split Left", SplitLeft::default().boxed_clone())
-                                .action("Split Up", SplitUp::default().boxed_clone())
-                                .action("Split Down", SplitDown::default().boxed_clone())
+                            menu.action(label_split_right, SplitRight::default().boxed_clone())
+                                .action(label_split_left, SplitLeft::default().boxed_clone())
+                                .action(label_split_up, SplitUp::default().boxed_clone())
+                                .action(label_split_down, SplitDown::default().boxed_clone())
                         }
                     })
                     .into()
@@ -4195,7 +4246,11 @@ fn default_render_tab_bar_buttons(
                 }))
                 .tooltip(move |_window, cx| {
                     Tooltip::for_action(
-                        if zoomed { "Zoom Out" } else { "Zoom In" },
+                        if zoomed {
+                            t("pane.tooltip.zoom_out", cx)
+                        } else {
+                            t("pane.tooltip.zoom_in", cx)
+                        },
                         &ToggleZoom,
                         cx,
                     )

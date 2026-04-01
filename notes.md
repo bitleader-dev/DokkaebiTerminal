@@ -1,6 +1,11 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-04-01: 에디터 툴바 Editor Controls 메뉴 i18n 적용 (15개 항목 + 설명 2개 + 툴팁)
+- 2026-04-01: 에디터 툴바 Selection Controls 메뉴 i18n 적용 (15개 항목 + 툴팁)
+- 2026-04-01: 설정 일반 페이지 정리 — 개인정보(텔레메트리), 범위 설정, 보안 섹션 삭제, 일반 설정에서 비공개 값/파일 항목 삭제, 텔레메트리 기본값 false로 변경
+- 2026-04-01: 확장 패널 필터 탭에서 Grammars, MCP Servers, Agent Servers, Snippets, Debug Adapters 숨김 처리
+- 2026-04-01: 설정 메뉴 정리 — 불필요 항목 삭제(설정 파일 열기, 프로젝트 설정 열기/파일 열기, 기본 설정 열기) 및 문구 수정(정보, 종료, 언어 선택)
 - 2026-04-01: 디버거(DAP) 기능 전체 삭제
   - 5개 crate 삭제: `dap`, `dap_adapters`, `debug_adapter_extension`, `debugger_tools`, `debugger_ui`
   - `project/src/debugger/` 모듈 삭제 (breakpoint_store, dap_store, sessions, locators)

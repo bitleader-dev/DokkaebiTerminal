@@ -1812,7 +1812,12 @@ impl Render for ExtensionsPage {
                     )
                     .children(ExtensionProvides::iter().filter_map(|provides| {
                         match provides {
-                            ExtensionProvides::SlashCommands
+                            ExtensionProvides::Grammars
+                            | ExtensionProvides::ContextServers
+                            | ExtensionProvides::AgentServers
+                            | ExtensionProvides::Snippets
+                            | ExtensionProvides::DebugAdapters
+                            | ExtensionProvides::SlashCommands
                             | ExtensionProvides::IndexedDocsProviders => return None,
                             _ => {}
                         }

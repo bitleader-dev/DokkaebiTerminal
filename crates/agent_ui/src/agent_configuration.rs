@@ -483,9 +483,11 @@ impl AgentConfiguration {
                     .pl(DynamicSpacing::Base08.rems(cx))
                     .pr(DynamicSpacing::Base20.rems(cx))
                     .children(
-                        providers.into_iter().map(|provider| {
-                            self.render_provider_configuration_block(&provider, cx)
-                        }),
+                        providers.into_iter()
+                            .filter(|provider| provider.id().0.as_ref() != "zed.dev")
+                            .map(|provider| {
+                                self.render_provider_configuration_block(&provider, cx)
+                            }),
                     ),
             )
     }
@@ -1277,8 +1279,6 @@ impl Render for AgentConfiguration {
                             .size_full()
                             .min_w_0()
                             .overflow_y_scroll()
-                            .child(self.render_agent_servers_section(cx))
-                            .child(self.render_context_servers_section(cx))
                             .child(self.render_provider_configuration_section(cx)),
                     )
                     .vertical_scrollbar_for(&self.scroll_handle, window, cx),

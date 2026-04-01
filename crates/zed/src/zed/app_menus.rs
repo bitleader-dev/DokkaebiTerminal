@@ -68,10 +68,6 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
                 MenuItem::separator(),
                 MenuItem::submenu(Menu::new(t("menu.zed.settings", cx)).items([
                     MenuItem::action(t("menu.zed.settings.open_settings", cx), zed_actions::OpenSettings),
-                    MenuItem::action(t("menu.zed.settings.open_settings_file", cx), super::OpenSettingsFile),
-                    MenuItem::action(t("menu.zed.settings.open_project_settings", cx), zed_actions::OpenProjectSettings),
-                    MenuItem::action(t("menu.zed.settings.open_project_settings_file", cx), super::OpenProjectSettingsFile),
-                    MenuItem::action(t("menu.zed.settings.open_default_settings", cx), super::OpenDefaultSettings),
                     MenuItem::action(
                         t("menu.zed.settings.select_language", cx),
                         zed_actions::locale_selector::Toggle,

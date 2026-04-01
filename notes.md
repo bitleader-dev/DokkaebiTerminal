@@ -1,6 +1,26 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-04-01: 메모장 사이드 패널 기능 추가
+  - `crates/notepad_panel/` 신규 crate 생성 — 오른쪽 도킹 메모장 패널
+  - 상태바 오른쪽 하단 Notepad 아이콘 토글 버튼으로 패널 열기/닫기
+  - Editor 컴포넌트 기반 멀티라인 텍스트 입력, 편집 시 data_dir()/notepad.json에 자동 저장
+  - i18n 적용: ko.json/en.json에 notepad_panel.title, notepad_panel.placeholder 키 추가
+- 2026-04-01: Welcome 화면에서 4개 섹션 삭제 + 텔레메트리 서버 전송 완전 제거
+  - `basics_page.rs`: 설정 가져오기, Vim 모드, 모든 프로젝트 기본 신뢰, 텔레메트리 섹션 및 관련 함수 5개 삭제, 미사용 import 정리
+  - `telemetry/src/telemetry.rs`: `event!()` 매크로를 no-op `( () )`으로 변경, `send_event`/`init` 함수 및 큐 제거
+  - `telemetry/Cargo.toml`: 불필요 의존성 제거 (serde, serde_json, telemetry_events, futures)
+  - `client/src/telemetry.rs`: `report_event()`를 즉시 반환으로 변경, `flush_events_inner()`에서 HTTP POST 전송 코드 제거, `build_request()` 함수 삭제, 이벤트 큐 수신 백그라운드 태스크 제거
+- 2026-04-01: Welcome(온보딩) 화면 전체 한글화 및 i18n 적용
+  - `onboarding/Cargo.toml`: i18n 의존성 추가
+  - `onboarding.rs`: "Welcome to Zed", 태그라인, "Finish Setup" → i18n::t() 호출로 변경
+  - `basics_page.rs`: Theme, Light/Dark/System, Base Keymap, Import Settings, Vim Mode, Trust All Projects, 텔레메트리 문구 등 13개 문자열 → i18n::t() 호출로 변경
+  - `en.json`: onboarding.* 키 16개 추가, welcome.headline 브랜딩 Dokkaebi로 변경
+  - `ko.json`: onboarding.* 키 16개 한글 번역 추가, welcome.headline 브랜딩 Dokkaebi로 변경
+- 2026-04-01: 설정/데이터 디렉토리 폴더명 "Zed"→"Dokkaebi" 변경
+  - `crates/paths/src/paths.rs`: config_dir, data_dir, state_dir, temp_dir, logs_dir 등 12곳의 폴더명 변경
+  - Windows: `%APPDATA%\Dokkaebi`, `%LOCALAPPDATA%\Dokkaebi` / Linux: `dokkaebi` / macOS: `Dokkaebi`
+  - 로그 파일명: `Zed.log` → `Dokkaebi.log`
 - 2026-03-31: 설정 > 창 및 레이아웃 > 제목 표시줄에서 5개 항목 삭제
   - 삭제: 브랜치 아이콘 표시, 브랜치 이름 표시, 프로젝트 항목 표시, 메뉴 표시, 버튼 레이아웃
   - `page_data.rs`: `title_bar_section` 배열 크기 7→2, 관련 코드 제거

@@ -1,48 +1,14 @@
-//! See [Telemetry in Zed](https://zed.dev/docs/telemetry) for additional information.
-use futures::channel::mpsc;
-pub use serde_json;
-use std::sync::OnceLock;
-pub use telemetry_events::FlexibleEvent as Event;
+//! 텔레메트리 모듈 — 서버 전송 비활성화됨.
+//! 매크로 호출은 코드 전체에서 사용되므로 no-op으로 유지한다.
 
-/// Macro to create telemetry events and send them to the telemetry queue.
-///
-/// By convention, the name should be "Noun Verbed", e.g. "Keymap Changed"
-/// or "Project Diagnostics Opened".
-///
-/// The properties can be any value that implements serde::Serialize.
-///
-/// ```
-/// # let url = "https://example.com";
-/// telemetry::event!("Keymap Changed", version = "1.0.0");
-/// telemetry::event!("Documentation Viewed", url, source = "Extension Upsell");
-/// ```
-///
-/// If you want to debug logging in development, export `RUST_LOG=telemetry=trace`
+/// 텔레메트리 이벤트 매크로 (no-op).
+/// 서버 전송이 제거되었으므로 아무 동작도 하지 않는다.
 #[macro_export]
 macro_rules! event {
-    ($name:expr) => {{
-        let event = $crate::Event {
-            event_type: $name.to_string(),
-            event_properties: std::collections::HashMap::new(),
-        };
-        $crate::send_event(event);
-    }};
-    ($name:expr, $($key:ident $(= $value:expr)?),+ $(,)?) => {{
-        let event = $crate::Event {
-            event_type: $name.to_string(),
-            event_properties: std::collections::HashMap::from([
-                $(
-                    (stringify!($key).to_string(),
-                        $crate::serde_json::value::to_value(&$crate::serialize_property!($key $(= $value)?))
-                            .unwrap_or_else(|_| $crate::serde_json::to_value(&()).unwrap())
-                    ),
-                )+
-            ]),
-        };
-        $crate::send_event(event);
-    }};
+    ($($args:tt)*) => { () };
 }
 
+/// 하위 호환성을 위해 유지. 아무 동작도 하지 않는다.
 #[macro_export]
 macro_rules! serialize_property {
     ($key:ident) => {
@@ -52,15 +18,3 @@ macro_rules! serialize_property {
         $value
     };
 }
-
-pub fn send_event(event: Event) {
-    if let Some(queue) = TELEMETRY_QUEUE.get() {
-        queue.unbounded_send(event).ok();
-    }
-}
-
-pub fn init(tx: mpsc::UnboundedSender<Event>) {
-    TELEMETRY_QUEUE.set(tx).ok();
-}
-
-static TELEMETRY_QUEUE: OnceLock<mpsc::UnboundedSender<Event>> = OnceLock::new();

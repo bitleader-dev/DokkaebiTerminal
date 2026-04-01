@@ -1,5 +1,6 @@
 use crate::multibuffer_hint::MultibufferHint;
 use client::{Client, UserStore, zed_urls};
+use i18n::t;
 use db::kvp::KeyValueStore;
 use fs::Fs;
 use gpui::{
@@ -314,11 +315,11 @@ impl Render for Onboarding {
                                             .child(
                                                 v_flex()
                                                     .child(
-                                                        Headline::new("Welcome to Zed")
+                                                        Headline::new(t("welcome.headline.first_time", cx))
                                                             .size(HeadlineSize::Small),
                                                     )
                                                     .child(
-                                                        Label::new("The editor for what's next")
+                                                        Label::new(t("welcome.tagline", cx))
                                                             .color(Color::Muted)
                                                             .size(LabelSize::Small)
                                                             .italic(),
@@ -326,7 +327,7 @@ impl Render for Onboarding {
                                             ),
                                     )
                                     .child({
-                                        Button::new("finish_setup", "Finish Setup")
+                                        Button::new("finish_setup", t("onboarding.finish_setup", cx))
                                             .style(ButtonStyle::Filled)
                                             .size(ButtonSize::Medium)
                                             .width(Rems(12.0))

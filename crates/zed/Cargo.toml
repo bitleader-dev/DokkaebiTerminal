@@ -156,6 +156,7 @@ mimalloc = { version = "0.1", optional = true }
 nc.workspace = true
 node_runtime.workspace = true
 notifications.workspace = true
+notepad_panel.workspace = true
 onboarding.workspace = true
 outline.workspace = true
 outline_panel.workspace = true

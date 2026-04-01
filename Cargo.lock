@@ -10022,6 +10022,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "notepad_panel"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "editor",
+ "gpui",
+ "i18n",
+ "language",
+ "paths",
+ "serde",
+ "serde_json",
+ "settings",
+ "ui",
+ "util",
+ "workspace",
+]
+
+[[package]]
 name = "notifications"
 version = "0.1.0"
 dependencies = [
@@ -10517,6 +10535,7 @@ dependencies = [
  "fs",
  "fuzzy",
  "gpui",
+ "i18n",
  "menu",
  "notifications",
  "picker",
@@ -15669,12 +15688,6 @@ dependencies = [
 [[package]]
 name = "telemetry"
 version = "0.1.0"
-dependencies = [
- "futures 0.3.31",
- "serde",
- "serde_json",
- "telemetry_events",
-]
 
 [[package]]
 name = "telemetry_events"
@@ -20189,6 +20202,7 @@ dependencies = [
  "miniprofiler_ui",
  "nc",
  "node_runtime",
+ "notepad_panel",
  "notifications",
  "onboarding",
  "outline",

@@ -38,7 +38,7 @@ pub use language_core::highlight_map::{HighlightId, HighlightMap};
 
 pub use language_core::{
     BlockCommentConfig, BracketPair, BracketPairConfig, BracketPairContent, BracketsConfig,
-    BracketsPatternConfig, CodeLabel, CodeLabelBuilder, DebugVariablesConfig, DebuggerTextObject,
+    BracketsPatternConfig, CodeLabel, CodeLabelBuilder,
     DecreaseIndentConfig, Grammar, GrammarId, HighlightsConfig, IndentConfig, InjectionConfig,
     InjectionPatternConfig, JsxTagAutoCloseConfig, LanguageConfig, LanguageConfigOverride,
     LanguageId, LanguageMatcher, OrderedListConfig, OutlineConfig, Override, OverrideConfig,
@@ -901,12 +901,6 @@ impl Language {
         })
     }
 
-    pub fn with_debug_variables_query(self, source: &str) -> Result<Self> {
-        self.with_grammar_query_and_name(|grammar, name| {
-            grammar.with_debug_variables_query(source, name)
-        })
-    }
-
     pub fn with_brackets_query(self, source: &str) -> Result<Self> {
         self.with_grammar_query_and_name(|grammar, name| grammar.with_brackets_query(source, name))
     }
@@ -1570,9 +1564,6 @@ pub fn rust_lang() -> Arc<Language> {
         redactions: None,
         runnables: Some(Cow::from(include_str!(
             "../../grammars/src/rust/runnables.scm"
-        ))),
-        debugger: Some(Cow::from(include_str!(
-            "../../grammars/src/rust/debugger.scm"
         ))),
     })
     .expect("Could not parse queries");

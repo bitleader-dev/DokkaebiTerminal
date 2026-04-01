@@ -1,6 +1,5 @@
 use crate::LanguageName;
-use collections::{HashMap, HashSet, IndexSet};
-use gpui::SharedString;
+use collections::{HashMap, HashSet};
 use lsp::LanguageServerName;
 use regex::Regex;
 use schemars::{JsonSchema, SchemaGenerator, json_schema};
@@ -145,9 +144,6 @@ pub struct LanguageConfig {
     /// A list of characters that Zed should treat as word characters for linked edit operations.
     #[serde(default)]
     pub linked_edit_characters: HashSet<char>,
-    /// A list of preferred debuggers for this language.
-    #[serde(default)]
-    pub debuggers: IndexSet<SharedString>,
 }
 
 impl LanguageConfig {
@@ -194,7 +190,6 @@ impl Default for LanguageConfig {
             jsx_tag_auto_close: None,
             completion_query_characters: Default::default(),
             linked_edit_characters: Default::default(),
-            debuggers: Default::default(),
         }
     }
 }

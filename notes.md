@@ -1,6 +1,33 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-04-01: 디버거(DAP) 기능 전체 삭제
+  - 5개 crate 삭제: `dap`, `dap_adapters`, `debug_adapter_extension`, `debugger_tools`, `debugger_ui`
+  - `project/src/debugger/` 모듈 삭제 (breakpoint_store, dap_store, sessions, locators)
+  - 루트 `Cargo.toml`: 5개 workspace members + 6개 dependency 제거
+  - 7개 의존 crate의 `Cargo.toml`에서 dap/debugger 의존성 제거
+  - `zed.rs`/`main.rs`: BreakpointStore/DapStore/debugger_ui 초기화, DebugPanel 로드, DAP 로그 toolbar, open_project_debug_tasks_file 제거
+  - `zed_actions/lib.rs`: debug_panel 모듈, debugger 액션(ToggleEnableBreakpoint, UnsetBreakpoint, OpenProjectDebugTasks) 삭제
+  - `editor.rs`: breakpoint_store/gutter_breakpoint_indicator/show_breakpoints/inline_value_cache 필드, 전체 breakpoint 메서드, 디버거 인라인 값 렌더링 제거
+  - `editor/element.rs`: breakpoint 렌더링, debugger accent 색상, phantom breakpoint 인디케이터 제거
+  - `editor/actions.rs`: RunToCursor, EvaluateSelectedText, ToggleBreakpoint 등 디버거 액션 제거
+  - `editor/editor_tests.rs`: breakpoint 테스트 4개 + 헬퍼 2개 삭제 (~610줄)
+  - `project.rs`: debugger 모듈, dap_store/breakpoint_store 필드, InlayId::DebuggerValue 제거
+  - `project_settings.rs`: DapSettings, DapSettingsContent, DapBinary, LocalSettingsKind::Debug 제거
+  - `workspace.rs`: DebuggerProvider 트레이트/필드, ShutdownDebugAdapters, breakpoint 직렬화/역직렬화 제거
+  - `persistence.rs`: Breakpoint 구조체/쿼리/테스트 제거 (DB 마이그레이션 히스토리 유지)
+  - `settings_ui/page_data.rs`: debugger_page, debugger_panel_section, debugger_section 제거
+  - `settings_content`: DebuggerSettingsContent, SteppingGranularity, DapSettingsContent 제거
+  - `settings/settings_store.rs`: LocalSettingsKind::Debug, InvalidSettingsError::Debug 제거
+  - `language_core/grammar.rs`: DebuggerTextObject, DebugVariablesConfig 제거
+  - `language/language_settings.rs`: debuggers 필드 제거
+  - `language/buffer.rs`: debug_variables_query() 메서드 제거
+  - 테마 파일: debugger_accent, editor_debugger_active_line_background, Color::Debugger 제거
+  - 키맵 5개: 디버거 액션 바인딩, debug_panel 바인딩, debugger context 블록 제거
+  - Extension/WIT: dap.wit 2개 삭제, extension.wit에서 dap 인터페이스 제거, DAP 타입 변환 코드 제거
+  - quick_action_bar.rs: Inline Values 메뉴 항목 제거
+  - i18n: en.json/ko.json에서 디버거/breakpoint/DAP 관련 번역 키 전체 삭제
+  - 7개 파일에서 set_show_breakpoints 호출 제거
 - 2026-04-01: 메모장 사이드 패널 기능 추가
   - `crates/notepad_panel/` 신규 crate 생성 — 오른쪽 도킹 메모장 패널
   - 상태바 오른쪽 하단 Notepad 아이콘 토글 버튼으로 패널 열기/닫기

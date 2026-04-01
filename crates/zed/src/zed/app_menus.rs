@@ -3,7 +3,7 @@ use gpui::{App, Menu, MenuItem, OsAction};
 use i18n::t;
 use release_channel::ReleaseChannel;
 use terminal_view::terminal_panel;
-use zed_actions::{debug_panel, dev};
+use zed_actions::dev;
 
 pub fn app_menus(cx: &mut App) -> Vec<Menu> {
     use zed_actions::Quit;
@@ -45,7 +45,6 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
         MenuItem::action(t("menu.view.outline_panel", cx), outline_panel::ToggleFocus),
 
         MenuItem::action(t("menu.view.terminal_panel", cx), terminal_panel::ToggleFocus),
-        MenuItem::action(t("menu.view.debugger_panel", cx), debug_panel::ToggleFocus),
         MenuItem::separator(),
         MenuItem::action(t("menu.view.diagnostics", cx), diagnostics::Deploy),
         MenuItem::separator(),

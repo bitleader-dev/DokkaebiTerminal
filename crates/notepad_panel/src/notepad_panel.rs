@@ -63,7 +63,6 @@ impl NotepadPanel {
             );
             // 메모장에서 불필요한 거터 요소 비활성화 → 라인 번호를 왼쪽에 밀착
             editor.set_show_runnables(false, cx);
-            editor.set_show_breakpoints(false, cx);
             editor.set_show_code_actions(false, cx);
             editor.set_show_git_diff_gutter(false, cx);
             // 기존 내용 로드

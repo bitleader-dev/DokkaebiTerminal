@@ -144,6 +144,9 @@ pub struct SettingsContent {
     /// The settings for the image viewer.
     pub image_viewer: Option<ImageViewerSettingsContent>,
 
+    /// 배경화면 설정
+    pub wallpaper: Option<WallpaperSettingsContent>,
+
     pub repl: Option<ReplSettingsContent>,
 
     /// Whether or not to enable Helix mode.
@@ -947,6 +950,93 @@ pub enum ImageFileSizeUnit {
     Binary,
     /// Displays file size in decimal units (e.g., KB, MB).
     Decimal,
+}
+
+/// 배경화면 설정
+#[with_fallible_options]
+#[derive(Clone, Debug, Serialize, Deserialize, JsonSchema, MergeFrom, Default, PartialEq)]
+pub struct WallpaperSettingsContent {
+    /// 배경화면 활성화 여부
+    ///
+    /// Default: false
+    pub enabled: Option<bool>,
+
+    /// 배경 이미지 파일 경로
+    pub image_path: Option<String>,
+
+    /// 이미지 맞춤 방식
+    ///
+    /// Default: "cover"
+    pub object_fit: Option<WallpaperFitContent>,
+
+    /// 에디터/터미널 배경 불투명도 (0.0 ~ 1.0)
+    /// 값이 낮을수록 배경 이미지가 더 잘 보입니다.
+    ///
+    /// Default: 0.85
+    pub opacity: Option<WallpaperOpacity>,
+}
+
+/// 배경화면 불투명도 (0.0 ~ 1.0)
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    MergeFrom,
+    PartialEq,
+    PartialOrd,
+    derive_more::FromStr,
+)]
+#[serde(transparent)]
+pub struct WallpaperOpacity(
+    #[serde(serialize_with = "serialize_f32_with_two_decimal_places")] pub f32,
+);
+
+impl Default for WallpaperOpacity {
+    fn default() -> Self {
+        Self(0.85)
+    }
+}
+
+impl std::fmt::Display for WallpaperOpacity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:.2}", self.0)
+    }
+}
+
+impl From<f32> for WallpaperOpacity {
+    fn from(x: f32) -> Self {
+        Self(x)
+    }
+}
+
+#[with_fallible_options]
+#[derive(
+    Clone,
+    Copy,
+    Debug,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    MergeFrom,
+    Default,
+    PartialEq,
+    strum::VariantArray,
+    strum::VariantNames,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum WallpaperFitContent {
+    /// 이미지를 영역에 맞춰 채움 (잘릴 수 있음)
+    #[default]
+    Cover,
+    /// 이미지를 영역 안에 맞춤 (여백이 생길 수 있음)
+    Contain,
+    /// 이미지를 영역에 맞춰 늘림 (비율이 변할 수 있음)
+    Fill,
+    /// 이미지를 원본 크기로 가운데 배치
+    None,
 }
 
 #[with_fallible_options]

@@ -1,7 +1,10 @@
 use feature_flags::{AgentV2FeatureFlag, FeatureFlagAppExt as _};
-use gpui::{Action as _, App};
+use gpui::{Action as _, App, PathPromptOptions, ReadGlobal as _};
 use itertools::Itertools as _;
-use settings::{LanguageSettingsContent, SemanticTokens, SettingsContent};
+use settings::{
+    LanguageSettingsContent, SemanticTokens, SettingsContent, SettingsStore,
+    WallpaperFitContent, WallpaperOpacity,
+};
 use std::sync::{Arc, OnceLock};
 use strum::{EnumMessage, IntoDiscriminant as _, VariantArray};
 use ui::IntoElement;
@@ -67,6 +70,7 @@ pub(crate) fn settings_data(cx: &App) -> Vec<SettingsPage> {
         version_control_page(),
 
         ai_page(cx),
+        wallpaper_page(),
     ]
 }
 
@@ -6824,6 +6828,132 @@ fn ai_page(cx: &App) -> SettingsPage {
             edit_prediction_language_settings_section(),
             edit_prediction_display_sub_section()
         ],
+    }
+}
+
+fn wallpaper_page() -> SettingsPage {
+    // wallpaper 섹션이 없을 때 사용할 기본값
+    static DEFAULT_ENABLED: bool = false;
+    static DEFAULT_OBJECT_FIT: WallpaperFitContent = WallpaperFitContent::Cover;
+    static DEFAULT_OPACITY: WallpaperOpacity = WallpaperOpacity(0.85);
+
+    SettingsPage {
+        title: "Wallpaper",
+        items: vec![
+            SettingsPageItem::SectionHeader("Wallpaper"),
+            // 배경화면 활성화 토글
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "Enable Wallpaper",
+                description: "Display a background image in the workspace.",
+                field: Box::new(SettingField {
+                    json_path: Some("wallpaper.enabled"),
+                    pick: |settings_content| {
+                        Some(
+                            settings_content
+                                .wallpaper
+                                .as_ref()
+                                .and_then(|w| w.enabled.as_ref())
+                                .unwrap_or(&DEFAULT_ENABLED),
+                        )
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .wallpaper
+                            .get_or_insert_default()
+                            .enabled = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            // 이미지 파일 선택 다이얼로그
+            SettingsPageItem::ActionLink(ActionLink {
+                title: "Image Path".into(),
+                description: Some("Select a background image file.".into()),
+                button_text: "Browse".into(),
+                on_click: Arc::new(|_settings_window, window, cx| {
+                    let receiver = cx.prompt_for_paths(PathPromptOptions {
+                        files: true,
+                        directories: false,
+                        multiple: false,
+                        prompt: None,
+                    });
+                    window
+                        .spawn(cx, async move |mut cx| {
+                            if let Ok(Ok(Some(paths))) = receiver.await {
+                                if let Some(path) = paths.first() {
+                                    let path_str = path.to_string_lossy().to_string();
+                                    cx.update(|_window, cx| {
+                                        SettingsStore::global(cx).update_settings_file(
+                                            <dyn fs::Fs>::global(cx),
+                                            move |settings, _cx| {
+                                                settings
+                                                    .wallpaper
+                                                    .get_or_insert_default()
+                                                    .image_path = Some(path_str);
+                                            },
+                                        );
+                                    })
+                                    .ok();
+                                }
+                            }
+                        })
+                        .detach();
+                }),
+                files: USER,
+            }),
+            // 맞춤 방식 드롭다운
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "Object Fit",
+                description: "How the background image is sized to fit the workspace.",
+                field: Box::new(SettingField {
+                    json_path: Some("wallpaper.object_fit"),
+                    pick: |settings_content| {
+                        Some(
+                            settings_content
+                                .wallpaper
+                                .as_ref()
+                                .and_then(|w| w.object_fit.as_ref())
+                                .unwrap_or(&DEFAULT_OBJECT_FIT),
+                        )
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .wallpaper
+                            .get_or_insert_default()
+                            .object_fit = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            // 배경 불투명도 스테퍼
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "Background Opacity",
+                description: "Opacity of editor and terminal backgrounds when wallpaper is enabled. Lower values make the wallpaper more visible.",
+                field: Box::new(SettingField {
+                    json_path: Some("wallpaper.opacity"),
+                    pick: |settings_content| {
+                        Some(
+                            settings_content
+                                .wallpaper
+                                .as_ref()
+                                .and_then(|w| w.opacity.as_ref())
+                                .unwrap_or(&DEFAULT_OPACITY),
+                        )
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .wallpaper
+                            .get_or_insert_default()
+                            .opacity = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+        ]
+        .into_boxed_slice(),
     }
 }
 

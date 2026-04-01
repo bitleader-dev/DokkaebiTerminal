@@ -30,7 +30,7 @@ use theme_settings::ThemeSettings;
 use ui::utils::ensure_minimum_contrast;
 use ui::{ParentElement, Tooltip};
 use util::ResultExt;
-use workspace::Workspace;
+use workspace::{WallpaperSettings, Workspace};
 
 use std::mem;
 use std::{fmt::Debug, ops::RangeInclusive, rc::Rc};
@@ -1244,7 +1244,14 @@ impl Element for TerminalElement {
         window.with_content_mask(Some(ContentMask { bounds }), |window| {
             let scroll_top = self.terminal_view.read(cx).scroll_top;
 
-            window.paint_quad(fill(bounds, layout.background_color));
+            // 배경화면 활성화 시 배경색에 알파 적용
+            let wallpaper = WallpaperSettings::get_global(cx);
+            let bg_color = if wallpaper.enabled {
+                layout.background_color.opacity(wallpaper.opacity)
+            } else {
+                layout.background_color
+            };
+            window.paint_quad(fill(bounds, bg_color));
             let origin =
                 bounds.origin + Point::new(layout.gutter, px(0.)) - Point::new(px(0.), scroll_top);
 

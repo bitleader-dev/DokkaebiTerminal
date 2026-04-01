@@ -1013,5 +1013,20 @@
   "Show Edit Predictions": "Show Edit Predictions",
   "Controls whether edit predictions are shown immediately or manually.": "Controls whether edit predictions are shown immediately or manually.",
   "Disable in Language Scopes": "Disable in Language Scopes",
-  "Controls whether edit predictions are shown in the given language scopes.": "Controls whether edit predictions are shown in the given language scopes."
+  "Controls whether edit predictions are shown in the given language scopes.": "Controls whether edit predictions are shown in the given language scopes.",
+
+  "Wallpaper": "Wallpaper",
+  "Enable Wallpaper": "Enable Wallpaper",
+  "Display a background image in the workspace.": "Display a background image in the workspace.",
+  "Image Path": "Image Path",
+  "Select a background image file.": "Select a background image file.",
+  "Browse": "Browse",
+  "Object Fit": "Object Fit",
+  "How the background image is sized to fit the workspace.": "How the background image is sized to fit the workspace.",
+  "Background Opacity": "Background Opacity",
+  "Opacity of editor and terminal backgrounds when wallpaper is enabled. Lower values make the wallpaper more visible.": "Opacity of editor and terminal backgrounds when wallpaper is enabled. Lower values make the wallpaper more visible.",
+  "Cover": "Cover",
+  "Contain": "Contain",
+  "Fill": "Fill",
+  "None": "None"
 }

@@ -60,9 +60,10 @@ use gpui::{
     Action, AnyEntity, AnyView, AnyWeakView, App, AsyncApp, AsyncWindowContext, Axis, Bounds,
     Context, CursorStyle, Decorations, DragMoveEvent, Entity, EntityId, EventEmitter, FocusHandle,
     Focusable, Global, HitboxBehavior, Hsla, KeyContext, Keystroke, ManagedView, MouseButton,
-    PathPromptOptions, Point, PromptLevel, Render, ResizeEdge, Size, Stateful, Subscription,
-    SystemWindowTabController, Task, Tiling, WeakEntity, WindowBounds, WindowHandle, WindowId,
-    WindowOptions, actions, canvas, point, relative, size, transparent_black,
+    ObjectFit, PathPromptOptions, Point, PromptLevel, Render, ResizeEdge, Size, Stateful,
+    StyledImage as _, Subscription, SystemWindowTabController, Task, Tiling, WeakEntity,
+    WindowBounds, WindowHandle, WindowId, WindowOptions, actions, canvas, img, point, relative,
+    size, transparent_black,
 };
 pub use history_manager::*;
 pub use item::{
@@ -150,7 +151,7 @@ use util::{
 use uuid::Uuid;
 pub use workspace_settings::{
     AutosaveSetting, BottomDockLayout, RestoreOnStartupBehavior, StatusBarSettings, TabBarSettings,
-    WorkspaceSettings,
+    WallpaperSettings, WorkspaceSettings,
 };
 use zed_actions::{Spawn, feedback::FileBugReport, theme::ToggleMode};
 
@@ -8274,6 +8275,31 @@ impl Render for Workspace {
                                     .absolute()
                                     .size_full()
                                 })
+                                // 배경화면 이미지 레이어 (콘텐츠 뒤에 배치)
+                                .when_some(
+                                    {
+                                        let ws = WallpaperSettings::get_global(cx);
+                                        if ws.enabled {
+                                            ws.image_path.clone()
+                                        } else {
+                                            None
+                                        }
+                                    },
+                                    |this, path| {
+                                        let fit = WallpaperSettings::get_global(cx).object_fit;
+                                        this.child(
+                                            img(path)
+                                                .absolute()
+                                                .top_0()
+                                                .left_0()
+                                                .size_full()
+                                                .object_fit(fit)
+                                                .with_fallback(|| {
+                                                    gpui::div().size_0().into_any_element()
+                                                }),
+                                        )
+                                    },
+                                )
                                 .when(self.zoomed.is_none(), |this| {
                                     this.on_drag_move(cx.listener(
                                         move |workspace,

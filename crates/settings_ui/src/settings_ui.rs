@@ -525,6 +525,8 @@ fn init_renderers(cx: &mut App) {
         .add_basic_renderer::<settings::NotifyWhenAgentWaiting>(render_dropdown)
         .add_basic_renderer::<settings::NewThreadLocation>(render_dropdown)
         .add_basic_renderer::<settings::ImageFileSizeUnit>(render_dropdown)
+        .add_basic_renderer::<settings::WallpaperFitContent>(render_dropdown)
+        .add_basic_renderer::<settings::WallpaperOpacity>(render_number_field)
         .add_basic_renderer::<settings::StatusStyle>(render_dropdown)
         .add_basic_renderer::<settings::EncodingDisplayOptions>(render_dropdown)
         .add_basic_renderer::<settings::PaneSplitDirectionHorizontal>(render_dropdown)

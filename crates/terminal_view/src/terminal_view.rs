@@ -54,7 +54,7 @@ use i18n::t;
 use util::ResultExt;
 use workspace::{
     CloseActiveItem, DraggedSelection, DraggedTab, NewCenterTerminal, NewTerminal, Pane,
-    ToolbarItemLocation, Workspace, WorkspaceId, delete_unloaded_items,
+    ToolbarItemLocation, WallpaperSettings, Workspace, WorkspaceId, delete_unloaded_items,
     item::{
         HighlightedText, Item, ItemEvent, SerializableItem, TabContentParams, TabTooltipContent,
     },
@@ -1283,7 +1283,15 @@ impl Render for TerminalView {
                 div()
                     .id("terminal-view-container")
                     .size_full()
-                    .bg(cx.theme().colors().editor_background)
+                    .bg({
+                        let bg = cx.theme().colors().editor_background;
+                        let wallpaper = WallpaperSettings::get_global(cx);
+                        if wallpaper.enabled {
+                            bg.opacity(wallpaper.opacity)
+                        } else {
+                            bg
+                        }
+                    })
                     .child(TerminalElement::new(
                         terminal_handle,
                         terminal_view_handle,

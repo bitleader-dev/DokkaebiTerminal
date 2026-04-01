@@ -94,7 +94,7 @@ use util::post_inc;
 use util::{RangeExt, ResultExt, debug_panic};
 use workspace::{
     CollaboratorId, ItemHandle, ItemSettings, OpenInTerminal, OpenTerminal, RevealInProjectPanel,
-    Workspace,
+    WallpaperSettings, Workspace,
     item::{Item, ItemBufferKind},
 };
 
@@ -5728,11 +5728,22 @@ impl EditorElement {
     fn paint_background(&self, layout: &EditorLayout, window: &mut Window, cx: &mut App) {
         window.paint_layer(layout.hitbox.bounds, |window| {
             let scroll_top = layout.position_map.snapshot.scroll_position().y;
-            let gutter_bg = cx.theme().colors().editor_gutter_background;
+            // 배경화면 활성화 시 배경색에 알파 적용
+            let wallpaper = WallpaperSettings::get_global(cx);
+            let gutter_bg = if wallpaper.enabled {
+                cx.theme().colors().editor_gutter_background.opacity(wallpaper.opacity)
+            } else {
+                cx.theme().colors().editor_gutter_background
+            };
+            let text_bg = if wallpaper.enabled {
+                self.style.background.opacity(wallpaper.opacity)
+            } else {
+                self.style.background
+            };
             window.paint_quad(fill(layout.gutter_hitbox.bounds, gutter_bg));
             window.paint_quad(fill(
                 layout.position_map.text_hitbox.bounds,
-                self.style.background,
+                text_bg,
             ));
 
             if matches!(

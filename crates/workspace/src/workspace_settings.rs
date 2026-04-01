@@ -1,8 +1,11 @@
 use std::num::NonZeroUsize;
+use std::path::PathBuf;
 
 use crate::DockPosition;
 use collections::HashMap;
+use gpui::ObjectFit;
 use serde::Deserialize;
+use settings::settings_content::WallpaperFitContent;
 pub use settings::{
     AutosaveSetting, BottomDockLayout, EncodingDisplayOptions, InactiveOpacity,
     PaneSplitDirectionHorizontal, PaneSplitDirectionVertical, RegisterSetting,
@@ -150,5 +153,44 @@ impl Settings for StatusBarSettings {
             line_endings_button: status_bar.line_endings_button.unwrap(),
             active_encoding_button: status_bar.active_encoding_button.unwrap(),
         }
+    }
+}
+
+/// 배경화면 설정
+#[derive(Clone, Debug, RegisterSetting)]
+pub struct WallpaperSettings {
+    pub enabled: bool,
+    pub image_path: Option<PathBuf>,
+    pub object_fit: ObjectFit,
+    pub opacity: f32,
+}
+
+impl Settings for WallpaperSettings {
+    fn from_settings(content: &settings::SettingsContent) -> Self {
+        let wallpaper = content.wallpaper.clone().unwrap_or_default();
+        Self {
+            enabled: wallpaper.enabled.unwrap_or(false),
+            image_path: wallpaper.image_path.map(PathBuf::from),
+            object_fit: wallpaper
+                .object_fit
+                .map(WallpaperFit::from)
+                .map(|f| f.0)
+                .unwrap_or(ObjectFit::Cover),
+            opacity: wallpaper.opacity.unwrap_or_default().0.clamp(0.0, 1.0),
+        }
+    }
+}
+
+/// WallpaperFitContent → ObjectFit 변환 래퍼
+struct WallpaperFit(ObjectFit);
+
+impl From<WallpaperFitContent> for WallpaperFit {
+    fn from(fit: WallpaperFitContent) -> Self {
+        WallpaperFit(match fit {
+            WallpaperFitContent::Cover => ObjectFit::Cover,
+            WallpaperFitContent::Contain => ObjectFit::Contain,
+            WallpaperFitContent::Fill => ObjectFit::Fill,
+            WallpaperFitContent::None => ObjectFit::None,
+        })
     }
 }

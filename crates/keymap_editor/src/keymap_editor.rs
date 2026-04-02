@@ -96,25 +96,55 @@ pub fn init(cx: &mut App) {
         window: &mut Window,
         cx: &mut Context<Workspace>,
     ) {
-        let existing = workspace
-            .active_pane()
-            .read(cx)
-            .items()
-            .find_map(|item| item.downcast::<KeymapEditor>());
+        // 현재 워크스페이스 그룹의 모든 패인에서 검색
+        let existing_in_current = workspace
+            .panes()
+            .iter()
+            .find_map(|pane| {
+                pane.read(cx)
+                    .items()
+                    .find_map(|item| item.downcast::<KeymapEditor>())
+            });
 
-        let keymap_editor = if let Some(existing) = existing {
+        let keymap_editor = if let Some(existing) = existing_in_current {
             workspace.activate_item(&existing, true, true, window, cx);
             existing
         } else {
-            let keymap_editor = cx.new(|cx| KeymapEditor::new(workspace.weak_handle(), window, cx));
-            workspace.add_item_to_active_pane(
-                Box::new(keymap_editor.clone()),
-                None,
-                true,
-                window,
-                cx,
-            );
-            keymap_editor
+            // 다른 워크스페이스 그룹에서 검색
+            let active_idx = workspace.active_group_index();
+            let found_group = workspace
+                .workspace_groups()
+                .iter()
+                .enumerate()
+                .find_map(|(i, group)| {
+                    if i == active_idx {
+                        return None;
+                    }
+                    group.panes.iter().find_map(|pane| {
+                        pane.read(cx)
+                            .items()
+                            .find_map(|item| item.downcast::<KeymapEditor>())
+                            .map(|editor| (i, editor))
+                    })
+                });
+
+            if let Some((group_index, existing)) = found_group {
+                // 해당 워크스페이스 그룹으로 전환 후 활성화
+                workspace.switch_workspace_group(group_index, window, cx);
+                workspace.activate_item(&existing, true, true, window, cx);
+                existing
+            } else {
+                let keymap_editor =
+                    cx.new(|cx| KeymapEditor::new(workspace.weak_handle(), window, cx));
+                workspace.add_item_to_active_pane(
+                    Box::new(keymap_editor.clone()),
+                    None,
+                    true,
+                    window,
+                    cx,
+                );
+                keymap_editor
+            }
         };
 
         if let Some(filter) = filter {

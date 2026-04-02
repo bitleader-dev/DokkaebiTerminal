@@ -197,7 +197,11 @@ pub fn init(cx: &mut App) {
         });
     })
     .on_action(|&zed_actions::OpenKeymapFile, cx| {
-        with_active_or_new_workspace(cx, |_, window, cx| {
+        with_active_or_new_workspace(cx, |workspace, window, cx| {
+            // 다른 워크스페이스 그룹에서 이미 열려 있으면 해당 그룹으로 전환
+            if activate_file_across_groups(workspace, paths::keymap_file(), window, cx) {
+                return;
+            }
             open_settings_file(
                 paths::keymap_file(),
                 || settings::initial_keymap_content().as_ref().into(),
@@ -2049,6 +2053,58 @@ fn open_bundled_file(
             .await
     })
     .detach_and_log_err(cx);
+}
+
+/// 모든 워크스페이스 그룹에서 해당 절대 경로의 파일이 열려 있는지 찾아,
+/// 있으면 해당 그룹으로 전환하고 아이템을 활성화한다.
+fn activate_file_across_groups(
+    workspace: &mut Workspace,
+    abs_path: &Path,
+    window: &mut Window,
+    cx: &mut Context<Workspace>,
+) -> bool {
+    let project = workspace.project().clone();
+
+    // 현재 워크스페이스 그룹의 모든 패인에서 검색
+    let found_in_current = workspace.panes().iter().find_map(|pane| {
+        pane.read(cx).items().find_map(|item| {
+            let project_path = item.project_path(cx)?;
+            let item_abs_path = project.read(cx).absolute_path(&project_path, cx)?;
+            (item_abs_path == abs_path).then(|| item.boxed_clone())
+        })
+    });
+
+    if let Some(item) = found_in_current {
+        workspace.activate_item(item.as_ref(), true, true, window, cx);
+        return true;
+    }
+
+    // 다른 워크스페이스 그룹에서 검색
+    let active_idx = workspace.active_group_index();
+    let found = workspace
+        .workspace_groups()
+        .iter()
+        .enumerate()
+        .find_map(|(i, group)| {
+            if i == active_idx {
+                return None;
+            }
+            group.panes.iter().find_map(|pane| {
+                pane.read(cx).items().find_map(|item| {
+                    let project_path = item.project_path(cx)?;
+                    let item_abs_path = project.read(cx).absolute_path(&project_path, cx)?;
+                    (item_abs_path == abs_path).then(|| (i, item.boxed_clone()))
+                })
+            })
+        });
+
+    if let Some((group_index, item)) = found {
+        workspace.switch_workspace_group(group_index, window, cx);
+        workspace.activate_item(item.as_ref(), true, true, window, cx);
+        return true;
+    }
+
+    false
 }
 
 fn open_settings_file(

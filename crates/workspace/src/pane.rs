@@ -1,5 +1,6 @@
 use crate::{
     CloseWindow, NewFile, NewTerminal, OpenInTerminal, OpenOptions, OpenTerminal, OpenVisible,
+    Save as WorkspaceSave, SaveAs,
     SplitDirection, ToggleFileFinder, ToggleProjectSymbols, ToggleZoom, Workspace,
     WorkspaceItemBuilder, ZoomIn, ZoomOut,
     invalid_item_view::InvalidItemView,
@@ -3207,6 +3208,35 @@ impl Pane {
                                 }),
                             );
                         }
+
+                        // 저장 메뉴 추가
+                        let label_save = t("pane.menu.save", cx);
+                        let label_save_as = t("pane.menu.save_as", cx);
+                        let save_action = WorkspaceSave { save_intent: None };
+                        let save_as_action = SaveAs;
+                        menu = menu
+                            .entry(
+                                label_save,
+                                Some(Box::new(save_action.clone())),
+                                window.handler_for(&pane, move |pane, window, cx| {
+                                    pane.focus_handle(cx).dispatch_action(
+                                        &save_action,
+                                        window,
+                                        cx,
+                                    );
+                                }),
+                            )
+                            .entry(
+                                label_save_as,
+                                Some(Box::new(save_as_action.clone())),
+                                window.handler_for(&pane, move |pane, window, cx| {
+                                    pane.focus_handle(cx).dispatch_action(
+                                        &save_as_action,
+                                        window,
+                                        cx,
+                                    );
+                                }),
+                            );
 
                         if let Some(entry) = single_entry_to_resolve {
                             let project_path = pane

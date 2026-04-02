@@ -5,7 +5,7 @@ use settings::{
     LanguageSettingsContent, SemanticTokens, SettingsContent, SettingsStore,
     WallpaperFitContent, WallpaperOpacity,
 };
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use strum::{EnumMessage, IntoDiscriminant as _, VariantArray};
 use ui::IntoElement;
 
@@ -8280,18 +8280,7 @@ fn non_editor_language_settings_data() -> Box<[SettingsPageItem]> {
             }),
             SettingsPageItem::SettingItem(SettingItem {
                 title: "Semantic Tokens",
-                description: {
-                    static DESCRIPTION: OnceLock<&'static str> = OnceLock::new();
-                    DESCRIPTION.get_or_init(|| {
-                        SemanticTokens::VARIANTS
-                            .iter()
-                            .filter_map(|v| {
-                                v.get_documentation().map(|doc| format!("{v:?}: {doc}"))
-                            })
-                            .join("\n")
-                            .leak()
-                    })
-                },
+                description: "settings_page.language.semantic_tokens.description",
                 field: Box::new(SettingField {
                     json_path: Some("languages.$(language).semantic_tokens"),
                     pick: |settings_content| {

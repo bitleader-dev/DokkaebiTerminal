@@ -5330,8 +5330,16 @@ impl Workspace {
         new_center.set_is_center(true);
         new_center.mark_positions(cx);
 
-        let group_index = self.workspace_groups.len();
-        let group_name = format!("{} {}", t("workspace_group.default_name", cx), group_index + 1);
+        // 기존 이름과 중복되지 않는 번호를 찾아서 이름 생성
+        let default_prefix = t("workspace_group.default_name", cx);
+        let mut next_number = self.workspace_groups.len() + 1;
+        let group_name = loop {
+            let candidate = format!("{} {}", default_prefix, next_number);
+            if !self.workspace_groups.iter().any(|g| g.name == candidate) {
+                break candidate;
+            }
+            next_number += 1;
+        };
 
         // 새 그룹 상태 추가
         let new_group = WorkspaceGroupState {
@@ -5350,7 +5358,7 @@ impl Workspace {
         self.active_pane = new_pane.clone();
         self.last_active_center_pane = Some(new_pane.downgrade());
         self.panes_by_item = HashMap::default();
-        self.active_group_index = group_index;
+        self.active_group_index = self.workspace_groups.len() - 1;
 
         // 포커스 이동
         window.focus(&new_pane.focus_handle(cx), cx);

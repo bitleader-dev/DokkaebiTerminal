@@ -740,16 +740,21 @@ impl ProjectPanel {
                     project::Event::WorktreeUpdatedEntries(_, _)
                     | project::Event::WorktreeAdded(_)
                     | project::Event::WorktreeOrderChanged => {
-                        // worktree가 추가되면 패널 열기 (spawn으로 이중 업데이트 방지)
-                        if matches!(event, project::Event::WorktreeAdded(_)) {
-                            let workspace = this.workspace.clone();
-                            cx.spawn_in(window, async move |_, cx| {
-                                if let Some(workspace) = workspace.upgrade() {
-                                    let _ = workspace.update_in(cx, |workspace, window, cx| {
-                                        workspace.open_panel::<ProjectPanel>(window, cx);
-                                    });
-                                }
-                            }).detach();
+                        // visible worktree가 추가되면 패널 열기 (invisible worktree는 무시)
+                        if let project::Event::WorktreeAdded(worktree_id) = event {
+                            let is_visible = project.read(cx)
+                                .worktree_for_id(*worktree_id, cx)
+                                .map_or(false, |wt| wt.read(cx).is_visible());
+                            if is_visible {
+                                let workspace = this.workspace.clone();
+                                cx.spawn_in(window, async move |_, cx| {
+                                    if let Some(workspace) = workspace.upgrade() {
+                                        let _ = workspace.update_in(cx, |workspace, window, cx| {
+                                            workspace.open_panel::<ProjectPanel>(window, cx);
+                                        });
+                                    }
+                                }).detach();
+                            }
                         }
                         this.update_visible_entries(None, false, false, window, cx);
                         cx.notify();

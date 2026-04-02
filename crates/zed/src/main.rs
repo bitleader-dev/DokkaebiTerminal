@@ -1424,19 +1424,13 @@ pub(crate) async fn restore_or_create_workspace(
                 app_state,
                 cx,
                 |workspace, window, cx| {
-                    let restore_on_startup = WorkspaceSettings::get_global(cx).restore_on_startup;
-                    match restore_on_startup {
-                        workspace::RestoreOnStartupBehavior::Launchpad => {}
-                        _ => {
-                            // 빈 untitled 탭 대신 센터 터미널을 연다
-                            terminal_view::TerminalView::deploy(
-                                workspace,
-                                &workspace::NewCenterTerminal { local: false },
-                                window,
-                                cx,
-                            );
-                        }
-                    }
+                    // 빈 untitled 탭 대신 센터 터미널을 연다
+                    terminal_view::TerminalView::deploy(
+                        workspace,
+                        &workspace::NewCenterTerminal { local: false },
+                        window,
+                        cx,
+                    );
                 },
             )
         })

@@ -10,8 +10,8 @@ use gpui::{
     Corner, Corners, CursorStyle, DispatchPhase, Div, Edges, Element, ElementId, Entity, EntityId,
     GlobalElementId, Hitbox, HitboxBehavior, Hsla, InteractiveElement, IntoElement, IsZero,
     LayoutId, ListState, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent, ParentElement,
-    Pixels, Point, Position, Render, ScrollHandle, ScrollWheelEvent, Size, Stateful,
-    StatefulInteractiveElement, Style, Styled, Task, UniformListDecoration,
+    Pixels, Point, Position, Render, ScrollHandle, ScrollWheelEvent, SharedString, Size, Stateful,
+    StatefulInteractiveElement, Style, Styled, Task, TransformationMatrix, UniformListDecoration,
     UniformListScrollHandle, Window, ease_in_out, prelude::FluentBuilder as _, px, quad, relative,
     size,
 };
@@ -388,6 +388,8 @@ pub struct Scrollbars<T: ScrollableHandle = ScrollHandle> {
     visibility: Point<ReservedSpace>,
     track_color: Option<Hsla>,
     scrollbar_width: ScrollbarWidth,
+    /// 스크롤이 최하단이 아닐 때 "맨 아래로 스크롤" 버튼 표시 여부
+    scroll_to_bottom_button: bool,
 }
 
 impl Scrollbars {
@@ -414,6 +416,7 @@ impl Scrollbars {
             visibility: show_along.apply_to(Default::default(), ReservedSpace::Thumb),
             track_color: None,
             scrollbar_width: ScrollbarWidth::Normal,
+            scroll_to_bottom_button: false,
         }
     }
 }
@@ -454,6 +457,7 @@ impl<ScrollHandle: ScrollableHandle> Scrollbars<ScrollHandle> {
             visibility,
             get_visibility,
             track_color,
+            scroll_to_bottom_button,
             ..
         } = self;
 
@@ -465,6 +469,7 @@ impl<ScrollHandle: ScrollableHandle> Scrollbars<ScrollHandle> {
             scrollbar_width,
             track_color,
             get_visibility,
+            scroll_to_bottom_button,
         }
     }
 
@@ -486,6 +491,12 @@ impl<ScrollHandle: ScrollableHandle> Scrollbars<ScrollHandle> {
 
     pub fn width_xs(mut self) -> Self {
         self.scrollbar_width = ScrollbarWidth::XSmall;
+        self
+    }
+
+    /// 스크롤이 최하단이 아닐 때 "맨 아래로 스크롤" 버튼을 표시한다.
+    pub fn with_scroll_to_bottom_button(mut self) -> Self {
+        self.scroll_to_bottom_button = true;
         self
     }
 }
@@ -608,6 +619,8 @@ struct ScrollbarState<T: ScrollableHandle = ScrollHandle> {
     mouse_in_parent: bool,
     last_prepaint_state: Option<ScrollbarPrepaintState>,
     _auto_hide_task: Option<Task<()>>,
+    /// 맨 아래로 스크롤 버튼 표시 여부
+    scroll_to_bottom_button: bool,
 }
 
 impl<T: ScrollableHandle> ScrollbarState<T> {
@@ -640,6 +653,7 @@ impl<T: ScrollableHandle> ScrollbarState<T> {
             mouse_in_parent: true,
             last_prepaint_state: None,
             _auto_hide_task: None,
+            scroll_to_bottom_button: config.scroll_to_bottom_button,
         }
     }
 
@@ -986,6 +1000,16 @@ pub trait ScrollableHandle: 'static + Any + Sized + Clone {
     fn content_size(&self) -> Size<Pixels> {
         self.viewport().size + self.max_offset().into()
     }
+    /// 수직 스크롤이 최하단에 있는지 확인
+    fn is_at_bottom(&self) -> bool {
+        let max_y = self.max_offset().y;
+        if max_y <= Pixels::ZERO {
+            return true;
+        }
+        let current_y = self.offset().y.abs();
+        // 1px 이내면 최하단으로 간주
+        (max_y - current_y) < px(1.)
+    }
 }
 
 enum ScrollbarMouseEvent {
@@ -1059,6 +1083,8 @@ impl PartialEq for ScrollbarLayout {
 pub struct ScrollbarPrepaintState {
     parent_bounds_hitbox: Hitbox,
     thumbs: SmallVec<[ScrollbarLayout; 2]>,
+    /// 맨 아래로 스크롤 버튼 영역 및 hitbox
+    scroll_to_bottom: Option<(Bounds<Pixels>, Hitbox)>,
 }
 
 impl ScrollbarPrepaintState {
@@ -1082,6 +1108,8 @@ impl ScrollbarPrepaintState {
 impl PartialEq for ScrollbarPrepaintState {
     fn eq(&self, other: &Self) -> bool {
         self.thumbs == other.thumbs
+            && self.scroll_to_bottom.as_ref().map(|(b, _)| *b)
+                == other.scroll_to_bottom.as_ref().map(|(b, _)| *b)
     }
 }
 
@@ -1209,6 +1237,31 @@ impl<T: ScrollableHandle> Element for ScrollbarElement<T> {
                         .collect()
                 },
                 parent_bounds_hitbox: window.insert_hitbox(bounds, HitboxBehavior::Normal),
+                scroll_to_bottom: {
+                    let state = self.state.read(cx);
+                    if state.scroll_to_bottom_button && !state.scroll_handle().is_at_bottom() {
+                        // 버튼 크기 24x24, 스크롤바 왼쪽 하단에 배치
+                        let button_size = px(24.);
+                        let margin = px(4.);
+                        // 수직 스크롤바 영역의 왼쪽에 배치
+                        let scrollbar_reserved = state.width.to_pixels() + SCROLLBAR_PADDING * 2.;
+                        let button_origin = Point::new(
+                            bounds.origin.x + bounds.size.width - scrollbar_reserved - button_size - margin,
+                            bounds.origin.y + bounds.size.height - button_size - margin,
+                        );
+                        let button_bounds = Bounds::new(
+                            button_origin,
+                            size(button_size, button_size),
+                        );
+                        let hitbox = window.insert_hitbox(
+                            button_bounds,
+                            HitboxBehavior::BlockMouseExceptScroll,
+                        );
+                        Some((button_bounds, hitbox))
+                    } else {
+                        None
+                    }
+                },
             });
         if prepaint_state
             .as_ref()
@@ -1344,8 +1397,80 @@ impl<T: ScrollableHandle> Element for ScrollbarElement<T> {
                 capture_phase = DispatchPhase::Bubble;
             }
 
+            // 맨 아래로 스크롤 버튼 렌더링
+            if let Some((button_bounds, ref button_hitbox)) = prepaint_state.scroll_to_bottom {
+                let is_hovered = button_hitbox.is_hovered(window);
+                let bg_color = if is_hovered {
+                    colors.element_hover
+                } else {
+                    colors.element_background
+                };
+                let icon_color = colors.text_muted;
+
+                // 버튼 배경 (둥근 사각형)
+                window.paint_quad(quad(
+                    button_bounds,
+                    Corners::all(px(6.)),
+                    bg_color,
+                    Edges::all(px(1.)),
+                    colors.border,
+                    BorderStyle::Solid,
+                ));
+
+                // 화살표 아이콘 SVG 렌더링
+                let icon_padding = px(4.);
+                let icon_bounds = Bounds::new(
+                    Point::new(
+                        button_bounds.origin.x + icon_padding,
+                        button_bounds.origin.y + icon_padding,
+                    ),
+                    Size {
+                        width: button_bounds.size.width - icon_padding * 2.,
+                        height: button_bounds.size.height - icon_padding * 2.,
+                    },
+                );
+                let icon_path: SharedString = "icons/arrow_down.svg".into();
+                window
+                    .paint_svg(
+                        icon_bounds,
+                        icon_path,
+                        None,
+                        TransformationMatrix::default(),
+                        icon_color,
+                        cx,
+                    )
+                    .log_err();
+
+                window.set_cursor_style(CursorStyle::PointingHand, button_hitbox);
+            }
+
             self.state.update(cx, |state, _| {
                 state.last_prepaint_state = Some(prepaint_state)
+            });
+
+            // 맨 아래로 스크롤 버튼 클릭 이벤트
+            window.on_mouse_event({
+                let state = self.state.clone();
+
+                move |event: &MouseDownEvent, phase, _window, cx| {
+                    if phase != DispatchPhase::Bubble || event.button != MouseButton::Left {
+                        return;
+                    }
+                    state.update(cx, |state, cx| {
+                        if let Some((button_bounds, _)) = &state.last_prepaint_state.as_ref().and_then(|s| s.scroll_to_bottom.as_ref()) {
+                            if button_bounds.contains(&event.position) {
+                                // 맨 아래로 스크롤
+                                let max_offset = state.scroll_handle().max_offset();
+                                let current_offset = state.scroll_handle().offset();
+                                state.set_offset(
+                                    Point::new(current_offset.x, -max_offset.y),
+                                    cx,
+                                );
+                                cx.stop_propagation();
+                            }
+                        }
+                    });
+                }
             });
 
             window.on_mouse_event({

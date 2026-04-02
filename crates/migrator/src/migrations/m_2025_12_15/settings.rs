@@ -28,7 +28,7 @@ fn rename_restore_on_startup_values(
     // The value includes quotes, so we check for the quoted string
     let new_value = match setting_value.trim() {
         "\"none\"" => "\"empty_tab\"",
-        "\"welcome\"" => "\"launchpad\"",
+        "\"welcome\"" | "\"launchpad\"" => "\"last_session\"",
         _ => return None,
     };
 

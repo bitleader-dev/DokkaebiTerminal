@@ -1310,6 +1310,7 @@ impl Render for TerminalView {
                                     ScrollAxes::Vertical,
                                     cx.theme().colors().editor_background,
                                 )
+                                .with_scroll_to_bottom_button()
                                 .tracked_scroll_handle(&self.scroll_handle),
                             window,
                             cx,

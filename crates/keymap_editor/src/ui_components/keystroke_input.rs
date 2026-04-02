@@ -2,6 +2,7 @@ use gpui::{
     Animation, AnimationExt, Context, EventEmitter, FocusHandle, Focusable, FontWeight, KeyContext,
     KeybindingKeystroke, Keystroke, Modifiers, ModifiersChangedEvent, Subscription, Task, actions,
 };
+use i18n::t;
 use ui::{
     ActiveTheme as _, Color, IconButton, IconButtonShape, IconName, IconSize, Label, LabelSize,
     ParentElement as _, Render, Styled as _, Tooltip, Window, prelude::*,
@@ -602,47 +603,47 @@ impl Render for KeystrokeInput {
                     .gap_0p5()
                     .justify_end()
                     .flex_none()
-                    .map(|this| {
+                    .map({
+                        let is_search = self.search;
+                        let stop_listener = cx.listener(|this, _event: &gpui::ClickEvent, window, cx| {
+                            this.stop_recording(&StopRecording, window, cx);
+                        });
+                        let start_listener = cx.listener(|this, _event: &gpui::ClickEvent, window, cx| {
+                            this.start_recording(&StartRecording, window, cx);
+                        });
+                        move |this| {
                         if is_recording {
                             this.child(
                                 IconButton::new("stop-record-btn", IconName::Stop)
                                     .shape(IconButtonShape::Square)
-                                    .map(|this| {
-                                        this.tooltip(Tooltip::for_action_title(
-                                            if self.search {
-                                                "Stop Searching"
-                                            } else {
-                                                "Stop Recording"
-                                            },
-                                            &StopRecording,
-                                        ))
-                                    })
+                                    .tooltip(move |window, cx| Tooltip::for_action_title(
+                                        if is_search {
+                                            t("Stop Searching", cx)
+                                        } else {
+                                            t("Stop Recording", cx)
+                                        },
+                                        &StopRecording,
+                                    )(window, cx))
                                     .icon_color(Color::Error)
-                                    .on_click(cx.listener(|this, _event, window, cx| {
-                                        this.stop_recording(&StopRecording, window, cx);
-                                    })),
+                                    .on_click(stop_listener),
                             )
                         } else {
                             this.child(
                                 IconButton::new("record-btn", record_icon)
                                     .shape(IconButtonShape::Square)
-                                    .map(|this| {
-                                        this.tooltip(Tooltip::for_action_title(
-                                            if self.search {
-                                                "Start Searching"
-                                            } else {
-                                                "Start Recording"
-                                            },
-                                            &StartRecording,
-                                        ))
-                                    })
+                                    .tooltip(move |window, cx| Tooltip::for_action_title(
+                                        if is_search {
+                                            t("Start Searching", cx)
+                                        } else {
+                                            t("Start Recording", cx)
+                                        },
+                                        &StartRecording,
+                                    )(window, cx))
                                     .when(!is_focused, |this| this.icon_color(Color::Muted))
-                                    .on_click(cx.listener(|this, _event, window, cx| {
-                                        this.start_recording(&StartRecording, window, cx);
-                                    })),
+                                    .on_click(start_listener),
                             )
                         }
-                    })
+                    }})
                     .when_some(self.actions_slot.take(), |this, action| this.child(action))
                     .when(is_recording, |this| {
                         this.child(
@@ -650,9 +651,9 @@ impl Render for KeystrokeInput {
                                 .shape(IconButtonShape::Square)
                                 .tooltip(move |_, cx| {
                                     Tooltip::with_meta(
-                                        "Clear Keystrokes",
+                                        t("Clear Keystrokes", cx),
                                         Some(&ClearKeystrokes),
-                                        "Hit it three times to execute",
+                                        t("Hit it three times to execute", cx),
                                         cx,
                                     )
                                 })

@@ -7227,7 +7227,7 @@ impl Panel for ProjectPanel {
     }
 
     fn icon_tooltip(&self, _window: &Window, _cx: &App) -> Option<&'static str> {
-        Some("Project Panel")
+        Some("project_panel.tooltip")
     }
 
     fn toggle_action(&self) -> Box<dyn Action> {

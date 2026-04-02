@@ -197,7 +197,7 @@ impl Panel for NotepadPanel {
     }
 
     fn icon_tooltip(&self, _window: &Window, _cx: &App) -> Option<&'static str> {
-        Some("Notepad Panel")
+        Some("notepad_panel.tooltip")
     }
 
     fn toggle_action(&self) -> Box<dyn gpui::Action> {

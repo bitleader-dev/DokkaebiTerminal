@@ -802,7 +802,7 @@ impl Panel for WorkspaceGroupPanel {
     }
 
     fn icon_tooltip(&self, _window: &Window, _cx: &App) -> Option<&'static str> {
-        Some("워크스페이스 그룹")
+        Some("workspace_group.panel.tooltip")
     }
 
     fn toggle_action(&self) -> Box<dyn Action> {

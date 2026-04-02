@@ -47,8 +47,9 @@ use gpui::{
     MouseMoveEvent, MousePressureEvent, MouseUpEvent, PaintQuad, ParentElement, Pixels,
     PressureStage, ScrollDelta, ScrollHandle, ScrollWheelEvent, ShapedLine, SharedString, Size,
     StatefulInteractiveElement, Style, Styled, StyledText, TextAlign, TextRun, TextStyleRefinement,
-    WeakEntity, Window, anchored, deferred, div, fill, linear_color_stop, linear_gradient, outline,
-    pattern_slash, point, px, quad, relative, size, solid_background, transparent_black,
+    TransformationMatrix, WeakEntity, Window, anchored, deferred, div, fill, linear_color_stop,
+    linear_gradient, outline, pattern_slash, point, px, quad, relative, size, solid_background,
+    transparent_black,
 };
 use itertools::Itertools;
 use language::{HighlightedText, IndentGuideSettings, language_settings::ShowWhitespaceSetting};
@@ -6752,6 +6753,81 @@ impl EditorElement {
             }
         }
 
+        // 맨 아래로 스크롤 버튼 렌더링
+        if let Some((button_bounds, ref button_hitbox)) = scrollbars_layout.scroll_to_bottom_hitbox {
+            let colors = cx.theme().colors();
+            let is_hovered = button_hitbox.is_hovered(window);
+            let bg_color = if is_hovered {
+                colors.element_hover
+            } else {
+                colors.element_background
+            };
+
+            window.paint_quad(quad(
+                button_bounds,
+                Corners::all(px(6.)),
+                bg_color,
+                Edges::all(px(1.)),
+                colors.border,
+                BorderStyle::Solid,
+            ));
+
+            let icon_padding = px(4.);
+            let icon_bounds = Bounds::new(
+                gpui::Point::new(
+                    button_bounds.origin.x + icon_padding,
+                    button_bounds.origin.y + icon_padding,
+                ),
+                gpui::size(
+                    button_bounds.size.width - icon_padding * 2.,
+                    button_bounds.size.height - icon_padding * 2.,
+                ),
+            );
+            let icon_path: gpui::SharedString = "icons/arrow_down.svg".into();
+            window
+                .paint_svg(
+                    icon_bounds,
+                    icon_path,
+                    None,
+                    gpui::TransformationMatrix::default(),
+                    colors.text_muted,
+                    cx,
+                )
+                .log_err();
+
+            window.set_cursor_style(CursorStyle::PointingHand, button_hitbox);
+        }
+
+        // 맨 아래로 스크롤 버튼 클릭 이벤트
+        if scrollbars_layout.scroll_to_bottom_hitbox.is_some() {
+            let scroll_to_bottom_bounds = scrollbars_layout
+                .scroll_to_bottom_hitbox
+                .as_ref()
+                .map(|(b, _)| *b);
+            window.on_mouse_event({
+                let editor = self.editor.clone();
+                move |event: &MouseDownEvent, phase, window, cx| {
+                    if phase != DispatchPhase::Bubble || event.button != MouseButton::Left {
+                        return;
+                    }
+                    if let Some(bounds) = scroll_to_bottom_bounds {
+                        if bounds.contains(&event.position) {
+                            editor.update(cx, |editor, cx| {
+                                // 매우 큰 y값을 설정하면 scroll_manager에서 자동으로 최대값으로 제한됨
+                                let current = editor.scroll_position(cx);
+                                editor.set_scroll_position(
+                                    gpui::Point::new(current.x, f64::MAX),
+                                    window,
+                                    cx,
+                                );
+                            });
+                            cx.stop_propagation();
+                        }
+                    }
+                }
+            });
+        }
+
         window.on_mouse_event({
             let editor = self.editor.clone();
             let scrollbars_layout = scrollbars_layout.clone();
@@ -11258,6 +11334,8 @@ struct EditorScrollbars {
     pub vertical: Option<ScrollbarLayout>,
     pub horizontal: Option<ScrollbarLayout>,
     pub visible: bool,
+    /// 맨 아래로 스크롤 버튼 hitbox
+    pub scroll_to_bottom_hitbox: Option<(Bounds<Pixels>, Hitbox)>,
 }
 
 impl EditorScrollbars {
@@ -11323,10 +11401,50 @@ impl EditorScrollbars {
                 })
         };
 
+        let vertical_layout = create_scrollbar_layout(ScrollbarAxis::Vertical);
+        let horizontal_layout = create_scrollbar_layout(ScrollbarAxis::Horizontal);
+
+        // 스크롤이 최하단이 아닐 때 맨 아래로 스크롤 버튼 생성
+        let scroll_to_bottom_hitbox = {
+            let max_scroll_y = scroll_range.height;
+            let viewport_height = editor_bounds.size.height;
+            let current_scroll_y = scroll_position.y as f32 * glyph_grid_cell.height;
+            let is_at_bottom = max_scroll_y <= viewport_height
+                || (max_scroll_y - viewport_height - current_scroll_y) < px(1.);
+
+            if !is_at_bottom && max_scroll_y > viewport_height {
+                let button_size = px(24.);
+                let margin = px(4.);
+                let scrollbar_width_reserved = vertical_layout
+                    .as_ref()
+                    .map(|v| v.hitbox.bounds.size.width)
+                    .unwrap_or(px(0.));
+                let button_origin = gpui::Point::new(
+                    editor_bounds.origin.x + editor_bounds.size.width
+                        - scrollbar_width_reserved
+                        - button_size
+                        - margin,
+                    editor_bounds.origin.y + editor_bounds.size.height - button_size - margin,
+                );
+                let button_bounds = Bounds::new(
+                    button_origin,
+                    gpui::size(button_size, button_size),
+                );
+                let hitbox = window.insert_hitbox(
+                    button_bounds,
+                    HitboxBehavior::BlockMouseExceptScroll,
+                );
+                Some((button_bounds, hitbox))
+            } else {
+                None
+            }
+        };
+
         Self {
-            vertical: create_scrollbar_layout(ScrollbarAxis::Vertical),
-            horizontal: create_scrollbar_layout(ScrollbarAxis::Horizontal),
+            vertical: vertical_layout,
+            horizontal: horizontal_layout,
             visible: show_scrollbars,
+            scroll_to_bottom_hitbox,
         }
     }
 

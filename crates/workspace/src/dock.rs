@@ -2,6 +2,7 @@ use crate::persistence::model::DockData;
 use crate::{DraggedDock, Event, ModalLayer, Pane};
 use crate::{Workspace, status_bar::StatusItemView};
 use anyhow::Context as _;
+use i18n::t;
 use client::proto;
 use db::kvp::KeyValueStore;
 
@@ -1107,14 +1108,18 @@ impl Render for PanelButtons {
                 let (action, tooltip) = if is_active_button {
                     let action = dock.toggle_action();
 
-                    let tooltip: SharedString =
-                        format!("Close {} Dock", dock.position.label()).into();
+                    let tooltip_key = match dock.position {
+                        DockPosition::Left => "dock.close_left",
+                        DockPosition::Bottom => "dock.close_bottom",
+                        DockPosition::Right => "dock.close_right",
+                    };
+                    let tooltip: SharedString = t(tooltip_key, cx);
 
                     (action, tooltip)
                 } else {
                     let action = entry.panel.toggle_action(window, cx);
 
-                    (action, icon_tooltip.into())
+                    (action, t(icon_tooltip, cx))
                 };
 
                 let focus_handle = dock.focus_handle(cx);
@@ -1135,8 +1140,13 @@ impl Render for PanelButtons {
                                         && panel.position_is_valid(position, cx)
                                     {
                                         let panel = panel.clone();
+                                        let dock_label = match position {
+                                            DockPosition::Left => t("dock.move_to_left", cx),
+                                            DockPosition::Bottom => t("dock.move_to_bottom", cx),
+                                            DockPosition::Right => t("dock.move_to_right", cx),
+                                        };
                                         menu = menu.entry(
-                                            format!("Dock {}", position.label()),
+                                            dock_label,
                                             None,
                                             move |window, cx| {
                                                 panel.set_position(position, window, cx);

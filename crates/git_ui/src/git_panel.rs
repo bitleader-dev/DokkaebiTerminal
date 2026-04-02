@@ -5739,7 +5739,7 @@ impl Panel for GitPanel {
     }
 
     fn icon_tooltip(&self, _window: &Window, _cx: &App) -> Option<&'static str> {
-        Some("Git Panel")
+        Some("git_panel.tooltip")
     }
 
     fn icon_label(&self, _: &Window, cx: &App) -> Option<String> {

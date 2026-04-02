@@ -4131,16 +4131,31 @@ where
     T: strum::VariantArray + strum::VariantNames + Copy + PartialEq + Send + Sync + 'static,
 {
     let variants = || -> &'static [T] { <T as strum::VariantArray>::VARIANTS };
-    let labels = || -> &'static [&'static str] { <T as strum::VariantNames>::VARIANTS };
+    let strum_labels = <T as strum::VariantNames>::VARIANTS;
     let should_do_titlecase = metadata
         .and_then(|metadata| metadata.should_do_titlecase)
         .unwrap_or(true);
+
+    // strum 라벨을 i18n 번역 적용하여 SharedString으로 변환
+    let labels: Vec<SharedString> = strum_labels
+        .iter()
+        .map(|label| {
+            let translated = t(label, cx);
+            if should_do_titlecase && translated == *label {
+                // 번역이 없으면 title case 적용
+                use heck::ToTitleCase as _;
+                SharedString::from(label.to_title_case())
+            } else {
+                SharedString::from(translated.to_string())
+            }
+        })
+        .collect();
 
     let (_, current_value) =
         SettingsStore::global(cx).get_value_from_file(file.to_settings(), field.pick);
     let current_value = current_value.copied().unwrap_or(variants()[0]);
 
-    EnumVariantDropdown::new("dropdown", current_value, variants(), labels(), {
+    EnumVariantDropdown::new("dropdown", current_value, variants(), labels, {
         move |value, window, cx| {
             if value == current_value {
                 return;
@@ -4158,7 +4173,7 @@ where
         }
     })
     .tab_index(0)
-    .title_case(should_do_titlecase)
+    .title_case(false) // 이미 번역/title case 적용됨
     .into_any_element()
 }
 

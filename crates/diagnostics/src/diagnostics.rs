@@ -621,14 +621,16 @@ impl ProjectDiagnosticsEditor {
                         });
                     })
                 }
+                // 최신 버퍼 스냅샷을 가져와서 stale 상태 방지
+                let buffer_snapshot = buffer.read(cx).snapshot();
+                let excerpt_ranges: Vec<_> = excerpt_ranges
+                    .into_iter()
+                    .map(|range| ExcerptRange {
+                        context: range.context.to_point(&buffer_snapshot),
+                        primary: range.primary.to_point(&buffer_snapshot),
+                    })
+                    .collect();
                 let (anchor_ranges, _) = this.multibuffer.update(cx, |multi_buffer, cx| {
-                    let excerpt_ranges = excerpt_ranges
-                        .into_iter()
-                        .map(|range| ExcerptRange {
-                            context: range.context.to_point(&buffer_snapshot),
-                            primary: range.primary.to_point(&buffer_snapshot),
-                        })
-                        .collect();
                     multi_buffer.set_excerpt_ranges_for_path(
                         PathKey::for_buffer(&buffer, cx),
                         buffer.clone(),

@@ -1,6 +1,12 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-04-03: 비활성 워크스페이스 그룹 탭 미표시 버그 수정 — (1) deserialize_inactive에서 Entity<Pane> 강한 참조 유지 (즉시 downgrade 시 참조 카운트 0으로 패인 해제되어 아이템 역직렬화 실패) (2) 비활성 역직렬화 중 이벤트 부작용으로 변경된 active_pane 복원 (3) switch_workspace_group에서 미초기화 패인에 PaneAdded 발행하여 toolbar 초기화
+- 2026-04-03: 워크스페이스 그룹 복원 성능/안정성 개선 — (1) 비활성 그룹 역직렬화에 deserialize_inactive/create_inactive_pane 도입: PaneAdded 이벤트 미발행(~15개 툴바 초기화 방지), 포커스 이동 없음, panes 리스트 오염 방지 (2) 직렬화 경로 로깅을 INFO→DEBUG로 변경 (재귀 count_items 포함)
+- 2026-04-03: 워크스페이스 그룹 영속성 버그 수정 (근본 원인) — (1) recent_workspaces_on_disk에서 빈 워크스페이스(경로 없음)가 삭제되는 문제 수정: LastWorkspace 폴백 시 DB 삭제 방지 (2) loading_from_db 플래그로 Workspace::new() 후 load_workspace 완료 전 직렬화 억제 (3) 시작 경로에 진단 로그 추가 (restore_or_create_workspace, restorable_workspace_locations, restore_multiworkspace, open_workspace_by_id)
+- 2026-04-03: 워크스페이스 그룹 영속성 버그 수정 — (1) 비활성 그룹 역직렬화 실패 시 빈 패인으로 대체하여 그룹 소실 방지 (2) 활성 그룹 복원 시 비활성 그룹 패인 혼입 방지 (center.panes()만 캡처) (3) workspace.panes/panes_by_item을 활성 그룹 기준으로 교정 (4) 저장/로드 전 과정에 상세 로깅 추가
+- 2026-04-03: 워크스페이스 그룹 추가/삭제/전환 시 직렬화 누락 수정 — add/remove/switch_workspace_group에 serialize_workspace 호출 추가
+- 2026-04-03: upstream 동기화 — zed-industries/zed에서 33개 커밋 cherry-pick 적용 (크래시 7건, Windows 2건, 에디터 버그 11건, UI/성능 8건, 기타 5건). 배경화면 불투명도 render_number_field→render_editable_number_field 호환성 수정
 - 2026-04-03: 탭 우클릭 저장 메뉴 이중 대여 panic 수정 — handler_for(&pane) 대신 menu_context.dispatch_action으로 변경하여 Pane update 중 read 충돌 방지
 - 2026-04-03: 터미널 탭 우클릭 메뉴에서 파일 전용 항목(읽기 전용 만들기/저장/다른 이름으로 저장) 숨김 — can_save/can_save_as 조건 분기 추가
 - 2026-04-03: 워크스페이스 그룹 패널 드래그 앤 드롭 순서 변경 기능 추가 — 항목을 드래그하여 순서 이동, 활성 인덱스 자동 추적, 직렬화 반영

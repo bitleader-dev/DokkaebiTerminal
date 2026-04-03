@@ -24,6 +24,7 @@ use editor::{
 use feature_flags::{AgentSharingFeatureFlag, AgentV2FeatureFlag, FeatureFlagAppExt as _};
 use file_icons::FileIcons;
 use fs::Fs;
+use i18n::t;
 use futures::FutureExt as _;
 use gpui::{
     Action, Animation, AnimationExt, AnyView, App, ClickEvent, ClipboardItem, CursorStyle,
@@ -1440,7 +1441,7 @@ impl ConversationView {
 
                 if let Some(active) = self.active_thread() {
                     let new_placeholder =
-                        placeholder_text(agent_display_name.as_ref(), has_commands);
+                        placeholder_text(agent_display_name.as_ref(), has_commands, cx);
                     active.update(cx, |active, cx| {
                         active.message_editor.update(cx, |editor, cx| {
                             editor.set_placeholder_text(&new_placeholder, window, cx);
@@ -2583,17 +2584,13 @@ fn loading_contents_spinner(size: IconSize) -> AnyElement {
         .into_any_element()
 }
 
-fn placeholder_text(agent_name: &str, has_commands: bool) -> String {
-    if agent_name == agent::ZED_AGENT_ID.as_ref() {
-        format!("Message the {} — @ to include context", agent_name)
-    } else if has_commands {
-        format!(
-            "Message {} — @ to include context, / for commands",
-            agent_name
-        )
+fn placeholder_text(agent_name: &str, has_commands: bool, cx: &App) -> String {
+    let template = if has_commands && agent_name != agent::ZED_AGENT_ID.as_ref() {
+        t("agent_panel.placeholder.message_with_commands", cx)
     } else {
-        format!("Message {} — @ to include context", agent_name)
-    }
+        t("agent_panel.placeholder.message", cx)
+    };
+    template.replace("{agent_name}", agent_name)
 }
 
 impl Focusable for ConversationView {

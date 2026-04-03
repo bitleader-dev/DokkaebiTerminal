@@ -1000,6 +1000,11 @@ impl WorkspaceDb {
             .warn_on_err()
             .flatten()?;
 
+        log::debug!(
+            "workspace_for_roots_internal: loading workspace_id={:?}",
+            workspace_id,
+        );
+
         let paths = PathList::deserialize(&SerializedPathList {
             paths,
             order: paths_order,
@@ -1013,8 +1018,22 @@ impl WorkspaceDb {
             None
         };
 
-        let workspace_groups = self.get_workspace_groups(workspace_id).unwrap_or_default();
+        let workspace_groups = match self.get_workspace_groups(workspace_id) {
+            Ok(groups) => groups,
+            Err(err) => {
+                log::error!(
+                    "workspace_for_roots_internal: workspace_groups 로드 실패 workspace_id={:?}: {:#}",
+                    workspace_id, err
+                );
+                Vec::new()
+            }
+        };
         let active_group_index = workspace_groups.iter().position(|g| g.active).unwrap_or(0);
+        log::debug!(
+            "workspace_for_roots_internal: loaded {} workspace_groups, active_group_index={}",
+            workspace_groups.len(),
+            active_group_index,
+        );
 
         Some(SerializedWorkspace {
             id: workspace_id,
@@ -1107,7 +1126,16 @@ impl WorkspaceDb {
             None
         };
 
-        let workspace_groups = self.get_workspace_groups(workspace_id).unwrap_or_default();
+        let workspace_groups = match self.get_workspace_groups(workspace_id) {
+            Ok(groups) => groups,
+            Err(err) => {
+                log::error!(
+                    "workspace_for_id: workspace_groups 로드 실패 workspace_id={:?}: {:#}",
+                    workspace_id, err
+                );
+                Vec::new()
+            }
+        };
         let active_group_index = workspace_groups.iter().position(|g| g.active).unwrap_or(0);
 
         Some(SerializedWorkspace {
@@ -1325,8 +1353,27 @@ impl WorkspaceDb {
                 prepared_query(args).context("Updating workspace")?;
 
                 // 워크스페이스 그룹이 있으면 각 그룹별로 저장
+                log::debug!(
+                    "save_workspace DB: workspace_id={:?}, groups_count={}, active_group_index={}",
+                    workspace.id,
+                    workspace.workspace_groups.len(),
+                    workspace.active_group_index,
+                );
                 if !workspace.workspace_groups.is_empty() {
                     for (position, group) in workspace.workspace_groups.iter().enumerate() {
+                        fn count_serialized_items(pg: &SerializedPaneGroup) -> usize {
+                            match pg {
+                                SerializedPaneGroup::Pane(p) => p.children.len(),
+                                SerializedPaneGroup::Group { children, .. } => {
+                                    children.iter().map(count_serialized_items).sum()
+                                }
+                            }
+                        }
+                        log::debug!(
+                            "  save_workspace: 그룹[{}] '{}' active={} items={}",
+                            position, group.name, group.active,
+                            count_serialized_items(&group.center_group)
+                        );
                         let wg_id: i64 = conn.select_row_bound::<_, i64>(sql!(
                             INSERT INTO workspace_groups(workspace_id, name, position, active)
                             VALUES (?, ?, ?, ?)
@@ -1697,6 +1744,12 @@ impl WorkspaceDb {
                 continue;
             }
 
+            // 빈 워크스페이스(경로 없음)는 삭제하지 않고 포함
+            if paths.is_empty() {
+                result.push((id, SerializedWorkspaceLocation::Local, paths, timestamp));
+                continue;
+            }
+
             let has_wsl_path = if cfg!(windows) {
                 paths
                     .paths()
@@ -1827,9 +1880,22 @@ impl WorkspaceDb {
             ORDER BY position
         ))?(workspace_id)?;
 
+        log::debug!(
+            "get_workspace_groups: workspace_id={:?}, DB에서 {} 행 로드",
+            workspace_id, rows.len()
+        );
+
         let mut groups = Vec::new();
         for (wg_id, name, _position, active) in rows {
             let center_group = self.get_center_pane_group_for_wg(workspace_id, Some(wg_id))?;
+            let items_count = match &center_group {
+                SerializedPaneGroup::Pane(pane) => pane.children.len(),
+                SerializedPaneGroup::Group { children, .. } => children.len(),
+            };
+            log::debug!(
+                "  그룹 wg_id={}, name='{}', active={}, center_items/children={}",
+                wg_id, name, active, items_count
+            );
             groups.push(SerializedWorkspaceGroup {
                 name,
                 center_group,

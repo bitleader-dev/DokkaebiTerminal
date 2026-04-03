@@ -841,7 +841,12 @@ impl KeymapEditor {
         let key_bindings_ptr = cx.key_bindings();
         let lock = key_bindings_ptr.borrow();
         let key_bindings = lock.bindings().collect::<Vec<_>>();
-        let mut unmapped_action_names = HashSet::from_iter(cx.all_action_names().iter().copied());
+        let mut unmapped_action_names = HashSet::from_iter(
+            cx.all_action_names()
+                .iter()
+                .copied()
+                .filter(|name| !is_hidden_action(name)),
+        );
         let action_documentation = cx.action_documentation();
         let mut generator = KeymapFile::action_schema_generator();
         let actions_with_schemas = HashSet::from_iter(
@@ -881,6 +886,11 @@ impl KeymapEditor {
 
             let action_name = key_binding.action().name();
             unmapped_action_names.remove(&action_name);
+
+            // 비활성화된 기능의 액션은 목록에서 제외
+            if is_hidden_action(action_name) {
+                continue;
+            }
 
             let action_arguments = key_binding
                 .action_input()
@@ -2583,7 +2593,12 @@ impl KeybindingEditorModal {
         let has_action_editor = create && editing_keybind.action().name == gpui::NoAction.name();
 
         let (action_editor, action_name_to_static) = if has_action_editor {
-            let actions: Vec<&'static str> = cx.all_action_names().to_vec();
+            let actions: Vec<&'static str> = cx
+                .all_action_names()
+                .iter()
+                .copied()
+                .filter(|name| !is_hidden_action(name))
+                .collect();
 
             let humanized_names: HashMap<&'static str, SharedString> = actions
                 .iter()
@@ -4040,6 +4055,49 @@ mod persistence {
             }
         }
     }
+}
+
+/// 비활성화된 기능에 속하는 액션을 키맵 편집기 목록에서 숨긴다.
+fn is_hidden_action(action_name: &str) -> bool {
+    // 네임스페이스 전체가 비활성화된 기능
+    const HIDDEN_NAMESPACES: &[&str] = &[
+        "collab",                    // 협업 (통화, 채널, 화면 공유)
+        "auto_update",               // 자동 업데이트
+        "copilot",                   // Copilot 연동
+        "edit_prediction",           // 편집 예측
+        "zed_predict_onboarding",    // 편집 예측 온보딩
+        "zeta",                      // 편집 예측 평가
+        "client",                    // Zed 클라우드 계정 (로그인/로그아웃)
+    ];
+
+    // 활성 네임스페이스 내의 개별 비활성 액션
+    const HIDDEN_ACTIONS: &[&str] = &[
+        "workspace::FollowNextCollaborator",
+        "workspace::Unfollow",
+        "workspace::ToggleEditPrediction",
+        "zed::OpenTelemetryLog",
+        "title_bar::SimulateUpdateAvailable",
+        "dev::OpenEditPredictionContextView",
+        "dev::EditPredictionContextGoBack",
+        "dev::EditPredictionContextGoForward",
+        "editor::AcceptEditPrediction",
+        "editor::AcceptNextWordEditPrediction",
+        "editor::AcceptNextLineEditPrediction",
+        "editor::ShowEditPrediction",
+        "editor::NextEditPrediction",
+        "editor::PreviousEditPrediction",
+        "editor::ToggleEditPrediction",
+    ];
+
+    // 네임스페이스 검사 ("namespace::" 접두사)
+    if let Some(ns) = action_name.split("::").next() {
+        if HIDDEN_NAMESPACES.contains(&ns) {
+            return true;
+        }
+    }
+
+    // 개별 액션 검사
+    HIDDEN_ACTIONS.contains(&action_name)
 }
 
 #[cfg(test)]

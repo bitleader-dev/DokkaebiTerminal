@@ -432,6 +432,7 @@ fn render_remote_button(
     branch: &Branch,
     keybinding_target: Option<FocusHandle>,
     show_fetch_button: bool,
+    cx: &App,
 ) -> Option<impl IntoElement> {
     let id = id.into();
     let upstream = branch.upstream.as_ref();
@@ -441,19 +442,21 @@ fn render_remote_button(
             ..
         }) => match (*ahead, *behind) {
             (0, 0) if show_fetch_button => {
-                Some(remote_button::render_fetch_button(keybinding_target, id))
+                Some(remote_button::render_fetch_button(keybinding_target, id, cx))
             }
             (0, 0) => None,
             (ahead, 0) => Some(remote_button::render_push_button(
                 keybinding_target,
                 id,
                 ahead,
+                cx,
             )),
             (ahead, behind) => Some(remote_button::render_pull_button(
                 keybinding_target,
                 id,
                 ahead,
                 behind,
+                cx,
             )),
         },
         Some(Upstream {
@@ -462,13 +465,15 @@ fn render_remote_button(
         }) => Some(remote_button::render_republish_button(
             keybinding_target,
             id,
+            cx,
         )),
-        None => Some(remote_button::render_publish_button(keybinding_target, id)),
+        None => Some(remote_button::render_publish_button(keybinding_target, id, cx)),
     }
 }
 
 mod remote_button {
     use gpui::{Action, AnyView, ClickEvent, Corner, FocusHandle};
+    use i18n::t;
     use ui::{
         App, ButtonCommon, Clickable, ContextMenu, ElementId, FluentBuilder, Icon, IconName,
         IconSize, IntoElement, Label, LabelCommon, LabelSize, LineHeightStyle, ParentElement,
@@ -478,10 +483,11 @@ mod remote_button {
     pub fn render_fetch_button(
         keybinding_target: Option<FocusHandle>,
         id: SharedString,
+        cx: &App,
     ) -> SplitButton {
         split_button(
             id,
-            "Fetch",
+            t("git_panel.remote.fetch", &cx),
             0,
             0,
             Some(IconName::ArrowCircle),
@@ -491,7 +497,7 @@ mod remote_button {
             },
             move |_window, cx| {
                 git_action_tooltip(
-                    "Fetch updates from remote",
+                    t("git_panel.remote.fetch_tooltip", &cx),
                     &git::Fetch,
                     "git fetch",
                     keybinding_target.clone(),
@@ -505,10 +511,11 @@ mod remote_button {
         keybinding_target: Option<FocusHandle>,
         id: SharedString,
         ahead: u32,
+        cx: &App,
     ) -> SplitButton {
         split_button(
             id,
-            "Push",
+            t("git_panel.remote.push", &cx),
             ahead as usize,
             0,
             None,
@@ -518,7 +525,7 @@ mod remote_button {
             },
             move |_window, cx| {
                 git_action_tooltip(
-                    "Push committed changes to remote",
+                    t("git_panel.remote.push_tooltip", &cx),
                     &git::Push,
                     "git push",
                     keybinding_target.clone(),
@@ -533,10 +540,11 @@ mod remote_button {
         id: SharedString,
         ahead: u32,
         behind: u32,
+        cx: &App,
     ) -> SplitButton {
         split_button(
             id,
-            "Pull",
+            t("git_panel.remote.pull", &cx),
             ahead as usize,
             behind as usize,
             None,
@@ -546,7 +554,7 @@ mod remote_button {
             },
             move |_window, cx| {
                 git_action_tooltip(
-                    "Pull",
+                    t("git_panel.remote.pull", &cx),
                     &git::Pull,
                     "git pull",
                     keybinding_target.clone(),
@@ -559,10 +567,11 @@ mod remote_button {
     pub fn render_publish_button(
         keybinding_target: Option<FocusHandle>,
         id: SharedString,
+        cx: &App,
     ) -> SplitButton {
         split_button(
             id,
-            "Publish",
+            t("git_panel.remote.publish", &cx),
             0,
             0,
             Some(IconName::ExpandUp),
@@ -572,7 +581,7 @@ mod remote_button {
             },
             move |_window, cx| {
                 git_action_tooltip(
-                    "Publish branch to remote",
+                    t("git_panel.remote.publish_tooltip", &cx),
                     &git::Push,
                     "git push --set-upstream",
                     keybinding_target.clone(),
@@ -585,10 +594,11 @@ mod remote_button {
     pub fn render_republish_button(
         keybinding_target: Option<FocusHandle>,
         id: SharedString,
+        cx: &App,
     ) -> SplitButton {
         split_button(
             id,
-            "Republish",
+            t("git_panel.remote.republish", &cx),
             0,
             0,
             Some(IconName::ExpandUp),
@@ -598,7 +608,7 @@ mod remote_button {
             },
             move |_window, cx| {
                 git_action_tooltip(
-                    "Re-publish branch to remote",
+                    t("git_panel.remote.republish_tooltip", &cx),
                     &git::Push,
                     "git push --set-upstream",
                     keybinding_target.clone(),
@@ -641,19 +651,19 @@ mod remote_button {
                     ),
             )
             .menu(move |window, cx| {
-                Some(ContextMenu::build(window, cx, |context_menu, _, _| {
+                Some(ContextMenu::build(window, cx, |context_menu, _, cx| {
                     context_menu
                         .when_some(keybinding_target.clone(), |el, keybinding_target| {
                             el.context(keybinding_target)
                         })
-                        .action("Fetch", git::Fetch.boxed_clone())
-                        .action("Fetch From", git::FetchFrom.boxed_clone())
-                        .action("Pull", git::Pull.boxed_clone())
-                        .action("Pull (Rebase)", git::PullRebase.boxed_clone())
+                        .action(t("git_panel.remote.fetch", &cx), git::Fetch.boxed_clone())
+                        .action(t("git_panel.remote.fetch_from", &cx), git::FetchFrom.boxed_clone())
+                        .action(t("git_panel.remote.pull", &cx), git::Pull.boxed_clone())
+                        .action(t("git_panel.remote.pull_rebase", &cx), git::PullRebase.boxed_clone())
                         .separator()
-                        .action("Push", git::Push.boxed_clone())
-                        .action("Push To", git::PushTo.boxed_clone())
-                        .action("Force Push", git::ForcePush.boxed_clone())
+                        .action(t("git_panel.remote.push", &cx), git::Push.boxed_clone())
+                        .action(t("git_panel.remote.push_to", &cx), git::PushTo.boxed_clone())
+                        .action(t("git_panel.remote.force_push", &cx), git::ForcePush.boxed_clone())
                 }))
             })
             .anchor(Corner::TopRight)

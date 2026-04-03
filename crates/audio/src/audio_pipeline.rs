@@ -91,11 +91,6 @@ impl Audio {
         });
     }
 
-    pub fn end_call(cx: &mut App) {
-        cx.update_default_global(|this: &mut Self, _cx| {
-            this.output.take();
-        });
-    }
 
     fn sound_source(&mut self, sound: Sound, cx: &App) -> Result<impl Source + use<>> {
         if let Some(wav) = self.source_cache.get(&sound) {

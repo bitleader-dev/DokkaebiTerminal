@@ -74,6 +74,7 @@ fn settings_shell_to_task_shell(shell: settings::Shell) -> Shell {
             args,
             title_override,
         },
+        settings::Shell::Command => Shell::Command,
     }
 }
 

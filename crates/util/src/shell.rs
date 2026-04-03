@@ -20,6 +20,8 @@ pub enum Shell {
         /// An optional string to override the title of the terminal tab
         title_override: Option<String>,
     },
+    /// Windows 명령 프롬프트 (cmd.exe)
+    Command,
 }
 
 impl Shell {
@@ -28,6 +30,7 @@ impl Shell {
             Shell::Program(program) => program.clone(),
             Shell::WithArguments { program, .. } => program.clone(),
             Shell::System => get_system_shell(),
+            Shell::Command => "cmd.exe".to_string(),
         }
     }
 
@@ -36,6 +39,7 @@ impl Shell {
             Shell::Program(program) => (program.clone(), &[]),
             Shell::WithArguments { program, args, .. } => (program.clone(), args),
             Shell::System => (get_system_shell(), &[]),
+            Shell::Command => ("cmd.exe".to_string(), &[]),
         }
     }
 
@@ -44,6 +48,7 @@ impl Shell {
             Shell::Program(program) => ShellKind::new(program, is_windows),
             Shell::WithArguments { program, .. } => ShellKind::new(program, is_windows),
             Shell::System => ShellKind::system(),
+            Shell::Command => ShellKind::Cmd,
         }
     }
 }

@@ -22,6 +22,7 @@ impl ShellBuilder {
             Shell::System => (get_system_shell(), Vec::new()),
             Shell::Program(shell) => (shell.clone(), Vec::new()),
             Shell::WithArguments { program, args, .. } => (program.clone(), args.clone()),
+            Shell::Command => ("cmd.exe".to_string(), Vec::new()),
         };
 
         let kind = ShellKind::new(&program, is_windows);

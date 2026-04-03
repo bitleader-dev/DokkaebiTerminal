@@ -207,6 +207,8 @@ pub enum Shell {
         /// An optional string to override the title of the terminal tab
         title_override: Option<String>,
     },
+    /// Windows 명령 프롬프트 (cmd.exe)
+    Command,
 }
 
 #[derive(

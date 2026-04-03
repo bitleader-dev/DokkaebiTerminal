@@ -1316,6 +1316,10 @@ pub struct Workspace {
     workspace_groups: Vec<WorkspaceGroupState>,
     /// 현재 활성 워크스페이스 그룹 인덱스
     active_group_index: usize,
+    /// DB에서 워크스페이스 로딩 중일 때 직렬화를 억제하는 플래그
+    loading_from_db: bool,
+    /// PaneAdded가 발행되어 initialize_pane이 호출된 패인 ID 집합
+    initialized_pane_ids: collections::HashSet<gpui::EntityId>,
     /// 워크스페이스 그룹 추가 시 호출되는 콜백 목록
     on_group_added_callbacks: Vec<Box<dyn Fn(&mut Self, &mut Window, &mut Context<Self>)>>,
     /// 마지막 워크스페이스 그룹의 모든 탭이 닫혔을 때 호출되는 콜백 목록
@@ -1737,6 +1741,13 @@ impl Workspace {
             multi_workspace,
             workspace_groups: vec![default_group],
             active_group_index: 0,
+            // database_id가 있으면 DB에서 워크스페이스 복원 전까지 직렬화 억제
+            loading_from_db: workspace_id.is_some(),
+            initialized_pane_ids: {
+                let mut set = collections::HashSet::default();
+                set.insert(center_pane.entity_id());
+                set
+            },
             on_group_added_callbacks: Vec::new(),
             on_last_group_empty_callbacks: Vec::new(),
         }
@@ -4165,7 +4176,33 @@ impl Workspace {
 
         window.focus(&pane.focus_handle(cx), cx);
 
+        self.initialized_pane_ids.insert(pane.entity_id());
         cx.emit(Event::PaneAdded(pane.clone()));
+        pane
+    }
+
+    /// 비활성 워크스페이스 그룹용 패인 생성
+    /// - workspace.panes 리스트에 추가하지 않음 (활성 그룹 오염 방지)
+    /// - 포커스 이동 없음
+    /// - PaneAdded 이벤트 미발행 (불필요한 툴바 초기화 방지)
+    pub(crate) fn create_inactive_pane(&self, window: &mut Window, cx: &mut Context<Self>) -> Entity<Pane> {
+        let pane = cx.new(|cx| {
+            let mut pane = Pane::new(
+                self.weak_handle(),
+                self.project.clone(),
+                self.pane_history_timestamp.clone(),
+                None,
+                NewFile.boxed_clone(),
+                true,
+                window,
+                cx,
+            );
+            pane.set_can_split(Some(Arc::new(|_, _, _, _| true)));
+            pane.set_should_display_welcome_page(false);
+            pane
+        });
+        cx.subscribe_in(&pane, window, Self::handle_pane_event)
+            .detach();
         pane
     }
 
@@ -5292,8 +5329,21 @@ impl Workspace {
         self.panes_by_item = new_group.panes_by_item.clone();
         self.active_group_index = index;
 
+        // 비활성 그룹에서 복원된 패인의 초기화 (toolbar 등)
+        let uninitialized_panes: Vec<Entity<Pane>> = self
+            .panes
+            .iter()
+            .filter(|p| !self.initialized_pane_ids.contains(&p.entity_id()))
+            .cloned()
+            .collect();
+        for pane in uninitialized_panes {
+            self.initialized_pane_ids.insert(pane.entity_id());
+            cx.emit(Event::PaneAdded(pane));
+        }
+
         // 포커스 이동
         window.focus(&self.active_pane.focus_handle(cx), cx);
+        self.serialize_workspace(window, cx);
         cx.notify();
     }
 
@@ -5362,6 +5412,7 @@ impl Workspace {
 
         // 포커스 이동
         window.focus(&new_pane.focus_handle(cx), cx);
+        self.initialized_pane_ids.insert(new_pane.entity_id());
         cx.emit(Event::PaneAdded(new_pane));
         cx.notify();
 
@@ -5371,6 +5422,8 @@ impl Workspace {
             callback(self, window, cx);
         }
         self.on_group_added_callbacks = callbacks;
+
+        self.serialize_workspace(window, cx);
     }
 
     /// 워크스페이스 그룹 이름 변경 (중복 이름 불가)
@@ -5379,6 +5432,7 @@ impl Workspace {
         &mut self,
         index: usize,
         new_name: String,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
         if index >= self.workspace_groups.len() || new_name.trim().is_empty() {
@@ -5397,8 +5451,40 @@ impl Workspace {
         }
 
         self.workspace_groups[index].name = new_name;
+        self.serialize_workspace(window, cx);
         cx.notify();
         true
+    }
+
+    /// 워크스페이스 그룹 순서 이동 (from → to)
+    pub fn move_workspace_group(
+        &mut self,
+        from: usize,
+        to: usize,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let len = self.workspace_groups.len();
+        if from == to || from >= len || to >= len {
+            return;
+        }
+
+        self.sync_active_group();
+
+        let group = self.workspace_groups.remove(from);
+        self.workspace_groups.insert(to, group);
+
+        // 활성 인덱스 추적 보정
+        if self.active_group_index == from {
+            self.active_group_index = to;
+        } else if from < self.active_group_index && to >= self.active_group_index {
+            self.active_group_index -= 1;
+        } else if from > self.active_group_index && to <= self.active_group_index {
+            self.active_group_index += 1;
+        }
+
+        self.serialize_workspace(window, cx);
+        cx.notify();
     }
 
     /// 워크스페이스 그룹 삭제 (최소 1개는 유지)
@@ -5447,6 +5533,7 @@ impl Workspace {
             }
         }
 
+        self.serialize_workspace(window, cx);
         cx.notify();
     }
 
@@ -6510,6 +6597,10 @@ impl Workspace {
     }
 
     fn serialize_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // DB에서 로딩 중일 때는 직렬화를 억제하여 저장된 데이터를 덮어쓰지 않음
+        if self.loading_from_db {
+            return;
+        }
         if self._schedule_serialize_workspace.is_none() {
             self._schedule_serialize_workspace =
                 Some(cx.spawn_in(window, async move |this, cx| {
@@ -6607,6 +6698,12 @@ impl Workspace {
                 let window_bounds = Some(SerializedWindowBounds(window.window_bounds()));
 
                 // 모든 워크스페이스 그룹 직렬화
+                log::debug!(
+                    "serialize_workspace_internal: database_id={:?}, workspace_groups={}, active_group_index={}",
+                    database_id,
+                    self.workspace_groups.len(),
+                    self.active_group_index,
+                );
                 let mut serialized_groups = Vec::new();
                 for (i, group) in self.workspace_groups.iter().enumerate() {
                     let is_active = i == self.active_group_index;
@@ -6616,6 +6713,19 @@ impl Workspace {
                     } else {
                         build_serialized_pane_group(&group.center.root, window, cx)
                     };
+                    // 직렬화될 아이템 수 로깅
+                    fn count_items(pg: &SerializedPaneGroup) -> usize {
+                        match pg {
+                            SerializedPaneGroup::Pane(p) => p.children.len(),
+                            SerializedPaneGroup::Group { children, .. } => {
+                                children.iter().map(count_items).sum()
+                            }
+                        }
+                    }
+                    log::debug!(
+                        "  직렬화 그룹[{}] '{}' active={} items={}",
+                        i, group.name, is_active, count_items(&group_center)
+                    );
                     serialized_groups.push(SerializedWorkspaceGroup {
                         name: group.name.clone(),
                         center_group: group_center,
@@ -6860,6 +6970,13 @@ impl Workspace {
                 // 활성 그룹 정보 수집 (현재 workspace 상태에서)
                 let active_idx = active_group_index.min(serialized_workspace.workspace_groups.len() - 1);
 
+                // 비활성 역직렬화 중 이벤트 부작용으로 active_pane이 변경될 수 있으므로 사전 저장
+                let saved_active_pane = workspace
+                    .update_in(cx, |ws, _, _| {
+                        (ws.active_pane.clone(), ws.last_active_center_pane.clone())
+                    })
+                    .ok();
+
                 // 비활성 그룹 역직렬화
                 let mut restored_groups: Vec<(usize, String, Member, Option<Entity<Pane>>)> = Vec::new();
                 for (i, sg) in serialized_workspace.workspace_groups.iter().enumerate() {
@@ -6867,7 +6984,7 @@ impl Workspace {
                         continue;
                     }
                     if let Some((member, active_pane, items)) = sg.center_group.clone()
-                        .deserialize(&project, serialized_workspace.id, workspace.clone(), cx)
+                        .deserialize_inactive(&project, serialized_workspace.id, workspace.clone(), cx)
                         .await
                     {
                         // 비활성 그룹 아이템도 item_ids_by_kind에 추가 (cleanup용)
@@ -6882,28 +6999,58 @@ impl Workspace {
                             }
                         })?;
                         restored_groups.push((i, sg.name.clone(), member, active_pane));
+                    } else {
+                        log::warn!(
+                            "load_workspace: 비활성 그룹 '{}' (index={}) 역직렬화 실패 — 빈 패인으로 대체",
+                            sg.name, i
+                        );
                     }
                 }
 
                 // 워크스페이스에 그룹 상태 설정
-                workspace.update_in(cx, |workspace, _window, cx| {
+                workspace.update_in(cx, |workspace, window, cx| {
                     // 활성 그룹의 WorkspaceGroupState 갱신
                     let active_name = serialized_workspace.workspace_groups[active_idx].name.clone();
                     workspace.workspace_groups.clear();
+
+                    // 활성 그룹의 패인 목록 계산 — center에 속한 패인만 포함
+                    let active_center_panes: Vec<Entity<Pane>> = workspace.center.panes().into_iter().cloned().collect();
+                    let mut active_panes_by_item = HashMap::default();
+                    for pane in &active_center_panes {
+                        for item in pane.read(cx).items() {
+                            active_panes_by_item.insert(item.item_id(), pane.downgrade());
+                        }
+                    }
+
+                    // 비활성 역직렬화 중 이벤트로 변경된 active_pane 복원
+                    if let Some((saved_ap, saved_last)) = saved_active_pane {
+                        if active_center_panes.contains(&saved_ap) {
+                            workspace.active_pane = saved_ap;
+                            workspace.last_active_center_pane = saved_last;
+                        } else {
+                            // 저장된 패인이 center에 없으면 첫 번째 패인 사용
+                            workspace.active_pane = active_center_panes
+                                .first()
+                                .cloned()
+                                .unwrap_or(workspace.active_pane.clone());
+                            workspace.last_active_center_pane =
+                                Some(workspace.active_pane.downgrade());
+                        }
+                    }
 
                     // 모든 그룹을 순서대로 재구성
                     let total = serialized_workspace.workspace_groups.len();
                     for i in 0..total {
                         if i == active_idx {
-                            // 활성 그룹: 현재 workspace 상태에서 캡처
-                            workspace.workspace_groups.push(WorkspaceGroupState::capture(
-                                active_name.clone(),
-                                &workspace.center,
-                                &workspace.panes,
-                                &workspace.active_pane,
-                                &workspace.last_active_center_pane,
-                                &workspace.panes_by_item,
-                            ));
+                            // 활성 그룹: center에 속한 패인만 캡처 (비활성 그룹 패인 혼입 방지)
+                            workspace.workspace_groups.push(WorkspaceGroupState {
+                                name: active_name.clone(),
+                                center: workspace.center.clone(),
+                                panes: active_center_panes.clone(),
+                                active_pane: workspace.active_pane.clone(),
+                                last_active_center_pane: workspace.last_active_center_pane.clone(),
+                                panes_by_item: active_panes_by_item.clone(),
+                            });
                         } else if let Some(pos) = restored_groups.iter().position(|(idx, _, _, _)| *idx == i) {
                             let (_, name, member, active_pane_opt) = restored_groups.remove(pos);
                             let mut group_center = PaneGroup::with_root(member);
@@ -6930,9 +7077,52 @@ impl Workspace {
                                 last_active_center_pane: Some(group_active_pane.downgrade()),
                                 panes_by_item,
                             });
+                        } else {
+                            // 역직렬화 실패한 그룹 — 빈 패인으로 복원하여 그룹 자체는 유지
+                            let sg = &serialized_workspace.workspace_groups[i];
+                            let fallback_pane = cx.new(|cx| {
+                                let mut pane = Pane::new(
+                                    workspace.weak_self.clone(),
+                                    workspace.project.clone(),
+                                    workspace.pane_history_timestamp.clone(),
+                                    None,
+                                    NewFile.boxed_clone(),
+                                    true,
+                                    window,
+                                    cx,
+                                );
+                                pane.set_can_split(Some(Arc::new(|_, _, _, _| true)));
+                                pane.set_should_display_welcome_page(false);
+                                pane
+                            });
+                            cx.subscribe_in(&fallback_pane, window, Self::handle_pane_event)
+                                .detach();
+
+                            let mut fallback_center = PaneGroup::new(fallback_pane.clone());
+                            fallback_center.set_is_center(true);
+                            fallback_center.mark_positions(cx);
+
+                            workspace.workspace_groups.push(WorkspaceGroupState {
+                                name: sg.name.clone(),
+                                center: fallback_center,
+                                panes: vec![fallback_pane.clone()],
+                                active_pane: fallback_pane.clone(),
+                                last_active_center_pane: Some(fallback_pane.downgrade()),
+                                panes_by_item: HashMap::default(),
+                            });
                         }
                     }
+
+                    // workspace.panes도 활성 그룹의 패인만 포함하도록 교정
+                    workspace.panes = active_center_panes;
+                    workspace.panes_by_item = active_panes_by_item;
                     workspace.active_group_index = active_idx;
+
+                    log::info!(
+                        "load_workspace: 그룹 복원 완료 — 복원={}, 원본={}",
+                        workspace.workspace_groups.len(),
+                        total,
+                    );
 
                     cx.notify();
                 })?;
@@ -6963,6 +7153,9 @@ impl Workspace {
 
             workspace
                 .update_in(cx, |workspace, window, cx| {
+                    // DB 로딩 완료 — 직렬화 억제 해제
+                    workspace.loading_from_db = false;
+
                     // Serialize ourself to make sure our timestamps and any pane / item changes are replicated
                     workspace.serialize_workspace_internal(window, cx).detach();
 
@@ -8002,6 +8195,11 @@ fn open_items(
                     }
                 });
         } else {
+            // 직렬화된 워크스페이스가 없으면 load_workspace가 호출되지 않으므로
+            // 여기서 직렬화 억제 플래그를 해제
+            workspace.update_in(cx, |ws, _, _| {
+                ws.loading_from_db = false;
+            }).ok();
             for _ in 0..project_paths_to_open.len() {
                 opened_items.push(None);
             }
@@ -8826,12 +9024,22 @@ pub async fn restore_multiworkspace(
     cx: &mut AsyncApp,
 ) -> anyhow::Result<MultiWorkspaceRestoreResult> {
     let SerializedMultiWorkspace { workspaces, state } = multi_workspace;
+    log::info!(
+        "restore_multiworkspace: {} 워크스페이스 복원 시작",
+        workspaces.len()
+    );
     let mut group_iter = workspaces.into_iter();
     let first = group_iter
         .next()
         .context("window group must not be empty")?;
 
+    log::info!(
+        "restore_multiworkspace: 첫 번째 워크스페이스 — id={:?}, paths_empty={}, paths={:?}",
+        first.workspace_id, first.paths.is_empty(), first.paths.paths()
+    );
+
     let window_handle = if first.paths.is_empty() {
+        log::info!("restore_multiworkspace: 빈 경로 → open_workspace_by_id 사용");
         cx.update(|cx| open_workspace_by_id(first.workspace_id, app_state.clone(), None, cx))
             .await?
     } else {
@@ -9435,9 +9643,17 @@ pub fn open_workspace_by_id(
     let db = WorkspaceDb::global(cx);
     let kvp = db::kvp::KeyValueStore::global(cx);
     cx.spawn(async move |cx| {
+        log::info!("open_workspace_by_id: workspace_id={:?} 로드 시작", workspace_id);
         let serialized_workspace = db
             .workspace_for_id(workspace_id)
             .with_context(|| format!("Workspace {workspace_id:?} not found"))?;
+
+        log::info!(
+            "open_workspace_by_id: workspace_id={:?} 로드 완료 — groups={}, active_group={}",
+            workspace_id,
+            serialized_workspace.workspace_groups.len(),
+            serialized_workspace.active_group_index,
+        );
 
         let centered_layout = serialized_workspace.centered_layout;
 
@@ -9452,6 +9668,8 @@ pub fn open_workspace_by_id(
                         cx,
                     );
                     workspace.centered_layout = centered_layout;
+                    // DB에서 워크스페이스를 복원할 예정이므로 직렬화 억제
+                    workspace.loading_from_db = true;
                     workspace
                 });
                 multi_workspace.add_workspace(workspace.clone(), cx);
@@ -9492,6 +9710,8 @@ pub fn open_workspace_by_id(
                             cx,
                         );
                         workspace.centered_layout = centered_layout;
+                        // DB에서 워크스페이스를 복원할 예정이므로 직렬화 억제
+                        workspace.loading_from_db = true;
                         workspace
                     });
                     cx.new(|cx| MultiWorkspace::new(workspace, window, cx))

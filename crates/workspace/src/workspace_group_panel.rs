@@ -570,6 +570,32 @@ impl Element for RenameEditorElement {
     }
 }
 
+// ── 드래그 앤 드롭 ────────────────────────────────────────────────
+
+/// 워크스페이스 그룹 드래그 데이터
+#[derive(Clone)]
+struct DraggedWorkspaceGroup {
+    index: usize,
+    name: SharedString,
+}
+
+impl Render for DraggedWorkspaceGroup {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let colors = cx.theme().colors();
+        div()
+            .px_2()
+            .py(px(4.))
+            .rounded_md()
+            .bg(colors.element_selected)
+            .border_1()
+            .border_color(colors.border_focused)
+            .text_sm()
+            .text_color(colors.text)
+            .opacity(0.85)
+            .child(self.name.clone())
+    }
+}
+
 // ── 워크스페이스 그룹 패널 ──────────────────────────────────────────
 
 pub struct WorkspaceGroupPanel {
@@ -596,7 +622,14 @@ impl WorkspaceGroupPanel {
         });
 
         let workspace_handle = workspace.weak_handle();
+        let workspace_entity = cx.entity().clone();
         cx.new(|cx| {
+            // 워크스페이스 상태 변경 시 패널 다시 렌더링
+            cx.observe(&workspace_entity, |_this, _workspace, cx| {
+                cx.notify();
+            })
+            .detach();
+
             // 인라인 편집기 키바인딩 등록
             cx.bind_keys([
                 gpui::KeyBinding::new("backspace", RenameBackspace, Some("RenameEditor")),
@@ -661,6 +694,19 @@ impl WorkspaceGroupPanel {
         }
     }
 
+    /// 워크스페이스 그룹 순서 이동
+    fn move_group(&self, from: usize, to: usize, window: &mut Window, cx: &mut Context<Self>) {
+        if from == to {
+            return;
+        }
+        if let Some(workspace) = self.workspace.upgrade() {
+            workspace.update(cx, |workspace, cx| {
+                workspace.move_workspace_group(from, to, window, cx);
+            });
+            cx.notify();
+        }
+    }
+
     /// 이름 편집 시작
     fn start_rename(&mut self, index: usize, name: String, window: &mut Window, cx: &mut Context<Self>) {
         self.rename_error = false;
@@ -680,7 +726,7 @@ impl WorkspaceGroupPanel {
     }
 
     /// 이름 편집 확정
-    fn confirm_rename(&mut self, _window: &mut Window, cx: &mut Context<Self>) {
+    fn confirm_rename(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some((index, editor)) = self.editing.take() else {
             return;
         };
@@ -695,7 +741,7 @@ impl WorkspaceGroupPanel {
 
         if let Some(workspace) = self.workspace.upgrade() {
             let success = workspace.update(cx, |workspace, cx| {
-                workspace.rename_workspace_group(index, new_name.clone(), cx)
+                workspace.rename_workspace_group(index, new_name.clone(), window, cx)
             });
 
             if !success {
@@ -910,6 +956,18 @@ impl Render for WorkspaceGroupPanel {
                         let is_editing = editing_index == Some(index);
                         let can_delete = group_count > 1;
                         let name_for_menu = name.clone();
+                        let name_shared: SharedString = name.clone().into();
+
+                        // 드래그 데이터·리스너를 미리 생성
+                        let drag_data = DraggedWorkspaceGroup {
+                            index,
+                            name: name_shared.clone(),
+                        };
+                        let drop_listener = cx.listener(
+                            move |this, dragged: &DraggedWorkspaceGroup, window, cx| {
+                                this.move_group(dragged.index, index, window, cx);
+                            },
+                        );
 
                         h_flex()
                             .id(("workspace-group-item", index))
@@ -934,6 +992,16 @@ impl Render for WorkspaceGroupPanel {
                                 el.on_click(cx.listener(move |this, _, window, cx| {
                                     this.switch_group(index, window, cx);
                                 }))
+                            })
+                            // 드래그 앤 드롭 — 편집 중이 아닌 항목만
+                            .when(!is_editing, |el| {
+                                el.on_drag(drag_data, |info, _, _, cx| {
+                                    cx.new(|_| info.clone())
+                                })
+                                .drag_over::<DraggedWorkspaceGroup>(|style, _, _, _| {
+                                    style.bg(gpui::rgba(0x3388ff20))
+                                })
+                                .on_drop(drop_listener)
                             })
                             // 우클릭 → 컨텍스트 메뉴
                             .on_mouse_down(

@@ -506,6 +506,7 @@ impl TerminalBuilder {
                     args,
                     title_override,
                 } => Some(ShellParams::new(program, Some(args), title_override)),
+                Shell::Command => Some(ShellParams::new("cmd.exe".to_string(), None, None)),
             };
             let terminal_title_override =
                 shell_params.as_ref().and_then(|e| e.title_override.clone());

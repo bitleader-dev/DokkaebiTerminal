@@ -340,7 +340,7 @@ impl CommitModal {
             workspace,
         ) = self.git_panel.update(cx, |git_panel, cx| {
             let (can_commit, tooltip) = git_panel.configure_commit_button(cx);
-            let title = git_panel.commit_button_title();
+            let title = git_panel.commit_button_title(cx);
             let co_authors = git_panel.render_co_authors(cx);
             let generate_commit_message = git_panel.render_generate_commit_message_button(cx);
             let active_repo = git_panel.active_repository.clone();
@@ -443,7 +443,7 @@ impl CommitModal {
                         .size(ui::ButtonSize::Compact)
                         .child(
                             div()
-                                .child(Label::new(commit_label).size(LabelSize::Small))
+                                .child(Label::new(commit_label.clone()).size(LabelSize::Small))
                                 .mr_0p5(),
                         )
                         .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
@@ -463,10 +463,11 @@ impl CommitModal {
                         .disabled(!can_commit)
                         .tooltip({
                             let focus_handle = focus_handle.clone();
+                            let tooltip = tooltip.clone();
                             move |_window, cx| {
                                 if can_commit {
                                     Tooltip::with_meta_in(
-                                        tooltip,
+                                        tooltip.clone(),
                                         Some(if is_amend_pending {
                                             &git::Amend
                                         } else {
@@ -481,7 +482,7 @@ impl CommitModal {
                                         cx,
                                     )
                                 } else {
-                                    Tooltip::simple(tooltip, cx)
+                                    Tooltip::simple(tooltip.clone(), cx)
                                 }
                             }
                         }),

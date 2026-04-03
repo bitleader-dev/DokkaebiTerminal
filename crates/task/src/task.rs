@@ -368,6 +368,7 @@ pub fn shell_to_proto(shell: Shell) -> proto::Shell {
             args,
             title_override: _,
         } => proto::shell::ShellType::WithArguments(proto::shell::WithArguments { program, args }),
+        Shell::Command => proto::shell::ShellType::Program("cmd.exe".to_string()),
     };
     proto::Shell {
         shell_type: Some(shell_type),

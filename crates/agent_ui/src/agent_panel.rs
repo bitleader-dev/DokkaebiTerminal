@@ -63,6 +63,7 @@ use editor::{Anchor, AnchorRangeExt as _, Editor, EditorEvent, MultiBuffer};
 use extension::ExtensionEvents;
 use extension_host::ExtensionStore;
 use fs::Fs;
+use i18n::t;
 use gpui::{
     Action, Animation, AnimationExt, AnyElement, App, AsyncWindowContext, ClipboardItem, Corner,
     DismissEvent, Entity, EventEmitter, ExternalPaths, FocusHandle, Focusable, KeyContext, Pixels,
@@ -602,10 +603,10 @@ impl From<Agent> for AgentType {
 }
 
 impl StartThreadIn {
-    fn label(&self) -> SharedString {
+    fn label(&self, cx: &App) -> SharedString {
         match self {
-            Self::LocalProject => "Current Worktree".into(),
-            Self::NewWorktree => "New Git Worktree".into(),
+            Self::LocalProject => t("agent_panel.start_in.current_worktree", cx),
+            Self::NewWorktree => t("agent_panel.start_in.new_worktree", cx),
         }
     }
 }
@@ -968,8 +969,8 @@ impl AgentPanel {
                             .update(cx, |panel, cx| panel.history_for_selected_agent(window, cx))
                         {
                             let view_all_label = match history {
-                                History::AgentThreads { .. } => "View All",
-                                History::TextThreads => "View All Text Threads",
+                                History::AgentThreads { .. } => t("agent_panel.menu.view_all", cx),
+                                History::TextThreads => t("agent_panel.menu.view_all_text_threads", cx),
                             };
                             menu = Self::populate_recently_updated_menu_section(
                                 menu, panel, history, cx,
@@ -3323,13 +3324,13 @@ impl AgentPanel {
             }
             ActiveView::History { history: kind } => {
                 let title = match kind {
-                    History::AgentThreads { .. } => "History",
-                    History::TextThreads => "Text Thread History",
+                    History::AgentThreads { .. } => t("agent_panel.title.history", cx),
+                    History::TextThreads => t("agent_panel.title.text_thread_history", cx),
                 };
                 Label::new(title).truncate().into_any_element()
             }
-            ActiveView::Configuration => Label::new("Settings").truncate().into_any_element(),
-            ActiveView::Uninitialized => Label::new("Agent").truncate().into_any_element(),
+            ActiveView::Configuration => Label::new(t("agent_panel.title.settings", cx)).truncate().into_any_element(),
+            ActiveView::Uninitialized => Label::new(t("agent_panel.title.agent", cx)).truncate().into_any_element(),
         };
 
         h_flex()
@@ -3370,9 +3371,9 @@ impl AgentPanel {
         let focus_handle = self.focus_handle(cx);
 
         let full_screen_label = if self.is_zoomed(window, cx) {
-            "Disable Full Screen"
+            t("agent_panel.menu.disable_full_screen", cx)
         } else {
-            "Enable Full Screen"
+            t("agent_panel.menu.enable_full_screen", cx)
         };
 
         let text_thread_view = match &self.active_view {
@@ -3418,7 +3419,7 @@ impl AgentPanel {
                     let focus_handle = focus_handle.clone();
                     move |_window, cx| {
                         Tooltip::for_action_in(
-                            "Toggle Agent Menu",
+                            t("agent_panel.menu.toggle", cx),
                             &ToggleOptionsMenu,
                             &focus_handle,
                             cx,
@@ -3430,15 +3431,15 @@ impl AgentPanel {
             .with_handle(self.agent_panel_menu_handle.clone())
             .menu({
                 move |window, cx| {
-                    Some(ContextMenu::build(window, cx, |mut menu, _window, _| {
+                    Some(ContextMenu::build(window, cx, |mut menu, _window, cx| {
                         menu = menu.context(focus_handle.clone());
 
                         if thread_with_messages | text_thread_with_messages {
-                            menu = menu.header("Current Thread");
+                            menu = menu.header(t("agent_panel.menu.current_thread", cx));
 
                             if let Some(text_thread_view) = text_thread_view.as_ref() {
                                 menu = menu
-                                    .entry("Regenerate Thread Title", None, {
+                                    .entry(t("agent_panel.menu.regenerate_title", cx), None, {
                                         let text_thread_view = text_thread_view.clone();
                                         move |_, cx| {
                                             Self::handle_regenerate_text_thread_title(
@@ -3452,7 +3453,7 @@ impl AgentPanel {
 
                             if let Some(conversation_view) = conversation_view.as_ref() {
                                 menu = menu
-                                    .entry("Regenerate Thread Title", None, {
+                                    .entry(t("agent_panel.menu.regenerate_title", cx), None, {
                                         let conversation_view = conversation_view.clone();
                                         move |_, cx| {
                                             Self::handle_regenerate_thread_title(
@@ -3466,9 +3467,9 @@ impl AgentPanel {
                         }
 
                         menu = menu
-                            .header("MCP Servers")
+                            .header(t("agent_panel.menu.mcp_servers", cx))
                             .action(
-                                "View Server Extensions",
+                                t("agent_panel.menu.view_server_extensions", cx),
                                 Box::new(zed_actions::Extensions {
                                     category_filter: Some(
                                         zed_actions::ExtensionCategoryFilter::ContextServers,
@@ -3476,17 +3477,17 @@ impl AgentPanel {
                                     id: None,
                                 }),
                             )
-                            .action("Add Custom Server…", Box::new(AddContextServer))
+                            .action(t("agent_panel.menu.add_custom_server", cx), Box::new(AddContextServer))
                             .separator()
-                            .action("Rules", Box::new(OpenRulesLibrary::default()))
-                            .action("Profiles", Box::new(ManageProfiles::default()))
-                            .action("Settings", Box::new(OpenSettings))
+                            .action(t("agent_panel.menu.rules", cx), Box::new(OpenRulesLibrary::default()))
+                            .action(t("agent_panel.menu.profiles", cx), Box::new(ManageProfiles::default()))
+                            .action(t("agent_panel.menu.settings", cx), Box::new(OpenSettings))
                             .separator()
-                            .action("Toggle Threads Sidebar", Box::new(ToggleWorkspaceSidebar))
-                            .action(full_screen_label, Box::new(ToggleZoom));
+                            .action(t("agent_panel.menu.toggle_threads_sidebar", cx), Box::new(ToggleWorkspaceSidebar))
+                            .action(full_screen_label.clone(), Box::new(ToggleZoom));
 
                         if has_auth_methods {
-                            menu = menu.action("Reauthenticate", Box::new(ReauthenticateAgent))
+                            menu = menu.action(t("agent_panel.menu.reauthenticate", cx), Box::new(ReauthenticateAgent))
                         }
 
                         menu
@@ -3569,7 +3570,7 @@ impl AgentPanel {
         );
 
         let current_target = self.start_thread_in;
-        let trigger_label = self.start_thread_in.label();
+        let trigger_label = self.start_thread_in.label(cx);
 
         let new_thread_location = AgentSettings::get_global(cx).new_thread_location;
         let is_local_default = new_thread_location == NewThreadLocation::LocalProject;
@@ -3597,7 +3598,7 @@ impl AgentPanel {
             .trigger_with_tooltip(trigger_button, {
                 move |_window, cx| {
                     Tooltip::for_action_in(
-                        "Start Thread In…",
+                        t("agent_panel.start_in.title", cx),
                         &CycleStartThreadIn,
                         &focus_handle,
                         cx,
@@ -3609,12 +3610,12 @@ impl AgentPanel {
                 let is_new_worktree_selected = current_target == StartThreadIn::NewWorktree;
                 let fs = fs.clone();
 
-                Some(ContextMenu::build(window, cx, move |menu, _window, _cx| {
+                Some(ContextMenu::build(window, cx, move |menu, _window, cx| {
                     let new_worktree_disabled = !has_git_repo || is_via_collab;
 
-                    menu.header("Start Thread In…")
+                    menu.header(t("agent_panel.start_in.title", cx))
                         .item(
-                            ContextMenuEntry::new("Current Worktree")
+                            ContextMenuEntry::new(t("agent_panel.start_in.current_worktree", cx))
                                 .toggleable(IconPosition::End, is_local_selected)
                                 .documentation_aside(documentation_side, move |_| {
                                     HoldForDefault::new(is_local_default)
@@ -3642,7 +3643,7 @@ impl AgentPanel {
                                 }),
                         )
                         .item({
-                            let entry = ContextMenuEntry::new("New Git Worktree")
+                            let entry = ContextMenuEntry::new(t("agent_panel.start_in.new_worktree", cx))
                                 .toggleable(IconPosition::End, is_new_worktree_selected)
                                 .disabled(new_worktree_disabled)
                                 .handler({
@@ -3802,7 +3803,7 @@ impl AgentPanel {
                                 }),
                         )
                         .item(
-                            ContextMenuEntry::new("Text Thread")
+                            ContextMenuEntry::new(t("agent_panel.thread.text_thread", cx))
                                 .action(NewTextThread.boxed_clone())
                                 .icon(IconName::TextThread)
                                 .icon_color(Color::Muted)

@@ -60,7 +60,7 @@ use workspace::{
 };
 use zed::{
     OpenListener, OpenRequest, RawOpenRequest, app_menus, build_window_options,
-    derive_paths_with_position, edit_prediction_registry, handle_cli_connection,
+    derive_paths_with_position, handle_cli_connection,
     handle_keymap_file_changes, handle_settings_file_changes, initialize_workspace,
     open_paths_with_positions,
 };
@@ -622,8 +622,8 @@ fn main() {
         });
         AppState::set_global(app_state.clone(), cx);
 
-        auto_update::init(client.clone(), cx);
-        auto_update_ui::init(cx);
+        // auto_update::init(client.clone(), cx); // 포크 환경에서 공식 Zed 바이너리로 덮어쓰는 위험 방지
+        // auto_update_ui::init(cx); // auto_update 비활성화
         reliability::init(client.clone(), cx);
         extension_host::init(
             extension_host_proxy.clone(),
@@ -655,17 +655,15 @@ fn main() {
             cx,
         );
 
-        copilot_ui::init(&app_state, cx);
+        // copilot_ui::init(&app_state, cx); // edit prediction 비활성화로 Copilot 프로바이더 미사용
         language_model::init(app_state.user_store.clone(), app_state.client.clone(), cx);
         language_models::init(app_state.user_store.clone(), app_state.client.clone(), cx);
         acp_tools::init(cx);
-        zed::telemetry_log::init(cx);
+        // zed::telemetry_log::init(cx); // 텔레메트리 비활성화 환경에서 무의미
         zed::remote_debug::init(cx);
-        // edit_prediction_ui::init(cx); // edit prediction 기능 제거
         web_search::init(cx);
         web_search_providers::init(app_state.client.clone(), app_state.user_store.clone(), cx);
         snippet_provider::init(cx);
-        // edit_prediction_registry::init(app_state.client.clone(), app_state.user_store.clone(), cx); // edit prediction 기능 제거
         let prompt_builder = PromptBuilder::load(app_state.fs.clone(), stdout_is_a_pty(), cx);
         project::AgentRegistryStore::init_global(
             cx,
@@ -727,7 +725,6 @@ fn main() {
         theme_selector::init(cx);
         settings_profile_selector::init(cx);
         language_tools::init(cx);
-        notifications::init(app_state.client.clone(), app_state.user_store.clone(), cx);
         title_bar::init(cx);
         git_ui::init(cx);
         git_graph::init(cx);
@@ -739,7 +736,6 @@ fn main() {
         settings_ui::init(cx);
         keymap_editor::init(cx);
         extensions_ui::init(cx);
-        // edit_prediction::init(cx); // edit prediction 기능 제거
         inspector_ui::init(app_state.clone(), cx);
         json_schema_store::init(cx);
         miniprofiler_ui::init(*STARTUP_TIME.get().unwrap(), cx);
@@ -1309,6 +1305,10 @@ pub(crate) async fn restore_or_create_workspace(
     let kvp = cx.update(|cx| KeyValueStore::global(cx));
     if let Some((multi_workspaces, remote_workspaces)) = restorable_workspaces(cx, &app_state).await
     {
+        log::info!(
+            "restore_or_create_workspace: 복원할 워크스페이스 발견 — multi_workspaces={}, remote={}",
+            multi_workspaces.len(), remote_workspaces.len()
+        );
         let mut results: Vec<Result<(), Error>> = Vec::new();
         let mut tasks = Vec::new();
 
@@ -1416,8 +1416,10 @@ pub(crate) async fn restore_or_create_workspace(
             }
         }
     } else if matches!(kvp.read_kvp(FIRST_OPEN), Ok(None)) {
+        log::info!("restore_or_create_workspace: 첫 실행 — 온보딩 표시");
         cx.update(|cx| show_onboarding_view(app_state, cx)).await?;
     } else {
+        log::info!("restore_or_create_workspace: 복원할 워크스페이스 없음 — open_new로 새 워크스페이스 생성");
         cx.update(|cx| {
             workspace::open_new(
                 Default::default(),
@@ -1477,12 +1479,18 @@ pub(crate) async fn restorable_workspace_locations(
         )
     });
 
+    log::info!(
+        "restorable_workspace_locations: restore_behavior={:?}, last_session_id={:?}",
+        restore_behavior, last_session_id,
+    );
+
     if last_session_id.is_none()
         && matches!(
             restore_behavior,
             workspace::RestoreOnStartupBehavior::LastSession
         )
     {
+        log::info!("restorable_workspace_locations: last_session_id 없음 → LastWorkspace로 폴백");
         restore_behavior = workspace::RestoreOnStartupBehavior::LastWorkspace;
     }
 

@@ -4,6 +4,7 @@ use crate::{
     git_panel_settings::GitPanelSettings,
     resolve_active_repository,
 };
+use i18n::t;
 use agent_settings::AgentSettings;
 use anyhow::{Context as _, Result, anyhow};
 use buffer_diff::{BufferDiff, DiffHunkSecondaryStatus};
@@ -1445,9 +1446,9 @@ impl Render for ProjectDiffToolbar {
                 h_group_sm()
                     .when(button_states.selection, |el| {
                         el.child(
-                            Button::new("stage", "Toggle Staged")
+                            Button::new("stage", t("git_panel.toggle_staged", cx))
                                 .tooltip(Tooltip::for_action_title_in(
-                                    "Toggle Staged",
+                                    t("git_panel.toggle_staged", cx),
                                     &ToggleStaged,
                                     &focus_handle,
                                 ))
@@ -1459,9 +1460,9 @@ impl Render for ProjectDiffToolbar {
                     })
                     .when(!button_states.selection, |el| {
                         el.child(
-                            Button::new("stage", "Stage")
+                            Button::new("stage", t("git_panel.stage", cx))
                                 .tooltip(Tooltip::for_action_title_in(
-                                    "Stage and go to next hunk",
+                                    t("git_panel.stage_and_next", cx),
                                     &StageAndNext,
                                     &focus_handle,
                                 ))
@@ -1475,9 +1476,9 @@ impl Render for ProjectDiffToolbar {
                                 })),
                         )
                         .child(
-                            Button::new("unstage", "Unstage")
+                            Button::new("unstage", t("git_panel.unstage", cx))
                                 .tooltip(Tooltip::for_action_title_in(
-                                    "Unstage and go to next hunk",
+                                    t("git_panel.unstage_and_next", cx),
                                     &UnstageAndNext,
                                     &focus_handle,
                                 ))
@@ -1500,7 +1501,7 @@ impl Render for ProjectDiffToolbar {
                         IconButton::new("up", IconName::ArrowUp)
                             .shape(ui::IconButtonShape::Square)
                             .tooltip(Tooltip::for_action_title_in(
-                                "Go to previous hunk",
+                                t("git_panel.go_to_previous_hunk", cx),
                                 &GoToPreviousHunk,
                                 &focus_handle,
                             ))
@@ -1513,7 +1514,7 @@ impl Render for ProjectDiffToolbar {
                         IconButton::new("down", IconName::ArrowDown)
                             .shape(ui::IconButtonShape::Square)
                             .tooltip(Tooltip::for_action_title_in(
-                                "Go to next hunk",
+                                t("git_panel.go_to_next_hunk", cx),
                                 &GoToHunk,
                                 &focus_handle,
                             ))
@@ -1530,9 +1531,9 @@ impl Render for ProjectDiffToolbar {
                         button_states.unstage_all && !button_states.stage_all,
                         |el| {
                             el.child(
-                                Button::new("unstage-all", "Unstage All")
+                                Button::new("unstage-all", t("git_panel.menu.unstage_all", cx))
                                     .tooltip(Tooltip::for_action_title_in(
-                                        "Unstage all changes",
+                                        t("git_panel.unstage_all_changes", cx),
                                         &UnstageAll,
                                         &focus_handle,
                                     ))
@@ -1549,10 +1550,10 @@ impl Render for ProjectDiffToolbar {
                                 // todo make it so that changing to say "Unstaged"
                                 // doesn't change the position.
                                 div().child(
-                                    Button::new("stage-all", "Stage All")
+                                    Button::new("stage-all", t("git_panel.menu.stage_all", cx))
                                         .disabled(!button_states.stage_all)
                                         .tooltip(Tooltip::for_action_title_in(
-                                            "Stage all changes",
+                                            t("git_panel.stage_all_changes", cx),
                                             &StageAll,
                                             &focus_handle,
                                         ))
@@ -1564,9 +1565,9 @@ impl Render for ProjectDiffToolbar {
                         },
                     )
                     .child(
-                        Button::new("commit", "Commit")
+                        Button::new("commit", t("git_panel.commit.commit", cx))
                             .tooltip(Tooltip::for_action_title_in(
-                                "Commit",
+                                t("git_panel.commit.commit", cx),
                                 &Commit,
                                 &focus_handle,
                             ))

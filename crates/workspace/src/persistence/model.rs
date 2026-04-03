@@ -286,6 +286,93 @@ impl SerializedPaneGroup {
             }
         }
     }
+
+    /// 비활성 워크스페이스 그룹용 역직렬화
+    /// add_pane() 대신 create_inactive_pane()을 사용하여
+    /// PaneAdded 이벤트, 포커스 이동, panes 리스트 오염을 방지
+    #[async_recursion(?Send)]
+    pub(crate) async fn deserialize_inactive(
+        self,
+        project: &Entity<Project>,
+        workspace_id: WorkspaceId,
+        workspace: WeakEntity<Workspace>,
+        cx: &mut AsyncWindowContext,
+    ) -> Option<(
+        Member,
+        Option<Entity<Pane>>,
+        Vec<Option<Box<dyn ItemHandle>>>,
+    )> {
+        match self {
+            SerializedPaneGroup::Group {
+                axis,
+                children,
+                flexes,
+            } => {
+                let mut current_active_pane = None;
+                let mut members = Vec::new();
+                let mut items = Vec::new();
+                for child in children {
+                    if let Some((new_member, active_pane, new_items)) = child
+                        .deserialize_inactive(project, workspace_id, workspace.clone(), cx)
+                        .await
+                    {
+                        members.push(new_member);
+                        items.extend(new_items);
+                        current_active_pane = current_active_pane.or(active_pane);
+                    }
+                }
+
+                if members.is_empty() {
+                    return None;
+                }
+
+                if members.len() == 1 {
+                    return Some((members.remove(0), current_active_pane, items));
+                }
+
+                Some((
+                    Member::Axis(PaneAxis::load(axis.0, members, flexes)),
+                    current_active_pane,
+                    items,
+                ))
+            }
+            SerializedPaneGroup::Pane(serialized_pane) => {
+                // 강한 참조(Entity<Pane>)를 유지하여 역직렬화 중 패인이 해제되지 않도록 함
+                // create_inactive_pane은 self.panes에 추가하지 않으므로
+                // 즉시 downgrade()하면 참조 카운트 0으로 패인이 해제됨
+                let pane_entity = workspace
+                    .update_in(cx, |workspace, window, cx| {
+                        workspace.create_inactive_pane(window, cx)
+                    })
+                    .log_err()?;
+                let pane = pane_entity.downgrade();
+                let active = serialized_pane.active;
+                let new_items = serialized_pane
+                    .deserialize_to(project, &pane, workspace_id, workspace.clone(), cx)
+                    .await
+                    .context("Could not deserialize inactive pane")
+                    .log_err()?;
+
+                if pane
+                    .read_with(cx, |pane, _| pane.items_len() != 0)
+                    .log_err()?
+                {
+                    Some((
+                        Member::Pane(pane_entity.clone()),
+                        active.then_some(pane_entity),
+                        new_items,
+                    ))
+                } else {
+                    workspace
+                        .update_in(cx, |workspace, window, cx| {
+                            workspace.force_remove_pane(&pane_entity, &None, window, cx)
+                        })
+                        .log_err()?;
+                    None
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Default, Clone)]

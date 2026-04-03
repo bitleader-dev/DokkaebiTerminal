@@ -5181,6 +5181,7 @@ fn terminal_page() -> SettingsPage {
                                             title_override,
                                         }
                                     }
+                                    settings::ShellDiscriminants::Command => settings::Shell::Command,
                                 };
                             },
                         }),
@@ -5230,6 +5231,7 @@ fn terminal_page() -> SettingsPage {
                                 }),
                                 metadata: None,
                             }],
+                            settings::ShellDiscriminants::Command => vec![],
                             settings::ShellDiscriminants::WithArguments => vec![
                                 SettingItem {
                                     files: USER | PROJECT,

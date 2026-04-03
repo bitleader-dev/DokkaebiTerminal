@@ -58,6 +58,7 @@ futures.workspace = true
 git.workspace = true
 fuzzy.workspace = true
 gpui.workspace = true
+i18n.workspace = true
 gpui_tokio.workspace = true
 html_to_markdown.workspace = true
 http_client.workspace = true

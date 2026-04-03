@@ -10,6 +10,7 @@ use crate::{
     repository_selector::RepositorySelector,
 };
 use agent_settings::AgentSettings;
+use i18n::t;
 use anyhow::Context as _;
 use askpass::AskPassDelegate;
 use collections::{BTreeMap, HashMap, HashSet};
@@ -169,46 +170,46 @@ fn git_panel_context_menu(
     window: &mut Window,
     cx: &mut App,
 ) -> Entity<ContextMenu> {
-    ContextMenu::build(window, cx, move |context_menu, _, _| {
+    ContextMenu::build(window, cx, move |context_menu, _, cx| {
         context_menu
             .context(focus_handle)
             .action_disabled_when(
                 !state.has_unstaged_changes,
-                "Stage All",
+                t("git_panel.menu.stage_all", cx),
                 StageAll.boxed_clone(),
             )
             .action_disabled_when(
                 !state.has_staged_changes,
-                "Unstage All",
+                t("git_panel.menu.unstage_all", cx),
                 UnstageAll.boxed_clone(),
             )
             .separator()
             .action_disabled_when(
                 !(state.has_new_changes || state.has_tracked_changes),
-                "Stash All",
+                t("git_panel.menu.stash_all", cx),
                 StashAll.boxed_clone(),
             )
-            .action_disabled_when(!state.has_stash_items, "Stash Pop", StashPop.boxed_clone())
-            .action("View Stash", zed_actions::git::ViewStash.boxed_clone())
+            .action_disabled_when(!state.has_stash_items, t("git_panel.menu.stash_pop", cx), StashPop.boxed_clone())
+            .action(t("git_panel.menu.view_stash", cx), zed_actions::git::ViewStash.boxed_clone())
             .separator()
-            .action("Open Diff", project_diff::Diff.boxed_clone())
+            .action(t("git_panel.menu.open_diff", cx), project_diff::Diff.boxed_clone())
             .separator()
             .action_disabled_when(
                 !state.has_tracked_changes,
-                "Discard Tracked Changes",
+                t("git_panel.menu.discard_tracked_changes", cx),
                 RestoreTrackedFiles.boxed_clone(),
             )
             .action_disabled_when(
                 !state.has_new_changes,
-                "Trash Untracked Files",
+                t("git_panel.menu.trash_untracked_files", cx),
                 TrashUntrackedFiles.boxed_clone(),
             )
             .separator()
             .entry(
                 if state.tree_view {
-                    "Flat View"
+                    t("git_panel.menu.flat_view", cx)
                 } else {
-                    "Tree View"
+                    t("git_panel.menu.tree_view", cx)
                 },
                 Some(Box::new(ToggleTreeView)),
                 move |window, cx| window.dispatch_action(Box::new(ToggleTreeView), cx),
@@ -216,9 +217,9 @@ fn git_panel_context_menu(
             .when(!state.tree_view, |this| {
                 this.entry(
                     if state.sort_by_path {
-                        "Sort by Status"
+                        t("git_panel.menu.sort_by_status", cx)
                     } else {
-                        "Sort by Path"
+                        t("git_panel.menu.sort_by_path", cx)
                     },
                     Some(Box::new(ToggleSortByPath)),
                     move |window, cx| window.dispatch_action(Box::new(ToggleSortByPath), cx),
@@ -4070,14 +4071,14 @@ impl GitPanel {
                 let signoff = self.signoff_enabled;
 
                 move |window, cx| {
-                    Some(ContextMenu::build(window, cx, |context_menu, _, _| {
+                    Some(ContextMenu::build(window, cx, |context_menu, _, cx| {
                         context_menu
                             .when_some(keybinding_target.clone(), |el, keybinding_target| {
                                 el.context(keybinding_target)
                             })
                             .when(has_previous_commit, |this| {
                                 this.toggleable_entry(
-                                    "Amend",
+                                    t("git_panel.commit.amend", &cx),
                                     amend,
                                     IconPosition::Start,
                                     Some(Box::new(Amend)),
@@ -4094,7 +4095,7 @@ impl GitPanel {
                                 )
                             })
                             .toggleable_entry(
-                                "Signoff",
+                                t("git_panel.commit.signoff", &cx),
                                 signoff,
                                 IconPosition::Start,
                                 Some(Box::new(Signoff)),
@@ -4106,35 +4107,35 @@ impl GitPanel {
             .anchor(Corner::TopRight)
     }
 
-    pub fn configure_commit_button(&self, cx: &mut Context<Self>) -> (bool, &'static str) {
+    pub fn configure_commit_button(&self, cx: &mut Context<Self>) -> (bool, SharedString) {
         if self.has_unstaged_conflicts() {
-            (false, "You must resolve conflicts before committing")
+            (false, t("git_panel.commit.resolve_conflicts", cx))
         } else if !self.has_staged_changes() && !self.has_tracked_changes() && !self.amend_pending {
-            (false, "No changes to commit")
+            (false, t("git_panel.commit.no_changes", cx))
         } else if self.pending_commit.is_some() {
-            (false, "Commit in progress")
+            (false, t("git_panel.commit.in_progress", cx))
         } else if !self.has_commit_message(cx) {
-            (false, "No commit message")
+            (false, t("git_panel.commit.no_message", cx))
         } else if !self.has_write_access(cx) {
-            (false, "You do not have write access to this project")
+            (false, t("git_panel.commit.no_write_access", cx))
         } else {
-            (true, self.commit_button_title())
+            (true, self.commit_button_title(cx))
         }
     }
 
-    pub fn commit_button_title(&self) -> &'static str {
+    pub fn commit_button_title(&self, cx: &App) -> SharedString {
         if self.amend_pending {
             if self.has_staged_changes() {
-                "Amend"
+                t("git_panel.commit.amend", cx)
             } else if self.has_tracked_changes() {
-                "Amend Tracked"
+                t("git_panel.commit.amend_tracked", cx)
             } else {
-                "Amend"
+                t("git_panel.commit.amend", cx)
             }
         } else if self.has_staged_changes() {
-            "Commit"
+            t("git_panel.commit.commit", cx)
         } else {
-            "Commit Tracked"
+            t("git_panel.commit.commit_tracked", cx)
         }
     }
 
@@ -4163,15 +4164,15 @@ impl GitPanel {
 
         let (text, action, stage, tooltip) =
             if self.total_staged_count() == self.entry_count && self.entry_count > 0 {
-                ("Unstage All", UnstageAll.boxed_clone(), false, "git reset")
+                (t("git_panel.menu.unstage_all", cx), UnstageAll.boxed_clone(), false, "git reset")
             } else {
-                ("Stage All", StageAll.boxed_clone(), true, "git add --all")
+                (t("git_panel.menu.stage_all", cx), StageAll.boxed_clone(), true, "git add --all")
             };
 
         let change_string = match self.changes_count {
-            0 => "No Changes".to_string(),
-            1 => "1 Change".to_string(),
-            count => format!("{} Changes", count),
+            0 => t("git_panel.no_changes", cx).to_string(),
+            1 => t("git_panel.one_change", cx).to_string(),
+            count => format!("{} {}", count, t("git_panel.changes", cx)),
         };
 
         Some(
@@ -4182,7 +4183,7 @@ impl GitPanel {
                     panel_button(change_string)
                         .color(Color::Muted)
                         .tooltip(Tooltip::for_action_title_in(
-                            "Open Diff",
+                            t("git_panel.menu.open_diff", cx),
                             &Diff,
                             &self.focus_handle,
                         ))
@@ -4236,6 +4237,7 @@ impl GitPanel {
                         &branch,
                         focus_handle,
                         true,
+                        cx,
                     ))
                 })
                 .into_any_element(),
@@ -4368,7 +4370,7 @@ impl GitPanel {
 
     fn render_commit_button(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let (can_commit, tooltip) = self.configure_commit_button(cx);
-        let title = self.commit_button_title();
+        let title = self.commit_button_title(cx);
         let commit_tooltip_focus_handle = self.commit_editor.focus_handle(cx);
         let amend = self.amend_pending();
         let signoff = self.signoff_enabled;
@@ -4379,6 +4381,7 @@ impl GitPanel {
             Color::Default
         };
 
+        let title_for_menu = title.clone();
         div()
             .id("commit-wrapper")
             .on_hover(cx.listener(move |this, hovered, _, cx| {
@@ -4416,10 +4419,11 @@ impl GitPanel {
                 .disabled(!can_commit || self.modal_open)
                 .tooltip({
                     let handle = commit_tooltip_focus_handle.clone();
+                    let tooltip = tooltip.clone();
                     move |_window, cx| {
                         if can_commit {
                             Tooltip::with_meta_in(
-                                tooltip,
+                                tooltip.clone(),
                                 Some(if amend { &git::Amend } else { &git::Commit }),
                                 format!(
                                     "git commit{}{}",
@@ -4430,12 +4434,12 @@ impl GitPanel {
                                 cx,
                             )
                         } else {
-                            Tooltip::simple(tooltip, cx)
+                            Tooltip::simple(tooltip.clone(), cx)
                         }
                     }
                 }),
                 self.render_git_commit_menu(
-                    ElementId::Name(format!("split-button-right-{}", title).into()),
+                    ElementId::Name(format!("split-button-right-{}", title_for_menu).into()),
                     Some(commit_tooltip_focus_handle),
                     cx,
                 )
@@ -4908,31 +4912,31 @@ impl GitPanel {
             return;
         };
         let stage_title = if entry.status.staging().is_fully_staged() {
-            "Unstage File"
+            t("git_panel.file_menu.unstage_file", cx)
         } else {
-            "Stage File"
+            t("git_panel.file_menu.stage_file", cx)
         };
         let restore_title = if entry.status.is_created() {
-            "Trash File"
+            t("git_panel.file_menu.trash_file", cx)
         } else {
-            "Discard Changes"
+            t("git_panel.file_menu.discard_changes", cx)
         };
-        let context_menu = ContextMenu::build(window, cx, |context_menu, _, _| {
+        let context_menu = ContextMenu::build(window, cx, |context_menu, _, cx| {
             let is_created = entry.status.is_created();
             context_menu
                 .context(self.focus_handle.clone())
-                .action(stage_title, ToggleStaged.boxed_clone())
-                .action(restore_title, git::RestoreFile::default().boxed_clone())
+                .action(stage_title.clone(), ToggleStaged.boxed_clone())
+                .action(restore_title.clone(), git::RestoreFile::default().boxed_clone())
                 .action_disabled_when(
                     !is_created,
-                    "Add to .gitignore",
+                    t("git_panel.file_menu.add_to_gitignore", cx),
                     git::AddToGitignore.boxed_clone(),
                 )
                 .separator()
-                .action("Open Diff", menu::Confirm.boxed_clone())
-                .action("Open File", menu::SecondaryConfirm.boxed_clone())
+                .action(t("git_panel.menu.open_diff", cx), menu::Confirm.boxed_clone())
+                .action(t("git_panel.file_menu.open_file", cx), menu::SecondaryConfirm.boxed_clone())
                 .separator()
-                .action_disabled_when(is_created, "View File History", Box::new(git::FileHistory))
+                .action_disabled_when(is_created, t("git_panel.file_menu.view_file_history", cx), Box::new(git::FileHistory))
         });
         self.selected_entry = Some(ix);
         self.set_context_menu(context_menu, position, window, cx);

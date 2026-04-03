@@ -1,6 +1,17 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-04-03: 탭 우클릭 저장 메뉴 이중 대여 panic 수정 — handler_for(&pane) 대신 menu_context.dispatch_action으로 변경하여 Pane update 중 read 충돌 방지
+- 2026-04-03: 터미널 탭 우클릭 메뉴에서 파일 전용 항목(읽기 전용 만들기/저장/다른 이름으로 저장) 숨김 — can_save/can_save_as 조건 분기 추가
+- 2026-04-03: 워크스페이스 그룹 패널 드래그 앤 드롭 순서 변경 기능 추가 — 항목을 드래그하여 순서 이동, 활성 인덱스 자동 추적, 직렬화 반영
+- 2026-04-03: 워크스페이스 그룹 이름 변경 시 저장 안 되는 버그 수정 — rename_workspace_group에서 serialize_workspace 호출 누락
+- 2026-04-03: 에이전트 패널 i18n 적용 — 옵션 메뉴(MCP 서버/규칙/프로필/설정/전체화면 등), 타이틀(기록/설정/에이전트), 스레드 시작 위치 메뉴, placeholder 텍스트 한글화. 워크스페이스 그룹 탭 전체 닫기 시 그룹 미삭제 버그 수정 (패널 observe 누락)
+- 2026-04-03: 터미널 설정 — 셸 드롭다운에 "명령 프롬프트(Command)" 옵션 추가, cmd.exe 실행. Shell enum에 Command variant 추가 (util/settings_content/terminal/task/settings_ui)
+- 2026-04-03: Git 패널·컨텍스트 메뉴·Diff 툴바 i18n 적용 — git_panel.rs/git_ui.rs/project_diff.rs/commit_modal.rs의 하드코딩 문자열을 t() 호출로 변환, ko.json/en.json에 57개 번역 키 추가 (패널 메뉴·파일 메뉴·커밋 버튼·원격 버튼·Diff 툴바 등)
+- 2026-04-03: 키맵 편집기 — 비활성화된 기능(협업/auto_update/copilot/edit_prediction/telemetry/client)의 액션을 목록에서 숨김 처리 (is_hidden_action 필터 추가)
+- 2026-04-03: 미사용 기능 정리 (낮음 우선순위) — plan_chip.rs 고아 파일 삭제, 미사용 액션 3개 제거(ToggleUserMenu/ToggleProjectMenu/SwitchBranch), zed_urls 미사용 함수 2개 제거, telemetry_log 모듈 비활성화, copilot_ui::init() 주석 처리, auto_update_ui·auto_update_helper 워크스페이스 멤버 제거
+- 2026-04-03: 미사용 기능 정리 (중간 우선순위) — Sound 7개 삭제(통화 관련), TitleBar에서 render_project_host·user_store·client 제거, NotificationStore init 제거, 채널 URL 필드(join_channel/open_channel_notes) 제거
+- 2026-04-03: 미사용 기능 정리 (높음 우선순위) — auto_update 비활성화(포크 바이너리 덮어쓰기 방지), edit_prediction 관련 코드 제거(zed crate에서 모듈·의존성·레지스트리 삭제), feedback URL 빈 문자열로 변경(upstream Zed 저장소 링크 제거)
 - 2026-04-02: 키맵 편집기·키맵 파일 열기 시 다른 워크스페이스 그룹 중복 방지 — 이미 열린 탭이 있는 그룹으로 자동 전환
 - 2026-04-02: 하단 상태바 패널 버튼 툴팁 i18n 적용 — 7개 패널(프로젝트/터미널/에이전트/Git/아웃라인/메모장/워크스페이스) 툴팁, 독 닫기/이동 메뉴 한글화
 - 2026-04-02: 키맵 편집기(Keymap Editor) 전체 i18n 적용 — UI 문자열 50여 개를 t() 호출로 변환, ko.json/en.json에 번역 키 추가

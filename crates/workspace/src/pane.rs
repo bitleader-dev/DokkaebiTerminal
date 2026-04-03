@@ -3039,6 +3039,8 @@ impl Pane {
                 let pane = pane.clone();
                 let menu_context = menu_context.clone();
                 let extra_actions = item_handle.tab_extra_context_menu_actions(window, cx);
+                let item_can_save = item_handle.can_save(cx);
+                let item_can_save_as = item_handle.can_save_as(cx);
                 ContextMenu::build(window, cx, move |mut menu, window, cx| {
                     let close_active_item_action = CloseActiveItem {
                         save_intent: None,
@@ -3197,7 +3199,8 @@ impl Pane {
                             })
                         };
 
-                        if capability != Capability::ReadOnly {
+                        // 저장 가능한 항목에만 읽기 전용/저장 메뉴 표시 (터미널 등 제외)
+                        if capability != Capability::ReadOnly && item_can_save {
                             menu = menu.separator().entry(
                                 label_read_only,
                                 None,
@@ -3209,34 +3212,33 @@ impl Pane {
                             );
                         }
 
-                        // 저장 메뉴 추가
-                        let label_save = t("pane.menu.save", cx);
-                        let label_save_as = t("pane.menu.save_as", cx);
-                        let save_action = WorkspaceSave { save_intent: None };
-                        let save_as_action = SaveAs;
-                        menu = menu
-                            .entry(
-                                label_save,
-                                Some(Box::new(save_action.clone())),
-                                window.handler_for(&pane, move |pane, window, cx| {
-                                    pane.focus_handle(cx).dispatch_action(
-                                        &save_action,
-                                        window,
-                                        cx,
-                                    );
-                                }),
-                            )
-                            .entry(
-                                label_save_as,
-                                Some(Box::new(save_as_action.clone())),
-                                window.handler_for(&pane, move |pane, window, cx| {
-                                    pane.focus_handle(cx).dispatch_action(
-                                        &save_as_action,
-                                        window,
-                                        cx,
-                                    );
-                                }),
-                            );
+                        if item_can_save || item_can_save_as {
+                            // 저장 메뉴 추가 — Pane 이중 대여 방지를 위해 menu_context로 직접 dispatch
+                            let label_save = t("pane.menu.save", cx);
+                            let label_save_as = t("pane.menu.save_as", cx);
+                            let save_action = WorkspaceSave { save_intent: None };
+                            let save_as_action = SaveAs;
+                            if item_can_save {
+                                let ctx = menu_context.clone();
+                                menu = menu.entry(
+                                    label_save,
+                                    Some(Box::new(save_action.clone())),
+                                    move |window, cx| {
+                                        ctx.dispatch_action(&save_action, window, cx);
+                                    },
+                                );
+                            }
+                            if item_can_save_as {
+                                let ctx = menu_context.clone();
+                                menu = menu.entry(
+                                    label_save_as,
+                                    Some(Box::new(save_as_action.clone())),
+                                    move |window, cx| {
+                                        ctx.dispatch_action(&save_as_action, window, cx);
+                                    },
+                                );
+                            }
+                        }
 
                         if let Some(entry) = single_entry_to_resolve {
                             let project_path = pane

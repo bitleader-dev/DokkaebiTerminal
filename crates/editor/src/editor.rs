@@ -13173,6 +13173,8 @@ impl Editor {
             return;
         }
 
+        self.finalize_last_transaction(cx);
+
         let clipboard_text = Cow::Borrowed(text.as_str());
 
         self.transact(window, cx, |this, window, cx| {

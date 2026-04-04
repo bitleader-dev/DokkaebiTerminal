@@ -8,10 +8,11 @@ use crate::{
 };
 use gpui::prelude::FluentBuilder;
 use gpui::{Context, DismissEvent, Entity, Focusable as _, Pixels, Point, Subscription, Window};
+use i18n::t;
 use project::DisableAiSettings;
 use std::ops::Range;
 use text::PointUtf16;
-use workspace::OpenInTerminal;
+use workspace::{OpenInTerminal, SplitDown, SplitLeft, SplitRight, SplitUp};
 use zed_actions::agent::AddSelectionToThread;
 use zed_actions::preview::{
     markdown::OpenPreview as OpenMarkdownPreview, svg::OpenPreview as OpenSvgPreview,
@@ -239,65 +240,70 @@ pub fn deploy_context_menu(
                     .is_some_and(|ext| ext.eq_ignore_ascii_case("svg"))
             });
 
-        ui::ContextMenu::build(window, cx, |menu, _window, _cx| {
+        ui::ContextMenu::build(window, cx, |menu, _window, cx| {
             let builder = menu
                 .on_blur_subscription(Subscription::new(|| {}))
-                .action("Go to Definition", Box::new(GoToDefinition))
-                .action("Go to Declaration", Box::new(GoToDeclaration))
-                .action("Go to Type Definition", Box::new(GoToTypeDefinition))
-                .action("Go to Implementation", Box::new(GoToImplementation))
+                .action(t("editor.context_menu.go_to_definition", cx), Box::new(GoToDefinition))
+                .action(t("editor.context_menu.go_to_declaration", cx), Box::new(GoToDeclaration))
+                .action(t("editor.context_menu.go_to_type_definition", cx), Box::new(GoToTypeDefinition))
+                .action(t("editor.context_menu.go_to_implementation", cx), Box::new(GoToImplementation))
                 .action(
-                    "Find All References",
+                    t("editor.context_menu.find_all_references", cx),
                     Box::new(FindAllReferences::default()),
                 )
                 .separator()
-                .action("Rename Symbol", Box::new(Rename))
-                .action("Format Buffer", Box::new(Format))
-                .when(has_selections, |cx| {
-                    cx.action("Format Selections", Box::new(FormatSelections))
+                .action(t("editor.context_menu.rename_symbol", cx), Box::new(Rename))
+                .action(t("editor.context_menu.format_buffer", cx), Box::new(Format))
+                .when(has_selections, |builder| {
+                    builder.action(t("editor.context_menu.format_selections", cx), Box::new(FormatSelections))
                 })
                 .action(
-                    "Show Code Actions",
+                    t("editor.context_menu.show_code_actions", cx),
                     Box::new(ToggleCodeActions {
                         deployed_from: None,
                         quick_launch: false,
                     }),
                 )
-                .when(!disable_ai && has_selections, |this| {
-                    this.action("Add to Agent Thread", Box::new(AddSelectionToThread))
+                .when(!disable_ai && has_selections, |builder| {
+                    builder.action(t("editor.context_menu.add_to_agent_thread", cx), Box::new(AddSelectionToThread))
                 })
                 .separator()
-                .action("Cut", Box::new(Cut))
-                .action("Copy", Box::new(Copy))
-                .action("Copy and Trim", Box::new(CopyAndTrim))
-                .action("Paste", Box::new(Paste))
+                .action(t("editor.context_menu.cut", cx), Box::new(Cut))
+                .action(t("editor.context_menu.copy", cx), Box::new(Copy))
+                .action(t("editor.context_menu.copy_and_trim", cx), Box::new(CopyAndTrim))
+                .action(t("editor.context_menu.paste", cx), Box::new(Paste))
                 .separator()
                 .action_disabled_when(
                     !has_reveal_target,
-                    ui::utils::reveal_in_file_manager_label(false),
+                    t("editor.context_menu.reveal_in_file_explorer", cx),
                     Box::new(RevealInFileManager),
                 )
                 .when(is_markdown, |builder| {
-                    builder.action("Open Markdown Preview", Box::new(OpenMarkdownPreview))
+                    builder.action(t("editor.context_menu.open_markdown_preview", cx), Box::new(OpenMarkdownPreview))
                 })
                 .when(is_svg, |builder| {
-                    builder.action("Open SVG Preview", Box::new(OpenSvgPreview))
+                    builder.action(t("editor.context_menu.open_svg_preview", cx), Box::new(OpenSvgPreview))
                 })
                 .action_disabled_when(
                     !has_reveal_target,
-                    "Open in Terminal",
+                    t("editor.context_menu.open_in_terminal", cx),
                     Box::new(OpenInTerminal),
                 )
                 .action_disabled_when(
                     !has_git_repo,
-                    "Copy Permalink",
+                    t("editor.context_menu.copy_permalink", cx),
                     Box::new(CopyPermalinkToLine),
                 )
                 .action_disabled_when(
                     !has_git_repo,
-                    "View File History",
+                    t("editor.context_menu.view_file_history", cx),
                     Box::new(git::FileHistory),
-                );
+                )
+                .separator()
+                .action(t("pane.action.split_right", cx), Box::new(SplitRight::default()))
+                .action(t("pane.action.split_left", cx), Box::new(SplitLeft::default()))
+                .action(t("pane.action.split_up", cx), Box::new(SplitUp::default()))
+                .action(t("pane.action.split_down", cx), Box::new(SplitDown::default()));
             match focus {
                 Some(focus) => builder.context(focus),
                 None => builder,

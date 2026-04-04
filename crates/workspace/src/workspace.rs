@@ -60,7 +60,7 @@ use gpui::{
     Action, AnyEntity, AnyView, AnyWeakView, App, AsyncApp, AsyncWindowContext, Axis, Bounds,
     Context, CursorStyle, Decorations, DragMoveEvent, Entity, EntityId, EventEmitter, FocusHandle,
     Focusable, Global, HitboxBehavior, Hsla, KeyContext, Keystroke, ManagedView, MouseButton,
-    ObjectFit, PathPromptOptions, Point, PromptLevel, Render, ResizeEdge, Size, Stateful,
+    PathPromptOptions, Point, PromptLevel, Render, ResizeEdge, Size, Stateful,
     StyledImage as _, Subscription, SystemWindowTabController, Task, Tiling, WeakEntity,
     WindowBounds, WindowHandle, WindowId, WindowOptions, actions, canvas, img, point, relative,
     size, transparent_black,
@@ -71,7 +71,7 @@ pub use item::{
     ProjectItem, SerializableItem, SerializableItemHandle, WeakItemHandle,
 };
 use itertools::Itertools;
-use language::{Buffer, LanguageRegistry, Rope, language_settings::all_language_settings};
+use language::{LanguageRegistry, Rope, language_settings::all_language_settings};
 pub use modal_layer::*;
 use node_runtime::NodeRuntime;
 use notifications::{
@@ -153,7 +153,7 @@ pub use workspace_settings::{
     AutosaveSetting, BottomDockLayout, RestoreOnStartupBehavior, StatusBarSettings, TabBarSettings,
     WallpaperSettings, WorkspaceSettings,
 };
-use zed_actions::{Spawn, feedback::FileBugReport, theme::ToggleMode};
+use zed_actions::{feedback::FileBugReport, theme::ToggleMode};
 
 use crate::{item::ItemBufferKind, notifications::NotificationId};
 use crate::{
@@ -3823,7 +3823,7 @@ impl Workspace {
         let other_is_zoomed = self.zoomed.is_some() && self.zoomed_position != Some(dock_side);
         let was_visible = self.is_dock_at_position_open(dock_side, cx) && !other_is_zoomed;
 
-        if let Some(panel) = self.dock_at_position(dock_side).read(cx).active_panel() {
+        if let Some(_panel) = self.dock_at_position(dock_side).read(cx).active_panel() {
             telemetry::event!(
                 "Panel Button Clicked",
                 name = panel.persistent_name(),
@@ -5498,6 +5498,11 @@ impl Workspace {
             return;
         }
 
+        // 삭제되는 그룹의 패인 ID를 initialized_pane_ids에서 정리
+        for pane in &self.workspace_groups[index].panes {
+            self.initialized_pane_ids.remove(&pane.entity_id());
+        }
+
         // 삭제할 그룹이 활성 그룹이면 다른 그룹으로 전환
         if index == self.active_group_index {
             let new_index = if index > 0 { index - 1 } else { 0 };
@@ -6582,6 +6587,7 @@ impl Workspace {
         cx: &mut Context<Workspace>,
     ) {
         self.panes.retain(|p| p != pane);
+        self.initialized_pane_ids.remove(&pane.entity_id());
         if let Some(focus_on) = focus_on {
             focus_on.update(cx, |pane, cx| window.focus(&pane.focus_handle(cx), cx));
         } else if self.active_pane() == pane {
@@ -6713,18 +6719,9 @@ impl Workspace {
                     } else {
                         build_serialized_pane_group(&group.center.root, window, cx)
                     };
-                    // 직렬화될 아이템 수 로깅
-                    fn count_items(pg: &SerializedPaneGroup) -> usize {
-                        match pg {
-                            SerializedPaneGroup::Pane(p) => p.children.len(),
-                            SerializedPaneGroup::Group { children, .. } => {
-                                children.iter().map(count_items).sum()
-                            }
-                        }
-                    }
                     log::debug!(
                         "  직렬화 그룹[{}] '{}' active={} items={}",
-                        i, group.name, is_active, count_items(&group_center)
+                        i, group.name, is_active, group_center.item_count()
                     );
                     serialized_groups.push(SerializedWorkspaceGroup {
                         name: group.name.clone(),
@@ -6878,6 +6875,20 @@ impl Workspace {
     ) -> Task<Result<Vec<Option<Box<dyn ItemHandle>>>>> {
         cx.spawn_in(window, async move |workspace, cx| {
             let project = workspace.read_with(cx, |workspace, _| workspace.project().clone())?;
+
+            // DB에 저장된 raw i18n 키("workspace_group.default_name N")를 번역된 이름으로 수정
+            let mut serialized_workspace = serialized_workspace;
+            cx.update(|_, cx| {
+                let translated = t("workspace_group.default_name", cx);
+                let raw_key = "workspace_group.default_name";
+                if translated.as_ref() != raw_key {
+                    for sg in &mut serialized_workspace.workspace_groups {
+                        if sg.name.starts_with(raw_key) {
+                            sg.name = sg.name.replacen(raw_key, &translated, 1);
+                        }
+                    }
+                }
+            })?;
 
             let has_workspace_groups = !serialized_workspace.workspace_groups.is_empty();
             let active_group_index = serialized_workspace.active_group_index;
@@ -7118,11 +7129,28 @@ impl Workspace {
                     workspace.panes_by_item = active_panes_by_item;
                     workspace.active_group_index = active_idx;
 
-                    log::info!(
-                        "load_workspace: 그룹 복원 완료 — 복원={}, 원본={}",
-                        workspace.workspace_groups.len(),
-                        total,
-                    );
+                    // 복원된 그룹 이름 중복 해소 (DB에 중복 이름이 저장된 경우 방어)
+                    let mut seen_names = collections::HashSet::default();
+                    let default_prefix = t("workspace_group.default_name", cx);
+                    for group in &mut workspace.workspace_groups {
+                        if !seen_names.insert(group.name.clone()) {
+                            // 중복 발견 → 고유 이름 생성
+                            let mut n = seen_names.len() + 1;
+                            loop {
+                                let candidate = format!("{} {}", default_prefix, n);
+                                if !seen_names.contains(&candidate) {
+                                    log::warn!(
+                                        "load_workspace: 중복 이름 '{}' 발견 → '{}' 으로 변경",
+                                        group.name, candidate
+                                    );
+                                    group.name = candidate.clone();
+                                    seen_names.insert(candidate);
+                                    break;
+                                }
+                                n += 1;
+                            }
+                        }
+                    }
 
                     cx.notify();
                 })?;
@@ -9024,22 +9052,12 @@ pub async fn restore_multiworkspace(
     cx: &mut AsyncApp,
 ) -> anyhow::Result<MultiWorkspaceRestoreResult> {
     let SerializedMultiWorkspace { workspaces, state } = multi_workspace;
-    log::info!(
-        "restore_multiworkspace: {} 워크스페이스 복원 시작",
-        workspaces.len()
-    );
     let mut group_iter = workspaces.into_iter();
     let first = group_iter
         .next()
         .context("window group must not be empty")?;
 
-    log::info!(
-        "restore_multiworkspace: 첫 번째 워크스페이스 — id={:?}, paths_empty={}, paths={:?}",
-        first.workspace_id, first.paths.is_empty(), first.paths.paths()
-    );
-
     let window_handle = if first.paths.is_empty() {
-        log::info!("restore_multiworkspace: 빈 경로 → open_workspace_by_id 사용");
         cx.update(|cx| open_workspace_by_id(first.workspace_id, app_state.clone(), None, cx))
             .await?
     } else {
@@ -9643,17 +9661,9 @@ pub fn open_workspace_by_id(
     let db = WorkspaceDb::global(cx);
     let kvp = db::kvp::KeyValueStore::global(cx);
     cx.spawn(async move |cx| {
-        log::info!("open_workspace_by_id: workspace_id={:?} 로드 시작", workspace_id);
         let serialized_workspace = db
             .workspace_for_id(workspace_id)
             .with_context(|| format!("Workspace {workspace_id:?} not found"))?;
-
-        log::info!(
-            "open_workspace_by_id: workspace_id={:?} 로드 완료 — groups={}, active_group={}",
-            workspace_id,
-            serialized_workspace.workspace_groups.len(),
-            serialized_workspace.active_group_index,
-        );
 
         let centered_layout = serialized_workspace.centered_layout;
 

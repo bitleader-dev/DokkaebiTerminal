@@ -1298,5 +1298,28 @@
   "git_panel.remote.publish": "게시",
   "git_panel.remote.publish_tooltip": "브랜치를 원격에 게시",
   "git_panel.remote.republish": "재게시",
-  "git_panel.remote.republish_tooltip": "브랜치를 원격에 재게시"
+  "git_panel.remote.republish_tooltip": "브랜치를 원격에 재게시",
+
+  "editor.context_menu.go_to_definition": "정의로 이동",
+  "editor.context_menu.go_to_declaration": "선언으로 이동",
+  "editor.context_menu.go_to_type_definition": "타입 정의로 이동",
+  "editor.context_menu.go_to_implementation": "구현으로 이동",
+  "editor.context_menu.find_all_references": "모든 참조 찾기",
+  "editor.context_menu.rename_symbol": "심볼 이름 변경",
+  "editor.context_menu.format_buffer": "버퍼 포맷",
+  "editor.context_menu.format_selections": "선택 영역 포맷",
+  "editor.context_menu.show_code_actions": "코드 액션 표시",
+  "editor.context_menu.add_to_agent_thread": "에이전트 스레드에 추가",
+  "editor.context_menu.cut": "잘라내기",
+  "editor.context_menu.copy": "복사",
+  "editor.context_menu.copy_and_trim": "복사 및 정리",
+  "editor.context_menu.paste": "붙여넣기",
+  "editor.context_menu.reveal_in_file_explorer": "파일 탐색기에서 열기",
+  "editor.context_menu.open_markdown_preview": "마크다운 미리보기 열기",
+  "editor.context_menu.open_svg_preview": "SVG 미리보기 열기",
+  "editor.context_menu.open_in_terminal": "터미널에서 열기",
+  "editor.context_menu.copy_permalink": "영구 링크 복사",
+  "editor.context_menu.view_file_history": "파일 기록 보기",
+
+  "editor.untitled": "새 파일"
 }

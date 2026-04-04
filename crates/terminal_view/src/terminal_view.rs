@@ -54,6 +54,7 @@ use i18n::t;
 use util::ResultExt;
 use workspace::{
     CloseActiveItem, DraggedSelection, DraggedTab, NewCenterTerminal, NewTerminal, Pane,
+    SplitDown, SplitLeft, SplitRight, SplitUp,
     ToolbarItemLocation, WallpaperSettings, Workspace, WorkspaceId, delete_unloaded_items,
     item::{
         HighlightedText, Item, ItemEvent, SerializableItem, TabContentParams, TabTooltipContent,
@@ -534,6 +535,10 @@ impl TerminalView {
         let label_inline_assist = t("terminal.menu.inline_assist", cx);
         let label_add_to_agent = t("terminal.menu.add_to_agent", cx);
         let label_close_tab = t("terminal.menu.close_tab", cx);
+        let label_split_right = t("pane.action.split_right", cx);
+        let label_split_left = t("pane.action.split_left", cx);
+        let label_split_up = t("pane.action.split_up", cx);
+        let label_split_down = t("pane.action.split_down", cx);
         let context_menu = ContextMenu::build(window, cx, |menu, _, _| {
             menu.context(self.focus_handle.clone())
                 .action(label_new_terminal, Box::new(NewTerminal::default()))
@@ -549,6 +554,11 @@ impl TerminalView {
                             menu.action(label_add_to_agent, Box::new(AddSelectionToThread))
                         })
                 })
+                .separator()
+                .action(label_split_right, SplitRight::default().boxed_clone())
+                .action(label_split_left, SplitLeft::default().boxed_clone())
+                .action(label_split_up, SplitUp::default().boxed_clone())
+                .action(label_split_down, SplitDown::default().boxed_clone())
                 .separator()
                 .action(
                     label_close_tab,

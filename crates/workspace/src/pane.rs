@@ -1081,8 +1081,8 @@ impl Pane {
                 pane.replace_preview_item_id(new_item.item_id(), window, cx);
             }
 
-            if let Some(text) = new_item.telemetry_event_text(cx) {
-                telemetry::event!(text);
+            if let Some(_text) = new_item.telemetry_event_text(cx) {
+                telemetry::event!(_text);
             }
 
             pane.add_item_inner(
@@ -1302,8 +1302,8 @@ impl Pane {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(text) = item.telemetry_event_text(cx) {
-            telemetry::event!(text);
+        if let Some(_text) = item.telemetry_event_text(cx) {
+            telemetry::event!(_text);
         }
 
         self.add_item_inner(
@@ -4213,22 +4213,11 @@ fn default_render_tab_bar_buttons(
                     // 번역 문자열 미리 생성 (내부 클로저에서 cx 접근 불가)
                     let label_new_file = t("pane.action.new_file", cx);
                     let label_open_file = t("pane.action.open_file", cx);
-                    let label_search_project = t("pane.action.search_project", cx);
                     let label_search_symbols = t("pane.action.search_symbols", cx);
                     let label_new_terminal = t("pane.action.new_terminal", cx);
                     Some(ContextMenu::build(window, cx, |menu, _, _| {
                         menu.action(label_new_file, NewFile.boxed_clone())
                             .action(label_open_file, ToggleFileFinder::default().boxed_clone())
-                            .separator()
-                            .action(
-                                label_search_project,
-                                DeploySearch {
-                                    replace_enabled: false,
-                                    included_files: None,
-                                    excluded_files: None,
-                                }
-                                .boxed_clone(),
-                            )
                             .action(label_search_symbols, ToggleProjectSymbols.boxed_clone())
                             .separator()
                             .action(label_new_terminal, NewTerminal::default().boxed_clone())

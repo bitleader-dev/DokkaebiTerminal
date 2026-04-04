@@ -27,6 +27,7 @@ use project::{
     File, Project, ProjectItem as _, ProjectPath, lsp_store::FormatTrigger,
     project_settings::ProjectSettings, search::SearchQuery,
 };
+use i18n::t;
 use rpc::proto::{self, update_view};
 use settings::Settings;
 use std::{
@@ -662,8 +663,12 @@ impl Item for Editor {
         if let Some(path) = path_for_buffer(&self.buffer, detail, true, cx) {
             path.to_string().into()
         } else {
-            // Use the same logic as the displayed title for consistency
-            self.buffer.read(cx).title(cx).to_string().into()
+            let title = self.buffer.read(cx).title(cx);
+            if title == "untitled" {
+                t("editor.untitled", cx)
+            } else {
+                title.to_string().into()
+            }
         }
     }
 
@@ -729,11 +734,18 @@ impl Item for Editor {
             .and_then(|buffer| buffer.read(cx).file())
             .is_some_and(|file| file.disk_state().is_deleted());
 
+        let title = self.title(cx);
+        let display_title: Cow<'_, str> = if title == "untitled" {
+            Cow::Owned(t("editor.untitled", cx).to_string())
+        } else {
+            title
+        };
+
         h_flex()
             .gap_2()
             .child(
                 Label::new(util::truncate_and_trailoff(
-                    &self.title(cx),
+                    &display_title,
                     MAX_TAB_TITLE_LEN,
                 ))
                 .color(label_color)

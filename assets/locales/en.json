@@ -1184,5 +1184,28 @@
   "git_panel.remote.publish": "Publish",
   "git_panel.remote.publish_tooltip": "Publish branch to remote",
   "git_panel.remote.republish": "Republish",
-  "git_panel.remote.republish_tooltip": "Re-publish branch to remote"
+  "git_panel.remote.republish_tooltip": "Re-publish branch to remote",
+
+  "editor.context_menu.go_to_definition": "Go to Definition",
+  "editor.context_menu.go_to_declaration": "Go to Declaration",
+  "editor.context_menu.go_to_type_definition": "Go to Type Definition",
+  "editor.context_menu.go_to_implementation": "Go to Implementation",
+  "editor.context_menu.find_all_references": "Find All References",
+  "editor.context_menu.rename_symbol": "Rename Symbol",
+  "editor.context_menu.format_buffer": "Format Buffer",
+  "editor.context_menu.format_selections": "Format Selections",
+  "editor.context_menu.show_code_actions": "Show Code Actions",
+  "editor.context_menu.add_to_agent_thread": "Add to Agent Thread",
+  "editor.context_menu.cut": "Cut",
+  "editor.context_menu.copy": "Copy",
+  "editor.context_menu.copy_and_trim": "Copy and Trim",
+  "editor.context_menu.paste": "Paste",
+  "editor.context_menu.reveal_in_file_explorer": "Reveal in File Explorer",
+  "editor.context_menu.open_markdown_preview": "Open Markdown Preview",
+  "editor.context_menu.open_svg_preview": "Open SVG Preview",
+  "editor.context_menu.open_in_terminal": "Open in Terminal",
+  "editor.context_menu.copy_permalink": "Copy Permalink",
+  "editor.context_menu.view_file_history": "View File History",
+
+  "editor.untitled": "untitled"
 }

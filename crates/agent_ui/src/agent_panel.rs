@@ -3711,7 +3711,15 @@ impl AgentPanel {
                     .unwrap_or_else(|| self.selected_agent_type.label());
                 (icon, label)
             } else {
-                (None, self.selected_agent_type.label())
+                // 현재 선택된 모델 프로바이더 이름을 기반으로 에이전트 라벨 생성
+                let label = LanguageModelRegistry::read_global(cx)
+                    .default_model()
+                    .map(|m| {
+                        let name = m.provider.name().0;
+                        SharedString::from(format!("{} Agent", name))
+                    })
+                    .unwrap_or_else(|| self.selected_agent_type.label());
+                (None, label)
             };
 
         let active_thread = match &self.active_view {
@@ -3723,6 +3731,15 @@ impl AgentPanel {
             | ActiveView::History { .. }
             | ActiveView::Configuration => None,
         };
+
+        // 네이티브 에이전트 메뉴 항목에 표시할 프로바이더 기반 라벨
+        let native_agent_menu_label: SharedString = LanguageModelRegistry::read_global(cx)
+            .default_model()
+            .map(|m| {
+                let name = m.provider.name().0;
+                SharedString::from(format!("{} Agent", name))
+            })
+            .unwrap_or_else(|| "Zed Agent".into());
 
         let new_thread_menu_builder: Rc<
             dyn Fn(&mut Window, &mut App) -> Option<Entity<ContextMenu>>,
@@ -3739,6 +3756,7 @@ impl AgentPanel {
 
             let focus_handle = focus_handle.clone();
             let agent_server_store = agent_server_store;
+            let native_agent_menu_label = native_agent_menu_label.clone();
 
             Rc::new(move |window, cx| {
                 telemetry::event!("New Thread Clicked");
@@ -3769,7 +3787,7 @@ impl AgentPanel {
                             }
                         })
                         .item(
-                            ContextMenuEntry::new("Zed Agent")
+                            ContextMenuEntry::new(native_agent_menu_label.clone())
                                 .when(
                                     is_agent_selected(AgentType::NativeAgent)
                                         | is_agent_selected(AgentType::TextThread),
@@ -4346,12 +4364,12 @@ impl AgentPanel {
 
         self.last_configuration_error_telemetry = error_kind_string;
 
-        if let Some(kind) = error_kind {
-            let message = configuration_error
+        if let Some(_kind) = error_kind {
+            let _message = configuration_error
                 .map(|err| err.to_string())
                 .unwrap_or_default();
 
-            telemetry::event!("Agent Panel Error Shown", kind = kind, message = message,);
+            telemetry::event!("Agent Panel Error Shown", kind = _kind, message = _message,);
         }
     }
 

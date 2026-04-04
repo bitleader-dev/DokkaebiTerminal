@@ -1,6 +1,12 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-04-04: 에이전트 패널 네이티브 에이전트 라벨을 선택된 모델 프로바이더 이름 기반으로 동적 표시 — "Zed Agent" → "{프로바이더명} Agent" (예: "GitHub Copilot Chat Agent"). 툴바 라벨 및 새 스레드 메뉴 항목 모두 적용
+- 2026-04-04: 새 파일 탭 이름 "untitled" → i18n 적용 (한국어: "새 파일"), 에디터 컨텍스트 메뉴에 분할 메뉴 추가 (오른쪽/왼쪽/위쪽/아래쪽)
+- 2026-04-04: 터미널 우클릭 컨텍스트 메뉴에 분할 메뉴 추가 — 오른쪽/왼쪽/위쪽/아래쪽 분할 (SplitRight/Left/Up/Down), 기존 i18n 키 재사용
+- 2026-04-04: 워크스페이스 그룹 이름 중복 생성 방지 — load_workspace DB 복원 후 중복 이름 해소 로직 추가 (HashSet 기반 검사, 중복 시 고유 번호 자동 생성)
+- 2026-04-04: 에디터 컨텍스트 메뉴 i18n 적용 — 우클릭 메뉴의 20개 항목(정의로 이동/선언/타입 정의/구현/모든 참조 찾기/심볼 이름 변경/버퍼 포맷/코드 액션 표시/잘라내기/복사/붙여넣기/파일 탐색기에서 열기/터미널에서 열기/영구 링크 복사/파일 기록 보기 등) 한글화
+- 2026-04-04: 코드 리뷰 수정 — (1) 중복 count 헬퍼 함수를 SerializedPaneGroup::item_count()로 통합 (2) initialized_pane_ids 메모리 누수 수정 (force_remove_pane/remove_workspace_group에서 정리) (3) DB에 저장된 raw i18n 키 그룹 이름 자동 교정 fixup 추가
 - 2026-04-03: 비활성 워크스페이스 그룹 탭 미표시 버그 수정 — (1) deserialize_inactive에서 Entity<Pane> 강한 참조 유지 (즉시 downgrade 시 참조 카운트 0으로 패인 해제되어 아이템 역직렬화 실패) (2) 비활성 역직렬화 중 이벤트 부작용으로 변경된 active_pane 복원 (3) switch_workspace_group에서 미초기화 패인에 PaneAdded 발행하여 toolbar 초기화
 - 2026-04-03: 워크스페이스 그룹 복원 성능/안정성 개선 — (1) 비활성 그룹 역직렬화에 deserialize_inactive/create_inactive_pane 도입: PaneAdded 이벤트 미발행(~15개 툴바 초기화 방지), 포커스 이동 없음, panes 리스트 오염 방지 (2) 직렬화 경로 로깅을 INFO→DEBUG로 변경 (재귀 count_items 포함)
 - 2026-04-03: 워크스페이스 그룹 영속성 버그 수정 (근본 원인) — (1) recent_workspaces_on_disk에서 빈 워크스페이스(경로 없음)가 삭제되는 문제 수정: LastWorkspace 폴백 시 DB 삭제 방지 (2) loading_from_db 플래그로 Workspace::new() 후 load_workspace 완료 전 직렬화 억제 (3) 시작 경로에 진단 로그 추가 (restore_or_create_workspace, restorable_workspace_locations, restore_multiworkspace, open_workspace_by_id)

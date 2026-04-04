@@ -205,6 +205,16 @@ impl Default for SerializedPaneGroup {
 }
 
 impl SerializedPaneGroup {
+    /// 직렬화된 패인 그룹 내 아이템 총 개수 (디버그 로깅용)
+    pub(crate) fn item_count(&self) -> usize {
+        match self {
+            SerializedPaneGroup::Pane(p) => p.children.len(),
+            SerializedPaneGroup::Group { children, .. } => {
+                children.iter().map(|c| c.item_count()).sum()
+            }
+        }
+    }
+
     #[async_recursion(?Send)]
     pub(crate) async fn deserialize(
         self,

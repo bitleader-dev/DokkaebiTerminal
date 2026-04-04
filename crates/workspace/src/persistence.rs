@@ -1361,18 +1361,10 @@ impl WorkspaceDb {
                 );
                 if !workspace.workspace_groups.is_empty() {
                     for (position, group) in workspace.workspace_groups.iter().enumerate() {
-                        fn count_serialized_items(pg: &SerializedPaneGroup) -> usize {
-                            match pg {
-                                SerializedPaneGroup::Pane(p) => p.children.len(),
-                                SerializedPaneGroup::Group { children, .. } => {
-                                    children.iter().map(count_serialized_items).sum()
-                                }
-                            }
-                        }
                         log::debug!(
                             "  save_workspace: 그룹[{}] '{}' active={} items={}",
                             position, group.name, group.active,
-                            count_serialized_items(&group.center_group)
+                            group.center_group.item_count()
                         );
                         let wg_id: i64 = conn.select_row_bound::<_, i64>(sql!(
                             INSERT INTO workspace_groups(workspace_id, name, position, active)
@@ -1888,13 +1880,9 @@ impl WorkspaceDb {
         let mut groups = Vec::new();
         for (wg_id, name, _position, active) in rows {
             let center_group = self.get_center_pane_group_for_wg(workspace_id, Some(wg_id))?;
-            let items_count = match &center_group {
-                SerializedPaneGroup::Pane(pane) => pane.children.len(),
-                SerializedPaneGroup::Group { children, .. } => children.len(),
-            };
             log::debug!(
                 "  그룹 wg_id={}, name='{}', active={}, center_items/children={}",
-                wg_id, name, active, items_count
+                wg_id, name, active, center_group.item_count()
             );
             groups.push(SerializedWorkspaceGroup {
                 name,

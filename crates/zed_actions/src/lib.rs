@@ -381,6 +381,20 @@ pub mod locale_selector {
     pub struct Toggle;
 }
 
+pub mod prompt_palette {
+    use gpui::actions;
+
+    actions!(
+        prompt_palette,
+        [
+            /// 프롬프트 팔레트를 토글한다.
+            Toggle,
+            /// 새 프롬프트 등록 모달을 연다.
+            NewPrompt,
+        ]
+    );
+}
+
 pub mod search {
     use gpui::actions;
     actions!(

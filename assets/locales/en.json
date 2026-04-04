@@ -1207,5 +1207,21 @@
   "editor.context_menu.copy_permalink": "Copy Permalink",
   "editor.context_menu.view_file_history": "View File History",
 
-  "editor.untitled": "untitled"
+  "editor.untitled": "untitled",
+
+  "status_bar.open_threads_sidebar": "Open Threads Sidebar",
+
+  "prompt_palette.search_placeholder": "Search prompts...",
+  "prompt_palette.no_prompts": "No prompts registered",
+  "prompt_palette.new_prompt": "New Prompt",
+  "prompt_palette.edit_prompt": "Edit Prompt",
+  "prompt_palette.delete_prompt": "Delete",
+  "prompt_palette.prompt_text": "Prompt",
+  "prompt_palette.prompt_placeholder": "Command to input in terminal...",
+  "prompt_palette.description": "Description",
+  "prompt_palette.description_placeholder": "Description for this prompt...",
+  "prompt_palette.category": "Category",
+  "prompt_palette.category_placeholder": "e.g. git, docker, k8s",
+  "prompt_palette.save": "Save",
+  "prompt_palette.cancel": "Cancel"
 }

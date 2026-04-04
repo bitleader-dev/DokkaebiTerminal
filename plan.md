@@ -1,175 +1,210 @@
-# 배경화면(Wallpaper) 기능 구현 계획
+# 프롬프트 팔레트 기능 구현 계획
 
 ## 목표
-- 설정 화면에 "배경화면" 메뉴를 AI 아래에 추가
-- 워크스페이스 중앙 영역(사이드바 제외)에 배경 이미지를 표시
-- on/off 토글, 이미지 파일 선택, 맞춤 방식 설정 UI 제공
+- 터미널에서 단축키로 호출하는 Command Palette 스타일 프롬프트 선택 팝업 구현
+- 프롬프트 선택 시 활성 터미널에 해당 프롬프트 텍스트 입력
+- 프롬프트 등록/편집/삭제 UI 제공 (프롬프트 + 설명글 + 카테고리)
+- 목록 항목: 프롬프트 텍스트(주) + 설명글(보조, 작은 글씨)
 
 ## 구현 가능성 검증 결과
 
 | 항목 | 결과 | 근거 |
 |------|------|------|
-| 로컬 파일 이미지 로딩 | ✅ 가능 | `img(PathBuf)` → `Resource::Path(Arc<Path>)` → `fs::read()`. GIF 뷰어, 마크다운 프리뷰 등에서 실제 사용 중 |
-| 배경 이미지 레이어링 | ✅ 가능 | GPUI는 자식 렌더링 순서 = z-order. `img().absolute().inset_0()`을 먼저 렌더링하면 콘텐츠 뒤에 배치 |
-| 에디터 배경 투명화 | ✅ 가능 | `element.rs:5733` 단일 paint_quad. 이미 `editor_background.a < 0.75` 체크 존재 (line 1773) |
-| 터미널 배경 투명화 | ✅ 가능 | `terminal_element.rs:1247` 단일 paint_quad + `terminal_view.rs:1286` 컨테이너 `.bg()` |
-| 파일 선택 다이얼로그 | ✅ 가능 | `cx.prompt_for_paths(PathPromptOptions)` — Windows 네이티브 다이얼로그 지원 |
-| ObjectFit 매핑 | ✅ 가능 | Contain(맞춤), Cover(채우기), Fill(확대), None(가운데) — GPUI 기본 제공 |
-| 설정 페이지 추가 | ✅ 가능 | `page_data.rs:settings_data()`에 함수 추가하는 기존 패턴 |
+| Picker 기반 팝업 | ✅ 가능 | `command_palette`, `theme_selector`, `locale_selector` 등 동일 패턴 다수 존재 |
+| 터미널 전용 단축키 | ✅ 가능 | `default-windows.json`에서 `"context": "Terminal"` 바인딩 패턴 이미 사용 중 |
+| 2줄 렌더링 (제목+설명) | ✅ 가능 | `branch_picker`에서 `v_flex().child(title).child(description)` 패턴 사용 중 |
+| 터미널 텍스트 입력 | ✅ 가능 | `terminal::SendText(String)` 또는 `TerminalView`의 입력 메서드 활용 |
+| 사용자 데이터 JSON 저장 | ✅ 가능 | `settings.json` 또는 별도 JSON 파일 저장/로드 패턴 존재 |
+| 카테고리 필터링 | ✅ 가능 | Picker의 `render_header()` 또는 섹션 구분 렌더링으로 구현 가능 |
+| 입력 폼 모달 | ✅ 가능 | `commit_modal`, `add_llm_provider_modal` 등 InputField 기반 폼 패턴 존재 |
 
 ## 리스크 및 대응
 
 | 리스크 | 영향도 | 대응 |
 |--------|--------|------|
-| 에디터 거터(gutter) 배경도 불투명 | 중 | `editor_gutter_background`에도 동일 알파 적용 필요 (line 5732) |
-| 터미널 컨테이너 배경 별도 존재 | 중 | `terminal_view.rs:1286`의 `.bg()` 호출도 알파 적용 필요 |
-| 대용량 이미지(4K+) 성능 | 저 | GPUI 내장 이미지 캐시가 처리. `with_fallback()` 으로 로딩 실패 대응 |
-| 이미지 파일 삭제/이동 시 | 저 | `img().with_fallback()` 으로 graceful 처리 |
-| 커서 텍스트 반전 색상 | 저 | 이미 `a < 0.75` 분기로 반투명 배경 처리 구현됨 |
+| 프롬프트 데이터 파일 손상 | 중 | JSON 파싱 실패 시 빈 목록으로 폴백, 백업 로직 고려 |
+| 카테고리 필터 + 퍼지 검색 혼합 | 저 | Picker delegate 내부에서 카테고리 프리필터 후 퍼지 매칭 |
+| 터미널에 멀티라인 프롬프트 입력 | 저 | `\n`을 포함한 텍스트 전송 시 터미널 동작 확인 필요 |
 
 ## 범위
 
-### 수정 대상 파일
-1. `crates/settings_content/src/settings_content.rs` — 배경화면 설정 필드 추가
-2. `crates/settings_ui/src/page_data.rs` — 배경화면 설정 페이지 함수 추가 + 메뉴 등록
-3. `crates/workspace/src/workspace.rs` — 배경 이미지 렌더링 삽입
-4. `crates/editor/src/element.rs` — 에디터 배경 알파 적용 (line 5732-5736)
-5. `crates/terminal_view/src/terminal_element.rs` — 터미널 배경 알파 적용 (line 1247)
-6. `crates/terminal_view/src/terminal_view.rs` — 터미널 컨테이너 배경 알파 적용 (line 1286)
+### 새로 생성하는 파일
+1. `crates/prompt_palette/Cargo.toml` — 크레이트 정의
+2. `crates/prompt_palette/src/lib.rs` — 모듈 엔트리
+3. `crates/prompt_palette/src/prompt_palette.rs` — 팔레트 팝업 (Picker 기반)
+4. `crates/prompt_palette/src/prompt_store.rs` — 데이터 모델 + JSON 저장/로드
+5. `crates/prompt_palette/src/prompt_form_modal.rs` — 등록/편집 모달
+
+### 수정하는 파일
+1. `Cargo.toml` (루트) — workspace members에 `prompt_palette` 추가
+2. `crates/zed/Cargo.toml` — `prompt_palette` 의존성 추가
+3. `crates/zed/src/main.rs` — `prompt_palette::init(cx)` 호출
+4. `assets/keymaps/default-windows.json` — 터미널 컨텍스트에 단축키 추가
+5. `assets/keymaps/default-macos.json` — macOS 단축키 추가
+6. `assets/keymaps/default-linux.json` — Linux 단축키 추가
 7. `assets/locales/ko.json` — 한글 문자열
 8. `assets/locales/en.json` — 영문 문자열
 
 ### 수정하지 않는 것
-- 사이드바(dock) 배경 — 불투명 유지
-- 테마 시스템 자체 — 변경 없음
-- GPUI 프레임워크 — 변경 없음
+- 기존 `command_palette` 크레이트 — 변경 없음
+- `picker` 크레이트 — 변경 없음 (그대로 사용)
+- `terminal_view` 크레이트 — 변경 없음 (액션만 dispatch)
+- 설정 시스템 자체 — 변경 없음
+
+## 데이터 모델
+
+```rust
+/// 프롬프트 항목
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PromptEntry {
+    /// 고유 ID (UUID)
+    pub id: String,
+    /// 터미널에 입력될 프롬프트 텍스트
+    pub prompt: String,
+    /// 목록에 표시될 설명글
+    pub description: String,
+    /// 카테고리 (예: "git", "docker", "일반")
+    pub category: String,
+    /// 생성 시각
+    pub created_at: String,
+}
+
+/// 전체 프롬프트 저장 구조
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct PromptCollection {
+    pub prompts: Vec<PromptEntry>,
+}
+```
+
+### 저장 위치
+- `~/.config/dokkaebi/prompts.json` (또는 플랫폼별 config 디렉토리)
 
 ## 작업 단계
 
-### [x] 1단계: 설정 모델 추가 (`settings_content.rs`)
-- `SettingsContent`에 `wallpaper` 필드 추가:
-```rust
-pub wallpaper: Option<WallpaperSettingsContent>,
-```
-- `WallpaperSettingsContent` 구조체 정의:
-```rust
-#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema)]
-pub struct WallpaperSettingsContent {
-    /// 배경화면 활성화 여부
-    pub enabled: Option<bool>,
-    /// 배경 이미지 파일 경로
-    pub image_path: Option<String>,
-    /// 이미지 맞춤 방식: contain, cover, fill, none
-    pub object_fit: Option<WallpaperFitContent>,
-}
+### [x] 1단계: 크레이트 생성 및 데이터 모델
+- `crates/prompt_palette/` 디렉토리 및 `Cargo.toml` 생성
+- `prompt_store.rs`: `PromptEntry`, `PromptCollection` 구조체 정의
+- JSON 파일 로드/저장 함수 (`load_prompts`, `save_prompts`)
+- 루트 `Cargo.toml`의 members에 추가
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize, JsonSchema)]
-pub enum WallpaperFitContent {
-    #[default]
-    Cover,
-    Contain,
-    Fill,
-    None,
-}
-```
+### [x] 2단계: 프롬프트 팔레트 팝업 (Picker 기반)
+- `prompt_palette.rs`: `PromptPalette` 구조체 + `ModalView` 구현
+- `PromptPaletteDelegate` + `PickerDelegate` 구현:
+  - `render_match()`: 2줄 렌더링
+    - 1줄: 프롬프트 텍스트 (HighlightedLabel, 퍼지 매칭 하이라이트)
+    - 2줄: 설명글 (작은 회색 텍스트) + 카테고리 뱃지
+  - `confirm()`: 선택한 프롬프트를 활성 터미널에 `SendText`로 전송
+  - `dismissed()`: 팝업 닫기
+- 카테고리 필터: 검색창에 `@카테고리명 ` 접두사로 필터링 또는 별도 필터 UI
+- 퍼지 검색: `fuzzy` 크레이트 활용 (프롬프트 텍스트 + 설명글 대상)
 
-### [x] 2단계: 설정 등록 및 읽기
-- `crates/workspace/src/`에서 `WallpaperSettings` 등록 (기존 `WorkspaceSettings` 패턴 참고)
-- `WallpaperSettings::get_global(cx)` 로 어디서든 읽을 수 있도록 구성
+### [x] 3단계: 프롬프트 등록/편집 모달
+- `prompt_form_modal.rs`: `PromptFormModal` 구조체 + `ModalView` 구현
+- 입력 필드 3개:
+  - 프롬프트 텍스트 (멀티라인 Editor)
+  - 설명글 (단일행 InputField)
+  - 카테고리 (단일행 InputField 또는 드롭다운)
+- 하단 버튼: 저장 / 취소 (편집 모드일 때는 삭제 버튼 추가)
+- 저장 시 `PromptStore`에 추가/갱신 → JSON 파일 기록
 
-### [x] 3단계: 설정 UI 페이지 추가 (`page_data.rs`)
-- `wallpaper_page()` 함수 구현:
-  - `SectionHeader("배경화면")` — i18n 키 사용
-  - `SettingItem` — 활성화 토글 (`enabled` bool 필드)
-  - `SettingItem` — 이미지 경로 (`image_path` String 필드) + 파일 선택 버튼
-  - `SettingItem` — 맞춤 방식 (`object_fit` enum 드롭다운: 맞춤/채우기/확대/가운데)
-- `settings_data()` 벡터에 `wallpaper_page()` 추가 (ai_page 다음)
+### [x] 4단계: 팔레트에서 편집/삭제 진입점
+- 팔레트 목록 항목에 편집 버튼 (연필 아이콘) 또는 컨텍스트 메뉴
+- 팔레트 하단에 "새 프롬프트 등록" 버튼
+- 삭제: 편집 모달 내 삭제 버튼 → 확인 다이얼로그 후 삭제
 
-### [x] 4단계: 워크스페이스 배경 이미지 렌더링 (`workspace.rs`)
-- `impl Render for Workspace`의 `render()` 메서드에서:
-  - `WallpaperSettings` 읽기
-  - `enabled == true` 이고 `image_path`가 유효하면:
-    - `div().id("workspace")` 내부, canvas 자식 다음에 absolute 이미지 추가:
-    ```rust
-    .when(wallpaper_enabled, |this| {
-        this.child(
-            img(PathBuf::from(image_path))
-                .absolute()
-                .inset_0()
-                .size_full()
-                .object_fit(fit_mode) // 설정값에서 변환
-                .with_fallback(|| div().size_0().into_any_element())
-        )
-    })
-    ```
-
-### [x] 5단계: 에디터 배경 투명화 (`element.rs`)
-- `paint_background()` 메서드 (line 5728~):
-  - `WallpaperSettings::get_global(cx)` 읽기
-  - `enabled == true`이면 배경색에 알파 적용:
-    ```rust
-    let bg = if wallpaper_enabled {
-        self.style.background.opacity(0.85)
-    } else {
-        self.style.background
-    };
-    window.paint_quad(fill(layout.position_map.text_hitbox.bounds, bg));
-    ```
-  - 거터 배경도 동일하게 적용 (line 5732)
-
-### [x] 6단계: 터미널 배경 투명화
-- `terminal_element.rs` paint 메서드 (line 1247):
-  ```rust
-  let bg = if wallpaper_enabled {
-      layout.background_color.opacity(0.85)
-  } else {
-      layout.background_color
-  };
-  window.paint_quad(fill(bounds, bg));
+### [x] 5단계: 단축키 및 액션 등록
+- 액션 정의:
+  - `prompt_palette::Toggle` — 팔레트 열기/닫기
+  - `prompt_palette::NewPrompt` — 등록 모달 열기
+- `init(cx)` 함수에서 워크스페이스에 액션 등록
+- 키맵 파일에 터미널 컨텍스트 바인딩 추가:
+  ```json
+  {
+      "context": "Terminal",
+      "bindings": {
+          "ctrl-shift-p": "prompt_palette::Toggle"
+      }
+  }
   ```
-- `terminal_view.rs` 컨테이너 (line 1286):
-  ```rust
-  let container_bg = if wallpaper_enabled {
-      cx.theme().colors().editor_background.opacity(0.85)
-  } else {
-      cx.theme().colors().editor_background
-  };
-  // .bg(container_bg)
-  ```
+  (ctrl-shift-p는 예시, 기존 바인딩과 충돌하지 않는 키 선택 필요)
+
+### [x] 6단계: zed 크레이트 통합
+- `crates/zed/Cargo.toml`에 `prompt_palette` 의존성 추가
+- `crates/zed/src/main.rs`에서 `prompt_palette::init(cx)` 호출
 
 ### [x] 7단계: i18n 문자열 추가
 - `ko.json`:
-  - `"wallpaper.title": "배경화면"`
-  - `"wallpaper.enabled": "배경화면 활성화"`
-  - `"wallpaper.enabled_description": "워크스페이스 배경에 이미지를 표시합니다."`
-  - `"wallpaper.image_path": "이미지 파일"`
-  - `"wallpaper.image_path_description": "배경으로 사용할 이미지 파일 경로"`
-  - `"wallpaper.object_fit": "맞춤 방식"`
-  - `"wallpaper.object_fit_description": "배경 이미지의 크기 조절 방식"`
-  - `"wallpaper.fit.cover": "채우기"`
-  - `"wallpaper.fit.contain": "맞춤"`
-  - `"wallpaper.fit.fill": "확대"`
-  - `"wallpaper.fit.none": "가운데"`
+  - `"prompt_palette.title": "프롬프트 팔레트"`
+  - `"prompt_palette.search_placeholder": "프롬프트 검색..."`
+  - `"prompt_palette.new_prompt": "새 프롬프트"`
+  - `"prompt_palette.edit_prompt": "프롬프트 편집"`
+  - `"prompt_palette.delete_prompt": "프롬프트 삭제"`
+  - `"prompt_palette.delete_confirm": "이 프롬프트를 삭제하시겠습니까?"`
+  - `"prompt_palette.prompt_text": "프롬프트"`
+  - `"prompt_palette.description": "설명"`
+  - `"prompt_palette.category": "카테고리"`
+  - `"prompt_palette.save": "저장"`
+  - `"prompt_palette.cancel": "취소"`
+  - `"prompt_palette.no_prompts": "등록된 프롬프트가 없습니다"`
 - `en.json`: 대응 영문 문자열
 
 ### [x] 8단계: 빌드 검증
-- `cargo check -p workspace`
-- `cargo check -p editor`
-- `cargo check -p terminal_view`
-- `cargo check -p settings_ui`
+- `cargo check -p prompt_palette`
 - `cargo check -p zed`
+- 기능 동작 확인:
+  - 터미널 탭에서 단축키 → 팔레트 표시
+  - 비터미널 탭에서 단축키 → 반응 없음
+  - 프롬프트 선택 → 터미널에 텍스트 입력
+  - 등록/편집/삭제 정상 동작
+  - 카테고리 필터링 및 퍼지 검색 동작
 
-## settings.json 예시
-```json
-{
-  "wallpaper": {
-    "enabled": true,
-    "image_path": "C:\\Users\\jongc\\Pictures\\wallpaper.png",
-    "object_fit": "cover"
-  }
-}
+## UI 와이어프레임
+
+### 프롬프트 팔레트 (선택 팝업)
+```
+┌─────────────────────────────────────┐
+│ 🔍 프롬프트 검색...                   │
+├─────────────────────────────────────┤
+│ ▶ docker ps -a --format "..."      │  ← 선택 상태 (하이라이트)
+│   실행 중인 컨테이너 목록 조회  [docker] │  ← 설명글(작은 글씨) + 카테고리 뱃지
+├─────────────────────────────────────┤
+│   git log --oneline -20             │
+│   최근 20개 커밋 이력 확인     [git]   │
+├─────────────────────────────────────┤
+│   kubectl get pods -n production    │
+│   운영 환경 Pod 상태 확인  [k8s]      │
+├─────────────────────────────────────┤
+│                    [+ 새 프롬프트]    │
+└─────────────────────────────────────┘
 ```
 
+### 프롬프트 등록/편집 모달
+```
+┌─────────────────────────────────────┐
+│  프롬프트 등록 (또는 편집)             │
+├─────────────────────────────────────┤
+│ 프롬프트:                            │
+│ ┌─────────────────────────────────┐ │
+│ │ docker ps -a --format "..."     │ │
+│ └─────────────────────────────────┘ │
+│ 설명:                               │
+│ ┌─────────────────────────────────┐ │
+│ │ 실행 중인 컨테이너 목록 조회       │ │
+│ └─────────────────────────────────┘ │
+│ 카테고리:                            │
+│ ┌─────────────────────────────────┐ │
+│ │ docker                          │ │
+│ └─────────────────────────────────┘ │
+├─────────────────────────────────────┤
+│         [삭제]    [취소]    [저장]    │
+└─────────────────────────────────────┘
+```
+
+## 단축키 후보
+- `ctrl-shift-;` (Windows/Linux) / `cmd-shift-;` (macOS)
+- 기존 바인딩 충돌 여부 최종 확인 후 결정
+
 ## 승인 필요 사항
-- [ ] `SettingsContent`에 `wallpaper` 필드 추가 (공개 설정 스키마 변경)
-- [ ] 에디터/터미널 paint 로직 수정 (기존 렌더링 동작 변경)
+- [ ] 새 크레이트 `prompt_palette` 추가 (워크스페이스 구조 변경)
+- [ ] `crates/zed/Cargo.toml` 의존성 추가
+- [ ] 키맵 파일 수정 (단축키 추가)

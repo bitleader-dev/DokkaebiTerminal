@@ -161,6 +161,7 @@ project.workspace = true
 project_panel.workspace = true
 project_symbols.workspace = true
 prompt_store.workspace = true
+prompt_palette.workspace = true
 proto.workspace = true
 recent_projects.workspace = true
 release_channel.workspace = true

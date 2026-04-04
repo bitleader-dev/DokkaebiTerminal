@@ -1321,5 +1321,21 @@
   "editor.context_menu.copy_permalink": "영구 링크 복사",
   "editor.context_menu.view_file_history": "파일 기록 보기",
 
-  "editor.untitled": "새 파일"
+  "editor.untitled": "새 파일",
+
+  "status_bar.open_threads_sidebar": "스레드 사이드바 열기",
+
+  "prompt_palette.search_placeholder": "프롬프트 검색...",
+  "prompt_palette.no_prompts": "등록된 프롬프트가 없습니다",
+  "prompt_palette.new_prompt": "새 프롬프트",
+  "prompt_palette.edit_prompt": "프롬프트 편집",
+  "prompt_palette.delete_prompt": "삭제",
+  "prompt_palette.prompt_text": "프롬프트",
+  "prompt_palette.prompt_placeholder": "터미널에 입력할 명령어...",
+  "prompt_palette.description": "설명",
+  "prompt_palette.description_placeholder": "이 프롬프트에 대한 설명...",
+  "prompt_palette.category": "카테고리",
+  "prompt_palette.category_placeholder": "예: git, docker, k8s",
+  "prompt_palette.save": "저장",
+  "prompt_palette.cancel": "취소"
 }

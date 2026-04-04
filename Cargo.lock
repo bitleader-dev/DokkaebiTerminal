@@ -12083,6 +12083,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "prompt_palette"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "fuzzy",
+ "gpui",
+ "i18n",
+ "paths",
+ "picker",
+ "serde",
+ "serde_json",
+ "ui",
+ "ui_input",
+ "util",
+ "uuid",
+ "workspace",
+ "zed_actions",
+]
+
+[[package]]
 name = "prompt_store"
 version = "0.1.0"
 dependencies = [
@@ -19996,6 +20016,7 @@ dependencies = [
  "project",
  "project_panel",
  "project_symbols",
+ "prompt_palette",
  "prompt_store",
  "proto",
  "rayon",

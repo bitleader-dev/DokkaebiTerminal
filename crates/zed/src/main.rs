@@ -723,6 +723,7 @@ fn main() {
         line_ending_selector::init(cx);
         toolchain_selector::init(cx);
         theme_selector::init(cx);
+        prompt_palette::init(cx);
         settings_profile_selector::init(cx);
         language_tools::init(cx);
         title_bar::init(cx);

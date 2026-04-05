@@ -744,6 +744,8 @@
   "Horizontal Split Direction": "가로 분할 방향",
 
   "Project Panel": "프로젝트 패널",
+  "Thread Panel Dock": "스레드 패널 독",
+  "Where to dock the thread panel sidebar.": "스레드 패널 사이드바의 독 위치입니다.",
   "Project Panel Dock": "프로젝트 패널 독",
   "Project Panel Default Width": "프로젝트 패널 기본 너비",
   "Hide .gitignore": ".gitignore 숨기기",

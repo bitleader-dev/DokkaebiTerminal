@@ -20,6 +20,11 @@ impl FeatureFlag for AgentV2FeatureFlag {
     fn enabled_for_staff() -> bool {
         true
     }
+
+    // 릴리즈 빌드에서도 스레드 사이드바 등 멀티워크스페이스 기능 활성화
+    fn enabled_for_all() -> bool {
+        true
+    }
 }
 
 /// A feature flag for granting access to beta ACP features.

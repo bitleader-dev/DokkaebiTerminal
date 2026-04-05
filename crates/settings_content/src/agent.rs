@@ -33,7 +33,7 @@ pub enum NewThreadLocation {
     NewWorktree,
 }
 
-/// Where to position the sidebar.
+/// 스레드 사이드바의 위치를 결정합니다.
 #[derive(
     Clone,
     Copy,
@@ -50,13 +50,11 @@ pub enum NewThreadLocation {
 )]
 #[serde(rename_all = "snake_case")]
 pub enum SidebarDockPosition {
-    /// Always show the sidebar on the left side.
-    Left,
-    /// Always show the sidebar on the right side.
-    Right,
-    /// Show the sidebar on the same side as the agent panel.
+    /// 사이드바를 왼쪽에 표시합니다.
     #[default]
-    FollowAgent,
+    Left,
+    /// 사이드바를 오른쪽에 표시합니다.
+    Right,
 }
 
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]

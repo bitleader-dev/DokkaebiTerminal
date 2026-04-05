@@ -614,6 +614,8 @@
   "Horizontal Split Direction": "Horizontal Split Direction",
 
   "Project Panel": "Project Panel",
+  "Thread Panel Dock": "Thread Panel Dock",
+  "Where to dock the thread panel sidebar.": "Where to dock the thread panel sidebar.",
   "Project Panel Dock": "Project Panel Dock",
   "Project Panel Default Width": "Project Panel Default Width",
   "Hide .gitignore": "Hide .gitignore",

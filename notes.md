@@ -1,6 +1,13 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-04-06: 메모장 패널 자동 줄바꿈 수정 — 에디터에 soft wrap(EditorWidth) 설정 추가하여 가로 스크롤 대신 패널 너비에 맞춰 자동 줄바꿈 되도록 변경
+- 2026-04-06: 워크스페이스 그룹 알림 아이콘 추가 — 비활성 그룹 터미널에서 bell 발생 시 그룹 목록 항목의 X 버튼 왼쪽에 BellDot 아이콘(Accent 색상) 표시. 그룹 선택(전환) 시 알림 자동 해제. WorkspaceGroupState에 has_notification 플래그 추가, terminal_view에서 workspace.notify_bell_for_item() 호출로 전달
+- 2026-04-06: Claude Code 작업 완료 알림을 터미널별 고유 ID 기반 마커 파일 방식으로 개선 — (1) insert_zed_terminal_env()에서 DOKKAEBI_TERMINAL_ID 환경 변수 생성 (Zed PID + 카운터 조합), Claude Code 훅이 상속하여 $TEMP/dokkaebi_bell_{id} 마커 파일 생성 (2) terminal_view가 자기 ID에 해당하는 파일만 감지 → 정확한 터미널에만 알림 표시 (3) 마커 파일 위치를 ~/.claude/ → 시스템 임시 디렉토리로 변경
+- 2026-04-06: 설정 화면에 알림(Notifications) 페이지 추가 — Claude Code 작업 완료 시 터미널 벨 알림 토글 설정. SettingsContent에 notification.claude_code_bell 필드 추가, 설정 변경 시 ~/.claude/settings.json의 Stop 훅 자동 동기화
+- 2026-04-06: 터미널 작업 완료 시 워크스페이스 탭 알림 인디케이터 추가 — (1) Zed Task: task_completed 필드로 완료 상태 추적, 성공 시 Accent(파란) 점, 실패 시 Warning(노란) 점 표시 (2) 대화형 터미널: 포그라운드 프로세스 이름 변화 감지(비-셸→셸 복귀 시 명령 완료로 판단), TitleChanged 이벤트 활용. 포커스/키 입력 시 알림 자동 해제
+- 2026-04-06: 터미널 화면 실시간 갱신 코드 리팩토링 — run_foreground_task 내 PeekMessageW/TranslateMessage/DispatchMessageW 중복 코드를 클로저로 통합, 주석 개선 (WHAT→WHY)
+- 2026-04-06: 터미널 화면 실시간 갱신 문제 수정 — (1) run_foreground_task에서 4ms 간격으로 WM_PAINT 주기적 처리 추가 (대량 PTY 출력 시 foreground task가 WM_PAINT를 차단하는 문제 해결) (2) 터미널 Wakeup 이벤트에 window.refresh() 추가하여 dirty 플래그 직접 보장
 - 2026-04-05: 스레드 패널 독 설정 추가 — 설정 화면 프로젝트 패널 섹션에 "스레드 패널 독" 항목 추가 (Left/Right 선택), 에이전트 패널 독 변경 시 스레드 사이드바 열기 버튼 위치가 연동 변경되는 문제 수정 (SidebarDockPosition에서 FollowAgent 제거)
 - 2026-04-04: 프롬프트 팔레트 기능 추가 — 터미널에서 Ctrl+Shift+' 단축키로 프롬프트 선택 팝업 호출, 프롬프트 등록/편집/삭제 UI, 카테고리 뱃지, 퍼지 검색 지원. 새 크레이트 prompt_palette 생성
 - 2026-04-04: 에이전트 패널 네이티브 에이전트 라벨을 선택된 모델 프로바이더 이름 기반으로 동적 표시 — "Zed Agent" → "{프로바이더명} Agent" (예: "GitHub Copilot Chat Agent"). 툴바 라벨 및 새 스레드 메뉴 항목 모두 적용

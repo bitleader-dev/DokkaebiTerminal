@@ -65,6 +65,8 @@ impl NotepadPanel {
             editor.set_show_runnables(false, cx);
             editor.set_show_code_actions(false, cx);
             editor.set_show_git_diff_gutter(false, cx);
+            // 에디터 너비에 맞춰 자동 줄바꿈 (가로 스크롤 방지)
+            editor.set_soft_wrap();
             // 기존 내용 로드
             let text = Self::load_from_file(&save_path);
             if !text.is_empty() {

@@ -9816,6 +9816,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "editor",
+ "fs",
  "gpui",
  "i18n",
  "language",

@@ -182,6 +182,9 @@ pub struct SettingsContent {
     /// Configuration for the Notification Panel
     pub notification_panel: Option<NotificationPanelSettingsContent>,
 
+    /// Configuration for the Notepad Panel
+    pub notepad_panel: Option<NotepadPanelSettingsContent>,
+
     pub proxy: Option<String>,
 
     /// The URL of the Zed server to connect to.
@@ -582,6 +585,19 @@ pub struct NotificationPanelSettingsContent {
     ///
     /// Default: false
     pub show_count_badge: Option<bool>,
+}
+
+#[with_fallible_options]
+#[derive(Clone, Default, Serialize, Deserialize, JsonSchema, MergeFrom, Debug, PartialEq)]
+pub struct NotepadPanelSettingsContent {
+    /// Whether to show the notepad panel button in the status bar.
+    ///
+    /// Default: true
+    pub button: Option<bool>,
+    /// Where to dock the notepad panel.
+    ///
+    /// Default: right
+    pub dock: Option<DockPosition>,
 }
 
 #[with_fallible_options]

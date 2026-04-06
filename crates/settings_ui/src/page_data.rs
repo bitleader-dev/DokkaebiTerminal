@@ -5120,6 +5120,56 @@ fn panels_page() -> SettingsPage {
         ]
     }
 
+    fn notepad_panel_section() -> [SettingsPageItem; 3] {
+        [
+            SettingsPageItem::SectionHeader("Notepad Panel"),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "Notepad Panel Button",
+                description: "Show the notepad panel button in the status bar.",
+                field: Box::new(SettingField {
+                    json_path: Some("notepad_panel.button"),
+                    pick: |settings_content| {
+                        settings_content
+                            .notepad_panel
+                            .as_ref()?
+                            .button
+                            .as_ref()
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .notepad_panel
+                            .get_or_insert_default()
+                            .button = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "Notepad Panel Dock",
+                description: "Where to dock the notepad panel.",
+                field: Box::new(SettingField {
+                    json_path: Some("notepad_panel.dock"),
+                    pick: |settings_content| {
+                        settings_content
+                            .notepad_panel
+                            .as_ref()?
+                            .dock
+                            .as_ref()
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .notepad_panel
+                            .get_or_insert_default()
+                            .dock = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+        ]
+    }
+
     SettingsPage {
         title: "Panels",
         items: concat_sections![
@@ -5129,6 +5179,7 @@ fn panels_page() -> SettingsPage {
             outline_panel_section(),
             git_panel_section(),
             agent_panel_section(),
+            notepad_panel_section(),
         ],
     }
 }

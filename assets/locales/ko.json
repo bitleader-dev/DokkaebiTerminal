@@ -797,6 +797,10 @@
   "Agent Panel Default Width": "에이전트 패널 기본 너비",
   "Agent Panel Default Height": "에이전트 패널 기본 높이",
 
+  "Notepad Panel": "메모장 패널",
+  "Notepad Panel Button": "메모장 패널 버튼",
+  "Notepad Panel Dock": "메모장 패널 독",
+
   "Environment": "환경",
   "Shell": "셸",
   "Program": "프로그램",
@@ -951,6 +955,9 @@
   "Where to dock the agent panel.": "에이전트 패널의 독 위치입니다.",
   "Default width when the agent panel is docked to the left or right.": "에이전트 패널이 왼쪽 또는 오른쪽에 도킹될 때의 기본 너비입니다.",
   "Default height when the agent panel is docked to the bottom.": "에이전트 패널이 하단에 도킹될 때의 기본 높이입니다.",
+
+  "Show the notepad panel button in the status bar.": "상태 표시줄에 메모장 패널 버튼을 표시할지 여부입니다.",
+  "Where to dock the notepad panel.": "메모장 패널의 독 위치입니다.",
 
   "What shell to use when opening a terminal.": "터미널을 열 때 사용할 셸입니다.",
   "The shell program to use.": "사용할 셸 프로그램입니다.",

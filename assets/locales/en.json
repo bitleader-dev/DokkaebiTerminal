@@ -676,6 +676,12 @@
   "Agent Panel Default Width": "Agent Panel Default Width",
   "Agent Panel Default Height": "Agent Panel Default Height",
 
+  "Notepad Panel": "Notepad Panel",
+  "Notepad Panel Button": "Notepad Panel Button",
+  "Notepad Panel Dock": "Notepad Panel Dock",
+  "Show the notepad panel button in the status bar.": "Show the notepad panel button in the status bar.",
+  "Where to dock the notepad panel.": "Where to dock the notepad panel.",
+
   "Stepping Granularity": "Stepping Granularity",
   "Save Breakpoints": "Save Breakpoints",
   "Timeout": "Timeout",

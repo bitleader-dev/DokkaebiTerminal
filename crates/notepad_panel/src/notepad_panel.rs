@@ -9,19 +9,39 @@ use gpui::{
 };
 use i18n::t;
 use serde::{Deserialize, Serialize};
-use std::fs;
+use settings::{RegisterSetting, Settings};
 use std::path::PathBuf;
+use std::sync::Arc;
 use ui::{prelude::*, IconName, Label};
 use workspace::{
     dock::{DockPosition, Panel, PanelEvent},
     Workspace,
 };
 
+// 메모장 패널 설정
+#[derive(Debug, Clone, PartialEq, RegisterSetting)]
+pub struct NotepadPanelSettings {
+    pub button: bool,
+    pub dock: DockPosition,
+}
+
+impl Settings for NotepadPanelSettings {
+    fn from_settings(content: &settings::SettingsContent) -> Self {
+        let notepad_panel = content.notepad_panel.clone().unwrap();
+        Self {
+            button: notepad_panel.button.unwrap(),
+            dock: notepad_panel.dock.unwrap().into(),
+        }
+    }
+}
+
 // 메모장 패널 토글 액션
 actions!(notepad_panel, [ToggleFocus]);
 
 /// 메모장 패널 초기화
 pub fn init(cx: &mut App) {
+    NotepadPanelSettings::register(cx);
+
     cx.observe_new(|workspace: &mut Workspace, _, _| {
         workspace.register_action(|workspace, _: &ToggleFocus, window, cx| {
             workspace.toggle_panel_focus::<NotepadPanel>(window, cx);
@@ -42,14 +62,17 @@ pub struct NotepadPanel {
     editor: Entity<Editor>,
     /// 저장 파일 경로
     save_path: PathBuf,
+    /// 파일 시스템 (설정 저장용)
+    fs: Arc<dyn fs::Fs>,
 }
 
 impl NotepadPanel {
     pub fn new(
-        _workspace: &Workspace,
+        workspace: &Workspace,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        let fs = workspace.app_state().fs.clone();
         // 저장 경로: data_dir()/notepad.json
         let save_path = paths::data_dir().join("notepad.json");
 
@@ -86,12 +109,13 @@ impl NotepadPanel {
         Self {
             editor,
             save_path,
+            fs,
         }
     }
 
     /// 파일에서 메모 내용 로드
     fn load_from_file(path: &PathBuf) -> String {
-        if let Ok(data) = fs::read_to_string(path) {
+        if let Ok(data) = std::fs::read_to_string(path) {
             if let Ok(notepad_data) = serde_json::from_str::<NotepadData>(&data) {
                 return notepad_data.content;
             }
@@ -104,10 +128,10 @@ impl NotepadPanel {
         let text = self.editor.read(cx).text(cx);
         let data = NotepadData { content: text };
         if let Some(parent) = self.save_path.parent() {
-            let _ = fs::create_dir_all(parent);
+            let _ = std::fs::create_dir_all(parent);
         }
         if let Ok(json) = serde_json::to_string_pretty(&data) {
-            let _ = fs::write(&self.save_path, json);
+            let _ = std::fs::write(&self.save_path, json);
         }
     }
 
@@ -174,28 +198,37 @@ impl Panel for NotepadPanel {
         "NotepadPanel"
     }
 
-    fn position(&self, _window: &Window, _cx: &App) -> DockPosition {
-        DockPosition::Right
+    fn position(&self, _window: &Window, cx: &App) -> DockPosition {
+        NotepadPanelSettings::get_global(cx).dock
     }
 
     fn position_is_valid(&self, position: DockPosition) -> bool {
-        matches!(position, DockPosition::Left | DockPosition::Right)
+        matches!(
+            position,
+            DockPosition::Left | DockPosition::Bottom | DockPosition::Right
+        )
     }
 
     fn set_position(
         &mut self,
-        _position: DockPosition,
+        position: DockPosition,
         _window: &mut Window,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) {
+        settings::update_settings_file(self.fs.clone(), cx, move |settings, _| {
+            settings
+                .notepad_panel
+                .get_or_insert_default()
+                .dock = Some(position.into());
+        });
     }
 
     fn default_size(&self, _window: &Window, _cx: &App) -> Pixels {
         px(300.)
     }
 
-    fn icon(&self, _window: &Window, _cx: &App) -> Option<IconName> {
-        Some(IconName::Notepad)
+    fn icon(&self, _window: &Window, cx: &App) -> Option<IconName> {
+        Some(IconName::Notepad).filter(|_| NotepadPanelSettings::get_global(cx).button)
     }
 
     fn icon_tooltip(&self, _window: &Window, _cx: &App) -> Option<&'static str> {
@@ -207,6 +240,6 @@ impl Panel for NotepadPanel {
     }
 
     fn activation_priority(&self) -> u32 {
-        8
+        9
     }
 }

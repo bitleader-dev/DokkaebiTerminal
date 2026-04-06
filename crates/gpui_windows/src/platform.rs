@@ -888,8 +888,22 @@ impl WindowsPlatformInner {
     #[inline]
     fn run_foreground_task(&self) -> Option<isize> {
         const MAIN_TASK_TIMEOUT: u128 = 10;
+        // WM_PAINT 처리 간격: 대량의 foreground task가 메인 스레드를 독점할 때
+        // WM_PAINT(가장 낮은 우선순위 메시지)가 처리되지 못하는 것을 방지
+        const PAINT_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_millis(4);
+
+        let process_message = |msg: &_| {
+            if translate_accelerator(msg).is_none() {
+                _ = unsafe { TranslateMessage(msg) };
+                unsafe { DispatchMessageW(msg) };
+            }
+        };
+        let peek_msg = |msg: &mut _, msg_kind| unsafe {
+            PeekMessageW(msg, None, 0, 0, PM_REMOVE | msg_kind).as_bool()
+        };
 
         let start = std::time::Instant::now();
+        let mut last_paint_check = start;
         'tasks: loop {
             'timeout_loop: loop {
                 if start.elapsed().as_millis() >= MAIN_TASK_TIMEOUT {
@@ -898,18 +912,27 @@ impl WindowsPlatformInner {
                     // then quit out of foreground work to allow us to process other gpui events first before returning back to foreground task work
                     // if we don't we might not for example process window quit events
                     let mut msg = MSG::default();
-                    let process_message = |msg: &_| {
-                        if translate_accelerator(msg).is_none() {
-                            _ = unsafe { TranslateMessage(msg) };
-                            unsafe { DispatchMessageW(msg) };
-                        }
-                    };
-                    let peek_msg = |msg: &mut _, msg_kind| unsafe {
-                        PeekMessageW(msg, None, 0, 0, PM_REMOVE | msg_kind).as_bool()
-                    };
                     // We need to process a paint message here as otherwise we will re-enter `run_foreground_task` before painting if we have work remaining.
                     // The reason for this is that windows prefers custom application message processing over system messages.
-                    if peek_msg(&mut msg, PM_QS_PAINT) {
+                    let mut found_paint = peek_msg(&mut msg, PM_QS_PAINT);
+                    if !found_paint {
+                        // VSync 주기 사이에 WM_PAINT가 없으면 강제 무효화 후 재확인
+                        // dirty=false일 때는 draw가 스킵되므로 실제 렌더링 비용 없음
+                        if let Some(all_windows) = self.raw_window_handles.upgrade() {
+                            for hwnd in all_windows.read().iter() {
+                                unsafe {
+                                    let _ = RedrawWindow(
+                                        Some(hwnd.as_raw()),
+                                        None,
+                                        None,
+                                        RDW_INVALIDATE,
+                                    );
+                                }
+                            }
+                        }
+                        found_paint = peek_msg(&mut msg, PM_QS_PAINT);
+                    }
+                    if found_paint {
                         process_message(&msg);
                     }
                     while peek_msg(&mut msg, PM_QS_INPUT) {
@@ -930,7 +953,37 @@ impl WindowsPlatformInner {
                 }
                 let mut main_receiver = self.main_receiver.clone();
                 match main_receiver.try_pop() {
-                    Ok(Some(runnable)) => WindowsDispatcher::execute_runnable(runnable),
+                    Ok(Some(runnable)) => {
+                        WindowsDispatcher::execute_runnable(runnable);
+                        // TUI 앱(예: claude code cli) 실행 시 대량의 PTY 이벤트가
+                        // foreground task 큐를 채워 WM_PAINT 처리를 차단하는 것을 방지
+                        if last_paint_check.elapsed() >= PAINT_CHECK_INTERVAL {
+                            let mut msg = MSG::default();
+                            let mut found_paint = peek_msg(&mut msg, PM_QS_PAINT);
+                            if !found_paint {
+                                // VSync 주기 사이에 WM_PAINT가 없으면 강제 무효화 후 재확인
+                                if let Some(all_windows) =
+                                    self.raw_window_handles.upgrade()
+                                {
+                                    for hwnd in all_windows.read().iter() {
+                                        unsafe {
+                                            let _ = RedrawWindow(
+                                                Some(hwnd.as_raw()),
+                                                None,
+                                                None,
+                                                RDW_INVALIDATE,
+                                            );
+                                        }
+                                    }
+                                }
+                                found_paint = peek_msg(&mut msg, PM_QS_PAINT);
+                            }
+                            if found_paint {
+                                process_message(&msg);
+                            }
+                            last_paint_check = std::time::Instant::now();
+                        }
+                    }
                     _ => break 'timeout_loop,
                 }
             }

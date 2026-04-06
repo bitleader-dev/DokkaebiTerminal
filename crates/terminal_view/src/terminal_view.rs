@@ -27,7 +27,7 @@ use std::{
     path::{Path, PathBuf},
     rc::Rc,
     sync::Arc,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use task::TaskId;
 use terminal::{
@@ -149,6 +149,12 @@ pub struct TerminalView {
     focus_handle: FocusHandle,
     //Currently using iTerm bell, show bell emoji in tab until input is received
     has_bell: bool,
+    // 터미널 작업 완료 시 알림 표시용. Some(true)=성공, Some(false)=실패
+    task_completed: Option<bool>,
+    // 대화형 터미널에서 포그라운드 프로세스 이름을 추적하여 명령 완료 감지
+    last_foreground_process: Option<String>,
+    // Claude Code Stop 훅 마커 파일 확인 주기 제어용 타임스탬프
+    last_bell_file_check: Instant,
     context_menu: Option<(Entity<ContextMenu>, Point<Pixels>, Subscription)>,
     cursor_shape: CursorShape,
     blink_manager: Entity<BlinkManager>,
@@ -294,6 +300,9 @@ impl TerminalView {
             workspace: workspace_handle,
             project,
             has_bell: false,
+            task_completed: None,
+            last_foreground_process: None,
+            last_bell_file_check: Instant::now(),
             focus_handle,
             context_menu: None,
             cursor_shape,
@@ -506,6 +515,25 @@ impl TerminalView {
     pub fn clear_bell(&mut self, cx: &mut Context<TerminalView>) {
         self.has_bell = false;
         cx.emit(Event::Wakeup);
+    }
+
+    /// 터미널 작업 완료 알림을 해제한다.
+    pub fn clear_task_completed(&mut self, cx: &mut Context<TerminalView>) {
+        if self.task_completed.is_some() {
+            self.task_completed = None;
+            cx.emit(Event::Wakeup);
+            cx.emit(ItemEvent::UpdateTab);
+        }
+    }
+
+    /// 셸 프로그램 이름인지 판별한다.
+    fn is_shell_process(name: &str) -> bool {
+        let name_lower = name.to_lowercase();
+        matches!(
+            name_lower.as_str(),
+            "bash" | "zsh" | "fish" | "sh" | "dash" | "ksh" | "csh" | "tcsh" | "nu" | "nushell"
+                | "pwsh" | "powershell" | "cmd" | "cmd.exe" | "powershell.exe" | "pwsh.exe"
+        )
     }
 
     pub fn deploy_context_menu(
@@ -890,6 +918,7 @@ impl TerminalView {
 
     fn send_text(&mut self, text: &SendText, _: &mut Window, cx: &mut Context<Self>) {
         self.clear_bell(cx);
+        self.clear_task_completed(cx);
         self.terminal.update(cx, |term, _| {
             term.input(text.0.to_string().into_bytes());
         });
@@ -898,6 +927,7 @@ impl TerminalView {
     fn send_keystroke(&mut self, text: &SendKeystroke, _: &mut Window, cx: &mut Context<Self>) {
         if let Some(keystroke) = Keystroke::parse(&text.0).log_err() {
             self.clear_bell(cx);
+            self.clear_task_completed(cx);
             self.process_keystroke(&keystroke, cx);
         }
     }
@@ -1046,7 +1076,52 @@ fn subscribe_for_terminal_events(
 
             match event {
                 Event::Wakeup => {
+                    // 작업 완료 상태 감지: Running이 아닌 완료 상태로 전환 시 알림 설정
+                    if terminal_view.task_completed.is_none() {
+                        if let Some(task) = terminal.read(cx).task() {
+                            match task.status {
+                                TaskStatus::Completed { success } => {
+                                    terminal_view.task_completed = Some(success);
+                                }
+                                TaskStatus::Unknown => {
+                                    terminal_view.task_completed = Some(false);
+                                }
+                                TaskStatus::Running => {}
+                            }
+                        }
+                    }
+
+                    // Claude Code Stop 훅이 생성한 터미널별 마커 파일 감지 (1초 간격)
+                    let now = Instant::now();
+                    if now.duration_since(terminal_view.last_bell_file_check)
+                        >= Duration::from_secs(1)
+                    {
+                        terminal_view.last_bell_file_check = now;
+                        let tid = terminal.read(cx).terminal_id();
+                        if !tid.is_empty() {
+                            let marker_path = std::env::temp_dir()
+                                .join(format!("dokkaebi_bell_{}", tid));
+                            if marker_path.exists() {
+                                if std::fs::remove_file(&marker_path).is_ok() {
+                                    terminal_view.has_bell = true;
+                                    // 비활성 워크스페이스 그룹 알림 전달
+                                    let item_id = cx.entity().entity_id();
+                                    if let Some(ws) =
+                                        terminal_view.workspace.upgrade()
+                                    {
+                                        ws.update(cx, |ws, cx| {
+                                            ws.notify_bell_for_item(item_id, cx);
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     cx.notify();
+                    // cx.notify()는 window_invalidators 미등록 시 Effect 큐 경유로
+                    // dirty 설정이 지연될 수 있으므로 직접 보장
+                    window.refresh();
                     cx.emit(Event::Wakeup);
                     cx.emit(ItemEvent::UpdateTab);
                     cx.emit(SearchEvent::MatchesInvalidated);
@@ -1077,6 +1152,23 @@ fn subscribe_for_terminal_events(
                 }
 
                 Event::TitleChanged => {
+                    // 대화형 터미널: 포그라운드 프로세스가 비-셸→셸로 복귀하면 명령 완료로 감지
+                    if terminal.read(cx).task().is_none() {
+                        let current_process =
+                            terminal.read(cx).foreground_process_name();
+                        if let (Some(prev), Some(curr)) =
+                            (&terminal_view.last_foreground_process, &current_process)
+                        {
+                            if !TerminalView::is_shell_process(prev)
+                                && TerminalView::is_shell_process(curr)
+                                && terminal_view.task_completed.is_none()
+                            {
+                                // 대화형 명령은 exit code를 알 수 없으므로 성공으로 표시
+                                terminal_view.task_completed = Some(true);
+                            }
+                        }
+                        terminal_view.last_foreground_process = current_process;
+                    }
                     cx.emit(ItemEvent::UpdateTab);
                 }
 
@@ -1200,6 +1292,7 @@ impl TerminalView {
 
     fn key_down(&mut self, event: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         self.clear_bell(cx);
+        self.clear_task_completed(cx);
         self.pause_cursor_blinking(window, cx);
 
         if self.process_keystroke(&event.keystroke, cx) {
@@ -1208,6 +1301,7 @@ impl TerminalView {
     }
 
     fn focus_in(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.clear_task_completed(cx);
         self.terminal.update(cx, |terminal, _| {
             terminal.set_cursor_shape(self.cursor_shape);
             terminal.focus_in();
@@ -1685,6 +1779,10 @@ impl Item for TerminalView {
     }
 
     fn is_dirty(&self, cx: &App) -> bool {
+        // 작업 완료(성공) 알림이 있으면 dirty 표시 (Accent 색상 점)
+        if self.task_completed == Some(true) {
+            return true;
+        }
         match self.terminal.read(cx).task() {
             Some(task) => task.status == TaskStatus::Running,
             None => self.has_bell(),
@@ -1692,7 +1790,8 @@ impl Item for TerminalView {
     }
 
     fn has_conflict(&self, _cx: &App) -> bool {
-        false
+        // 작업 완료(실패) 알림이 있으면 conflict 표시 (Warning 색상 점)
+        self.task_completed == Some(false)
     }
 
     fn can_save_as(&self, _cx: &App) -> bool {

@@ -176,6 +176,9 @@ pub struct SettingsContent {
     /// Configuration for Node-related features
     pub node: Option<NodeBinarySettings>,
 
+    /// 알림 관련 설정
+    pub notification: Option<NotificationSettingsContent>,
+
     /// Configuration for the Notification Panel
     pub notification_panel: Option<NotificationPanelSettingsContent>,
 
@@ -547,6 +550,16 @@ pub enum StatusStyle {
 )]
 pub struct ScrollbarSettings {
     pub show: Option<ShowScrollbar>,
+}
+
+#[with_fallible_options]
+#[derive(Clone, Default, Serialize, Deserialize, JsonSchema, MergeFrom, Debug, PartialEq)]
+pub struct NotificationSettingsContent {
+    /// Claude Code 작업 완료 시 터미널에 벨 알림을 보낸다.
+    /// ~/.claude/settings.json의 Stop 훅에 벨 명령을 추가/제거한다.
+    ///
+    /// Default: false
+    pub claude_code_bell: Option<bool>,
 }
 
 #[with_fallible_options]

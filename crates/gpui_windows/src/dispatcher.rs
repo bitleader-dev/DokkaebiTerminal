@@ -130,13 +130,16 @@ impl PlatformDispatcher for WindowsDispatcher {
             Ok(_) => {
                 if !self.wake_posted.swap(true, Ordering::AcqRel) {
                     unsafe {
-                        PostMessageW(
+                        if let Err(_) = PostMessageW(
                             Some(self.platform_window_handle.as_raw()),
                             WM_GPUI_TASK_DISPATCHED_ON_MAIN_THREAD,
                             WPARAM(self.validation_number),
                             LPARAM(0),
-                        )
-                        .log_err();
+                        ) {
+                            // PostMessageW 실패 시 wake_posted를 복원하여
+                            // 다음 dispatch에서 재시도할 수 있도록 함
+                            self.wake_posted.store(false, Ordering::Release);
+                        }
                     }
                 }
             }

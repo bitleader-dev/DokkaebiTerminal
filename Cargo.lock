@@ -14234,6 +14234,7 @@ dependencies = [
  "component",
  "copilot",
  "copilot_ui",
+ "dirs 4.0.0",
  "edit_prediction",
  "edit_prediction_ui",
  "editor",

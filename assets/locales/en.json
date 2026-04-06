@@ -1225,5 +1225,8 @@
   "prompt_palette.category": "Category",
   "prompt_palette.category_placeholder": "e.g. git, docker, k8s",
   "prompt_palette.save": "Save",
-  "prompt_palette.cancel": "Cancel"
+  "prompt_palette.cancel": "Cancel",
+
+  "Claude Code Task Completion Bell": "Claude Code Task Completion Bell",
+  "When Claude Code completes a task, sends a bell signal to the terminal to show a notification indicator on the workspace tab. Modifies ~/.claude/settings.json Stop hook.": "When Claude Code completes a task, sends a bell signal to the terminal to show a notification indicator on the workspace tab. Modifies ~/.claude/settings.json Stop hook."
 }

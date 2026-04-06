@@ -877,11 +877,11 @@ impl Render for WorkspaceGroupPanel {
         let (groups, active_index, group_count) =
             if let Some(workspace) = self.workspace.upgrade() {
                 let ws = workspace.read(cx);
-                let groups: Vec<(usize, String)> = ws
+                let groups: Vec<(usize, String, bool)> = ws
                     .workspace_groups()
                     .iter()
                     .enumerate()
-                    .map(|(i, g)| (i, g.name.clone()))
+                    .map(|(i, g)| (i, g.name.clone(), g.has_notification))
                     .collect();
                 let active = ws.active_group_index();
                 let count = ws.workspace_group_count();
@@ -951,7 +951,7 @@ impl Render for WorkspaceGroupPanel {
                     .flex_1()
                     .overflow_y_scroll()
                     .py_1()
-                    .children(groups.into_iter().map(|(index, name)| {
+                    .children(groups.into_iter().map(|(index, name, has_notification)| {
                         let is_active = index == active_index;
                         let is_editing = editing_index == Some(index);
                         let can_delete = group_count > 1;
@@ -1057,6 +1057,14 @@ impl Render for WorkspaceGroupPanel {
                                             .into_any_element()
                                     }),
                             )
+                            // 비활성 그룹 알림 아이콘
+                            .when(!is_active && has_notification && !is_editing, |el| {
+                                el.child(
+                                    ui::Icon::new(IconName::BellDot)
+                                        .size(ui::IconSize::XSmall)
+                                        .color(ui::Color::Accent),
+                                )
+                            })
                             .when(can_delete && !is_editing, |el| {
                                 el.child(
                                     IconButton::new(

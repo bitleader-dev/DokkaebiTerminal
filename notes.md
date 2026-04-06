@@ -1,6 +1,7 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-04-06: 터미널 렌더링 멈춤 현상 수정 — (1) run_foreground_task의 paint check에서 WM_PAINT가 없을 때 RedrawWindow(RDW_INVALIDATE)로 강제 무효화하여 VSync 대기 없이 즉시 렌더링 보장 (2) dispatch_on_main_thread에서 PostMessageW 실패 시 wake_posted를 false로 복원하여 task 큐 영구 차단 방지
 - 2026-04-06: 메모장 패널 자동 줄바꿈 수정 — 에디터에 soft wrap(EditorWidth) 설정 추가하여 가로 스크롤 대신 패널 너비에 맞춰 자동 줄바꿈 되도록 변경
 - 2026-04-06: 워크스페이스 그룹 알림 아이콘 추가 — 비활성 그룹 터미널에서 bell 발생 시 그룹 목록 항목의 X 버튼 왼쪽에 BellDot 아이콘(Accent 색상) 표시. 그룹 선택(전환) 시 알림 자동 해제. WorkspaceGroupState에 has_notification 플래그 추가, terminal_view에서 workspace.notify_bell_for_item() 호출로 전달
 - 2026-04-06: Claude Code 작업 완료 알림을 터미널별 고유 ID 기반 마커 파일 방식으로 개선 — (1) insert_zed_terminal_env()에서 DOKKAEBI_TERMINAL_ID 환경 변수 생성 (Zed PID + 카운터 조합), Claude Code 훅이 상속하여 $TEMP/dokkaebi_bell_{id} 마커 파일 생성 (2) terminal_view가 자기 ID에 해당하는 파일만 감지 → 정확한 터미널에만 알림 표시 (3) 마커 파일 위치를 ~/.claude/ → 시스템 임시 디렉토리로 변경

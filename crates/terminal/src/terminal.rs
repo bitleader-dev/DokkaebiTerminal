@@ -61,7 +61,10 @@ use std::{
     ops::{Deref, RangeInclusive},
     path::PathBuf,
     process::ExitStatus,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     time::{Duration, Instant},
 };
 use thiserror::Error;
@@ -115,17 +118,33 @@ const DEBUG_TERMINAL_HEIGHT: Pixels = px(30.);
 const DEBUG_CELL_WIDTH: Pixels = px(5.);
 const DEBUG_LINE_HEIGHT: Pixels = px(5.);
 
+/// 터미널별 고유 ID 생성용 전역 카운터
+static TERMINAL_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
+
 /// Inserts Zed-specific environment variables for terminal sessions.
 /// Used by both local terminals and remote terminals (via SSH).
+/// 반환값: 이 터미널에 할당된 고유 ID (DOKKAEBI_TERMINAL_ID)
 pub fn insert_zed_terminal_env(
     env: &mut HashMap<String, String>,
     version: &impl std::fmt::Display,
-) {
+) -> String {
     env.insert("ZED_TERM".to_string(), "true".to_string());
     env.insert("TERM_PROGRAM".to_string(), "zed".to_string());
     env.insert("TERM".to_string(), "xterm-256color".to_string());
     env.insert("COLORTERM".to_string(), "truecolor".to_string());
     env.insert("TERM_PROGRAM_VERSION".to_string(), version.to_string());
+
+    // Claude Code Stop 훅에서 터미널 식별에 사용하는 고유 ID
+    let terminal_id = format!(
+        "{}_{}",
+        std::process::id(),
+        TERMINAL_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
+    );
+    env.insert(
+        "DOKKAEBI_TERMINAL_ID".to_string(),
+        terminal_id.clone(),
+    );
+    terminal_id
 }
 
 ///Upward flowing events, for changing the title and such
@@ -383,6 +402,7 @@ impl TerminalBuilder {
         let terminal = Terminal {
             task: None,
             terminal_type: TerminalType::DisplayOnly,
+            terminal_id: String::new(),
             completion_tx: None,
             term,
             term_config: config,
@@ -464,7 +484,7 @@ impl TerminalBuilder {
                     .or_insert_with(|| "en_US.UTF-8".to_string());
             }
 
-            insert_zed_terminal_env(&mut env, &version);
+            let terminal_id = insert_zed_terminal_env(&mut env, &version);
 
             #[derive(Default)]
             struct ShellParams {
@@ -615,6 +635,7 @@ impl TerminalBuilder {
                     pty_tx: Notifier(pty_tx),
                     info: Arc::new(pty_info),
                 },
+                terminal_id,
                 completion_tx,
                 term,
                 term_config: config,
@@ -852,6 +873,8 @@ enum TerminalType {
 
 pub struct Terminal {
     terminal_type: TerminalType,
+    /// Claude Code 알림 식별용 터미널 고유 ID
+    terminal_id: String,
     completion_tx: Option<Sender<Option<ExitStatus>>>,
     term: Arc<FairMutex<Term<ZedListener>>>,
     term_config: Config,
@@ -2199,6 +2222,11 @@ impl Terminal {
         }
     }
 
+    /// Claude Code 알림 식별용 터미널 고유 ID를 반환한다.
+    pub fn terminal_id(&self) -> &str {
+        &self.terminal_id
+    }
+
     pub fn pid(&self) -> Option<sysinfo::Pid> {
         match &self.terminal_type {
             TerminalType::Pty { info, .. } => info.pid(),
@@ -2215,6 +2243,16 @@ impl Terminal {
 
     pub fn task(&self) -> Option<&TaskState> {
         self.task.as_ref()
+    }
+
+    /// 현재 포그라운드 프로세스 이름을 반환한다.
+    pub fn foreground_process_name(&self) -> Option<String> {
+        match &self.terminal_type {
+            TerminalType::Pty { info, .. } => {
+                info.current.read().as_ref().map(|p| p.name.clone())
+            }
+            TerminalType::DisplayOnly => None,
+        }
     }
 
     pub fn wait_for_completed_task(&self, cx: &App) -> Task<Option<ExitStatus>> {

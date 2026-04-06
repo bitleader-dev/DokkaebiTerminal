@@ -21,6 +21,8 @@ pub struct WorkspaceGroupState {
     pub last_active_center_pane: Option<WeakEntity<Pane>>,
     /// 아이템 ID → 패인 매핑
     pub panes_by_item: HashMap<EntityId, WeakEntity<Pane>>,
+    /// 비활성 상태에서 알림(bell 등) 발생 여부
+    pub has_notification: bool,
 }
 
 impl WorkspaceGroupState {
@@ -32,6 +34,7 @@ impl WorkspaceGroupState {
         active_pane: &Entity<Pane>,
         last_active_center_pane: &Option<WeakEntity<Pane>>,
         panes_by_item: &HashMap<EntityId, WeakEntity<Pane>>,
+        has_notification: bool,
     ) -> Self {
         Self {
             name,
@@ -40,6 +43,7 @@ impl WorkspaceGroupState {
             active_pane: active_pane.clone(),
             last_active_center_pane: last_active_center_pane.clone(),
             panes_by_item: panes_by_item.clone(),
+            has_notification,
         }
     }
 }

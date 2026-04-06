@@ -1680,6 +1680,7 @@ impl Workspace {
             active_pane: center_pane.clone(),
             last_active_center_pane: Some(center_pane.downgrade()),
             panes_by_item: Default::default(),
+            has_notification: false,
         };
 
         Workspace {
@@ -5292,6 +5293,25 @@ impl Workspace {
         self.workspace_groups.len()
     }
 
+    /// 비활성 그룹에 속한 아이템의 알림(bell)을 설정한다.
+    /// terminal_view에서 마커 파일 감지 시 호출된다.
+    pub fn notify_bell_for_item(
+        &mut self,
+        item_id: gpui::EntityId,
+        cx: &mut Context<Self>,
+    ) {
+        for (i, group) in self.workspace_groups.iter_mut().enumerate() {
+            if i == self.active_group_index {
+                continue;
+            }
+            if group.panes_by_item.contains_key(&item_id) {
+                group.has_notification = true;
+                cx.notify();
+                return;
+            }
+        }
+    }
+
     /// 현재 상태를 활성 그룹에 동기화
     fn sync_active_group(&mut self) {
         if self.active_group_index < self.workspace_groups.len() {
@@ -5302,6 +5322,7 @@ impl Workspace {
                 &self.active_pane,
                 &self.last_active_center_pane,
                 &self.panes_by_item,
+                false, // 활성 그룹은 알림 불필요
             );
         }
     }
@@ -5319,6 +5340,9 @@ impl Workspace {
 
         // 현재 상태를 활성 그룹에 저장
         self.sync_active_group();
+
+        // 전환 대상 그룹의 알림 해제
+        self.workspace_groups[index].has_notification = false;
 
         // 새 그룹 상태 로드
         let new_group = &self.workspace_groups[index];
@@ -5399,6 +5423,7 @@ impl Workspace {
             active_pane: new_pane.clone(),
             last_active_center_pane: Some(new_pane.downgrade()),
             panes_by_item: HashMap::default(),
+            has_notification: false,
         };
         self.workspace_groups.push(new_group);
 
@@ -7061,6 +7086,7 @@ impl Workspace {
                                 active_pane: workspace.active_pane.clone(),
                                 last_active_center_pane: workspace.last_active_center_pane.clone(),
                                 panes_by_item: active_panes_by_item.clone(),
+                                has_notification: false,
                             });
                         } else if let Some(pos) = restored_groups.iter().position(|(idx, _, _, _)| *idx == i) {
                             let (_, name, member, active_pane_opt) = restored_groups.remove(pos);
@@ -7087,6 +7113,7 @@ impl Workspace {
                                 active_pane: group_active_pane.clone(),
                                 last_active_center_pane: Some(group_active_pane.downgrade()),
                                 panes_by_item,
+                                has_notification: false,
                             });
                         } else {
                             // 역직렬화 실패한 그룹 — 빈 패인으로 복원하여 그룹 자체는 유지
@@ -7120,6 +7147,7 @@ impl Workspace {
                                 active_pane: fallback_pane.clone(),
                                 last_active_center_pane: Some(fallback_pane.downgrade()),
                                 panes_by_item: HashMap::default(),
+                                has_notification: false,
                             });
                         }
                     }

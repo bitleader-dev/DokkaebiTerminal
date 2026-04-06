@@ -393,6 +393,12 @@ pub fn init(cx: &mut App) {
     let queue = ProjectSettingsUpdateQueue::new(cx);
     cx.set_global(queue);
 
+    // Claude Code 벨 알림 설정 동기화: Zed 설정 변경 시 ~/.claude/settings.json에 반영
+    cx.observe_global::<SettingsStore>(|cx| {
+        pages::sync_claude_code_bell_setting(cx);
+    })
+    .detach();
+
     cx.on_action(|_: &OpenSettings, cx| {
         open_settings_editor(None, None, None, cx);
     });

@@ -1,7 +1,9 @@
 mod edit_prediction_provider_setup;
+mod notification_setup;
 mod tool_permissions_setup;
 
 pub(crate) use edit_prediction_provider_setup::render_edit_prediction_setup_page;
+pub(crate) use notification_setup::sync_claude_code_bell_setting;
 pub(crate) use tool_permissions_setup::render_tool_permissions_setup_page;
 
 pub use tool_permissions_setup::{

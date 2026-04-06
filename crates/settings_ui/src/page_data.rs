@@ -70,6 +70,7 @@ pub(crate) fn settings_data(cx: &App) -> Vec<SettingsPage> {
         version_control_page(),
 
         ai_page(cx),
+        notification_page(),
         wallpaper_page(),
     ]
 }
@@ -6688,6 +6689,46 @@ fn ai_page(cx: &App) -> SettingsPage {
             edit_prediction_language_settings_section(),
             edit_prediction_display_sub_section()
         ],
+    }
+}
+
+fn notification_page() -> SettingsPage {
+    static DEFAULT_BELL: bool = false;
+
+    fn claude_code_section() -> [SettingsPageItem; 2] {
+        [
+            SettingsPageItem::SectionHeader("Claude Code"),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "Claude Code Task Completion Bell",
+                description:
+                    "When Claude Code completes a task, sends a bell signal to the terminal to show a notification indicator on the workspace tab. Modifies ~/.claude/settings.json Stop hook.",
+                field: Box::new(SettingField {
+                    json_path: Some("notification.claude_code_bell"),
+                    pick: |settings_content| {
+                        Some(
+                            settings_content
+                                .notification
+                                .as_ref()
+                                .and_then(|n| n.claude_code_bell.as_ref())
+                                .unwrap_or(&DEFAULT_BELL),
+                        )
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .notification
+                            .get_or_insert_with(Default::default)
+                            .claude_code_bell = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+        ]
+    }
+
+    SettingsPage {
+        title: "Notifications",
+        items: concat_sections!(claude_code_section()),
     }
 }
 

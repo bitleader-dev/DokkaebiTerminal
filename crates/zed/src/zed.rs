@@ -31,7 +31,7 @@ use git_ui::git_panel::GitPanel;
 use git_ui::project_diff::{BranchDiffToolbar, ProjectDiffToolbar};
 use gpui::{
     Action, App, AppContext as _, AsyncWindowContext, Context, DismissEvent, Element, Entity,
-    Focusable, KeyBinding, ParentElement, PathPromptOptions, PromptLevel, ReadGlobal, SharedString,
+    EventEmitter, Focusable, KeyBinding, ParentElement, PathPromptOptions, PromptLevel, ReadGlobal, SharedString,
     Task, TitlebarOptions, UpdateGlobal, WeakEntity, Window, WindowHandle, WindowKind,
     WindowOptions, actions, image_cache, point, px, retain_all,
 };
@@ -56,7 +56,7 @@ use project_panel::ProjectPanel;
 use prompt_store::PromptBuilder;
 use quick_action_bar::QuickActionBar;
 use recent_projects::open_remote_project;
-use release_channel::{AppCommitSha, AppVersion, ReleaseChannel};
+use release_channel::ReleaseChannel;
 use rope::Rope;
 use search::project_search::ProjectSearchBar;
 use settings::{
@@ -1220,44 +1220,135 @@ fn initialize_pane(
     });
 }
 
-fn about(_: &mut Workspace, window: &mut Window, cx: &mut Context<Workspace>) {
-    use std::fmt::Write;
-    let release_channel = ReleaseChannel::global(cx).display_name();
-    let full_version = AppVersion::global(cx);
-    let version = env!("CARGO_PKG_VERSION");
-    let debug = if cfg!(debug_assertions) {
-        "(debug)"
-    } else {
-        ""
-    };
-    let message = format!("{release_channel} {version} {debug}");
+fn about(workspace: &mut Workspace, window: &mut Window, cx: &mut Context<Workspace>) {
+    workspace.toggle_modal(window, cx, |_window, cx| AboutDialog::new(cx));
+}
 
-    let mut detail = AppCommitSha::try_global(cx)
-        .map(|sha| sha.full())
-        .unwrap_or_default();
-    if !detail.is_empty() {
-        detail.push('\n');
-    }
-    _ = write!(&mut detail, "\n{full_version}");
+/// 정보(About) 다이얼로그
+struct AboutDialog {
+    focus: gpui::FocusHandle,
+    /// 버전 문자열 (예: "Dokkaebi Dev 0.1.0 (debug)")
+    version_text: String,
+    /// 원본 Zed 버전
+    upstream_version: &'static str,
+}
 
-    let detail = Some(detail);
+impl AboutDialog {
+    fn new(cx: &mut Context<Self>) -> Self {
+        let release_channel = ReleaseChannel::global(cx).display_name();
+        let version = env!("CARGO_PKG_VERSION");
+        let debug = if cfg!(debug_assertions) {
+            " (debug)"
+        } else {
+            ""
+        };
+        let version_text = format!("{release_channel} {version}{debug}");
+        let upstream_version = env!("DOKKAEBI_UPSTREAM_VERSION");
 
-    let prompt = window.prompt(
-        PromptLevel::Info,
-        &message,
-        detail.as_deref(),
-        &["Copy", "OK"],
-        cx,
-    );
-    cx.spawn(async move |_, cx| {
-        if let Ok(0) = prompt.await {
-            let content = format!("{}\n{}", message, detail.as_deref().unwrap_or(""));
-            cx.update(|cx| {
-                cx.write_to_clipboard(gpui::ClipboardItem::new_string(content));
-            });
+        Self {
+            focus: cx.focus_handle(),
+            version_text,
+            upstream_version,
         }
-    })
-    .detach();
+    }
+
+}
+
+const ZED_REPO_URL: &str = "https://github.com/zed-industries/zed";
+
+impl Render for AboutDialog {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let settings = ThemeSettings::get_global(cx);
+
+        let title = i18n::t("about.title", cx);
+        let credit_prefix = i18n::t("about.credit_prefix", cx);
+        let credit_link = i18n::t("about.credit_link", cx);
+        let credit_suffix = i18n::t("about.credit_suffix", cx);
+        let upstream_version = self.upstream_version;
+        let ok_label = i18n::t("about.ok", cx);
+
+        v_flex()
+            .key_context("AboutDialog")
+            .track_focus(&self.focus)
+            .on_action(cx.listener(|_, _: &menu::Cancel, _window, cx| {
+                cx.emit(DismissEvent);
+            }))
+            .on_action(cx.listener(|_, _: &menu::Confirm, _window, cx| {
+                cx.emit(DismissEvent);
+            }))
+            .w_80()
+            .p_4()
+            .gap_3()
+            .elevation_3(cx)
+            .overflow_hidden()
+            .font_family(settings.ui_font.family.clone())
+            // 타이틀
+            .child(
+                div()
+                    .w_full()
+                    .text_sm()
+                    .text_color(cx.theme().colors().text_muted)
+                    .child(title.to_string()),
+            )
+            // 버전 정보
+            .child(
+                div()
+                    .w_full()
+                    .text_base()
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .child(self.version_text.clone()),
+            )
+            // 크레딧 (링크 포함)
+            .child(
+                div()
+                    .w_full()
+                    .text_xs()
+                    .text_color(cx.theme().colors().text_muted)
+                    .child(
+                        h_flex()
+                            .flex_wrap()
+                            .child(credit_prefix.to_string())
+                            .child(
+                                div()
+                                    .id("zed-link")
+                                    .cursor_pointer()
+                                    .text_color(cx.theme().colors().link_text_hover)
+                                    .hover(|s| s.underline())
+                                    .on_click(cx.listener(|_, _, _window, cx| {
+                                        cx.open_url(ZED_REPO_URL);
+                                    }))
+                                    .child(credit_link.to_string()),
+                            )
+                            .child(format!("{} (v{})", credit_suffix, upstream_version)),
+                    ),
+            )
+            // 버튼
+            .child(
+                h_flex()
+                    .justify_end()
+                    .child(
+                        Button::new("ok", ok_label.to_string())
+                            .style(ButtonStyle::Tinted(ui::TintColor::Accent))
+                            .on_click(cx.listener(|_, _, _window, cx| {
+                                cx.emit(DismissEvent);
+                            })),
+                    ),
+            )
+    }
+}
+
+impl EventEmitter<DismissEvent> for AboutDialog {}
+
+impl Focusable for AboutDialog {
+    fn focus_handle(&self, _: &gpui::App) -> gpui::FocusHandle {
+        self.focus.clone()
+    }
+}
+
+impl workspace::ModalView for AboutDialog {
+    fn fade_out_background(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(not(target_os = "windows"))]

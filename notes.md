@@ -1,6 +1,7 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-04-07: Info 다이얼로그 커스터마이징 — (1) 버전 0.1.0으로 변경 (2) 커밋 SHA/풀 버전 라인 제거 (3) Zed 오픈소스 프로젝트 크레딧 및 클릭 가능 링크 추가 (4) 원본 버전(upstream_version)을 Cargo.toml 메타데이터에서 관리 (5) Windows 네이티브 TaskDialog 대신 커스텀 모달(AboutDialog)로 변경하여 i18n 타이틀("정보"/"Info") 지원
 - 2026-04-07: 코드 리뷰 지적사항 수정 — (1) notepad_panel SettingsStore 옵저버에 변경 감지 가드 추가 (불필요한 레이아웃 재계산 방지) (2) set_soft_wrap() → set_soft_wrap_mode(EditorWidth) 통일 (3) conversation_view ZED_AGENT_ID 중복 비교 제거 (4) "Notepad Restore" 설정 i18n 키 적용
 - 2026-04-07: 메모장 패널 가로 스크롤 표시 설정 추가 — 설정 UI 패널 > 메모장 패널 섹션에 "Notepad Horizontal Scroll" on/off 토글 추가. 기본값 off(자동 줄바꿈), on 시 줄바꿈 없이 가로 스크롤 표시. 설정 변경 시 실시간 반영
 - 2026-04-07: 설정 화면 전체 드롭다운 한글화 — 모든 설정 페이지의 enum variant 약 95개에 한글 번역 추가 (CursorShape, RestoreOnStartupBehavior, BottomDockLayout, DockPosition, SoftWrap, ScrollBeyondLastLine, GitGutterSetting, GitHunkStyleSetting, ActivateOnClose, ShowCloseButton, DiffViewStyle, ShowScrollbar, NotifyWhenAgentWaiting, WallpaperFitContent 등)

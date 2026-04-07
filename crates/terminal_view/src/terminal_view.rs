@@ -72,6 +72,7 @@ struct ImeState {
 }
 
 const CURSOR_BLINK_INTERVAL: Duration = Duration::from_millis(500);
+const WAKEUP_THROTTLE_INTERVAL: Duration = Duration::from_millis(16);
 
 /// Event to transmit the scroll from the element to the view
 #[derive(Clone, Debug, PartialEq)]
@@ -156,6 +157,7 @@ pub struct TerminalView {
     last_foreground_process: Option<String>,
     // Claude Code Stop 훅 마커 파일 확인 주기 제어용 타임스탬프
     last_bell_file_check: Instant,
+    last_wakeup_notify: Instant,
     context_menu: Option<(Entity<ContextMenu>, Point<Pixels>, Subscription)>,
     cursor_shape: CursorShape,
     blink_manager: Entity<BlinkManager>,
@@ -304,6 +306,7 @@ impl TerminalView {
             task_completed: None,
             last_foreground_process: None,
             last_bell_file_check: Instant::now(),
+            last_wakeup_notify: Instant::now() - WAKEUP_THROTTLE_INTERVAL,
             focus_handle,
             context_menu: None,
             cursor_shape,
@@ -1089,6 +1092,7 @@ fn subscribe_for_terminal_events(
     window: &mut Window,
     cx: &mut Context<TerminalView>,
 ) -> Vec<Subscription> {
+    // cx.notify()는 GPUI에서 entity별로 중복 제거되므로 스로틀 불필요
     let terminal_subscription = cx.observe(terminal, |_, _, cx| cx.notify());
     let mut previous_cwd = None;
     let terminal_events_subscription = cx.subscribe_in(
@@ -1145,13 +1149,19 @@ fn subscribe_for_terminal_events(
                         }
                     }
 
+                    // cx.notify()와 window.refresh()는 GPUI에서 중복 제거되므로 매번 호출 가능
                     cx.notify();
-                    // cx.notify()는 window_invalidators 미등록 시 Effect 큐 경유로
-                    // dirty 설정이 지연될 수 있으므로 직접 보장
                     window.refresh();
-                    cx.emit(Event::Wakeup);
-                    cx.emit(ItemEvent::UpdateTab);
-                    cx.emit(SearchEvent::MatchesInvalidated);
+
+                    // SearchEvent::MatchesInvalidated 등이 비용이 크므로 ~60fps로 제한
+                    if now.duration_since(terminal_view.last_wakeup_notify)
+                        >= WAKEUP_THROTTLE_INTERVAL
+                    {
+                        terminal_view.last_wakeup_notify = now;
+                        cx.emit(Event::Wakeup);
+                        cx.emit(ItemEvent::UpdateTab);
+                        cx.emit(SearchEvent::MatchesInvalidated);
+                    }
                 }
 
                 Event::Bell => {

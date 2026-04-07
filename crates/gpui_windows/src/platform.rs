@@ -885,11 +885,32 @@ impl WindowsPlatformInner {
         lock.is_empty()
     }
 
+    /// 메시지 큐를 우회하여 모든 앱 윈도우의 WndProc에 WM_PAINT를 직접 전달한다.
+    ///
+    /// PeekMessageW(PM_QS_PAINT) 대신 UpdateWindow()를 사용: PM_QS_PAINT의
+    /// queue wake bits는 PeekMessageW 호출 시 리셋되어 후속 호출에서 실제
+    /// paint 메시지가 있어도 찾지 못할 수 있음. UpdateWindow는 큐를 우회하므로
+    /// 이 문제가 발생하지 않음.
+    fn force_paint_all_windows(&self) {
+        if let Some(all_windows) = self.raw_window_handles.upgrade() {
+            for hwnd in all_windows.read().iter() {
+                unsafe {
+                    let _ = RedrawWindow(
+                        Some(hwnd.as_raw()),
+                        None,
+                        None,
+                        RDW_INVALIDATE,
+                    );
+                    // dirty=false이면 WndProc에서 실제 렌더링을 스킵하므로 무조건 호출해도 안전
+                    let _ = UpdateWindow(hwnd.as_raw());
+                }
+            }
+        }
+    }
+
     #[inline]
     fn run_foreground_task(&self) -> Option<isize> {
-        const MAIN_TASK_TIMEOUT: u128 = 10;
-        // WM_PAINT 처리 간격: 대량의 foreground task가 메인 스레드를 독점할 때
-        // WM_PAINT(가장 낮은 우선순위 메시지)가 처리되지 못하는 것을 방지
+        const MAIN_TASK_TIMEOUT: u128 = 8;
         const PAINT_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_millis(4);
 
         let process_message = |msg: &_| {
@@ -908,33 +929,13 @@ impl WindowsPlatformInner {
             'timeout_loop: loop {
                 if start.elapsed().as_millis() >= MAIN_TASK_TIMEOUT {
                     log::debug!("foreground task timeout reached");
-                    // we spent our budget on gpui tasks, we likely have a lot of work queued so drain system events first to stay responsive
-                    // then quit out of foreground work to allow us to process other gpui events first before returning back to foreground task work
-                    // if we don't we might not for example process window quit events
+                    // Budget exhausted: drain input, then yield to the main loop.
+                    // PAINT_CHECK_INTERVAL 이내에 이미 paint 했으면 중복 호출 방지
+                    if last_paint_check.elapsed() >= PAINT_CHECK_INTERVAL {
+                        self.force_paint_all_windows();
+                    }
+
                     let mut msg = MSG::default();
-                    // We need to process a paint message here as otherwise we will re-enter `run_foreground_task` before painting if we have work remaining.
-                    // The reason for this is that windows prefers custom application message processing over system messages.
-                    let mut found_paint = peek_msg(&mut msg, PM_QS_PAINT);
-                    if !found_paint {
-                        // VSync 주기 사이에 WM_PAINT가 없으면 강제 무효화 후 재확인
-                        // dirty=false일 때는 draw가 스킵되므로 실제 렌더링 비용 없음
-                        if let Some(all_windows) = self.raw_window_handles.upgrade() {
-                            for hwnd in all_windows.read().iter() {
-                                unsafe {
-                                    let _ = RedrawWindow(
-                                        Some(hwnd.as_raw()),
-                                        None,
-                                        None,
-                                        RDW_INVALIDATE,
-                                    );
-                                }
-                            }
-                        }
-                        found_paint = peek_msg(&mut msg, PM_QS_PAINT);
-                    }
-                    if found_paint {
-                        process_message(&msg);
-                    }
                     while peek_msg(&mut msg, PM_QS_INPUT) {
                         process_message(&msg);
                     }
@@ -955,32 +956,8 @@ impl WindowsPlatformInner {
                 match main_receiver.try_pop() {
                     Ok(Some(runnable)) => {
                         WindowsDispatcher::execute_runnable(runnable);
-                        // TUI 앱(예: claude code cli) 실행 시 대량의 PTY 이벤트가
-                        // foreground task 큐를 채워 WM_PAINT 처리를 차단하는 것을 방지
                         if last_paint_check.elapsed() >= PAINT_CHECK_INTERVAL {
-                            let mut msg = MSG::default();
-                            let mut found_paint = peek_msg(&mut msg, PM_QS_PAINT);
-                            if !found_paint {
-                                // VSync 주기 사이에 WM_PAINT가 없으면 강제 무효화 후 재확인
-                                if let Some(all_windows) =
-                                    self.raw_window_handles.upgrade()
-                                {
-                                    for hwnd in all_windows.read().iter() {
-                                        unsafe {
-                                            let _ = RedrawWindow(
-                                                Some(hwnd.as_raw()),
-                                                None,
-                                                None,
-                                                RDW_INVALIDATE,
-                                            );
-                                        }
-                                    }
-                                }
-                                found_paint = peek_msg(&mut msg, PM_QS_PAINT);
-                            }
-                            if found_paint {
-                                process_message(&msg);
-                            }
+                            self.force_paint_all_windows();
                             last_paint_check = std::time::Instant::now();
                         }
                     }

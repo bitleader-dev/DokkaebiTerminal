@@ -2585,12 +2585,15 @@ fn loading_contents_spinner(size: IconSize) -> AnyElement {
 }
 
 fn placeholder_text(agent_name: &str, has_commands: bool, cx: &App) -> String {
-    let template = if has_commands && agent_name != agent::ZED_AGENT_ID.as_ref() {
+    // 네이티브 에이전트는 "Zed Agent" 대신 "Agent"로 표시
+    let is_native_agent = agent_name == agent::ZED_AGENT_ID.as_ref();
+    let template = if has_commands && !is_native_agent {
         t("agent_panel.placeholder.message_with_commands", cx)
     } else {
         t("agent_panel.placeholder.message", cx)
     };
-    template.replace("{agent_name}", agent_name)
+    let display_name = if is_native_agent { "Agent" } else { agent_name };
+    template.replace("{agent_name}", display_name)
 }
 
 impl Focusable for ConversationView {

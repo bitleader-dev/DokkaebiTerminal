@@ -5120,7 +5120,7 @@ fn panels_page() -> SettingsPage {
         ]
     }
 
-    fn notepad_panel_section() -> [SettingsPageItem; 3] {
+    fn notepad_panel_section() -> [SettingsPageItem; 5] {
         [
             SettingsPageItem::SectionHeader("Notepad Panel"),
             SettingsPageItem::SettingItem(SettingItem {
@@ -5162,6 +5162,50 @@ fn panels_page() -> SettingsPage {
                             .notepad_panel
                             .get_or_insert_default()
                             .dock = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "settings.notepad_panel.restore.title",
+                description: "settings.notepad_panel.restore.description",
+                field: Box::new(SettingField {
+                    json_path: Some("notepad_panel.restore"),
+                    pick: |settings_content| {
+                        settings_content
+                            .notepad_panel
+                            .as_ref()?
+                            .restore
+                            .as_ref()
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .notepad_panel
+                            .get_or_insert_default()
+                            .restore = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "settings.notepad_panel.horizontal_scroll.title",
+                description: "settings.notepad_panel.horizontal_scroll.description",
+                field: Box::new(SettingField {
+                    json_path: Some("notepad_panel.horizontal_scroll"),
+                    pick: |settings_content| {
+                        settings_content
+                            .notepad_panel
+                            .as_ref()?
+                            .horizontal_scroll
+                            .as_ref()
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .notepad_panel
+                            .get_or_insert_default()
+                            .horizontal_scroll = value;
                     },
                 }),
                 metadata: None,

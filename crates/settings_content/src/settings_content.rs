@@ -598,6 +598,14 @@ pub struct NotepadPanelSettingsContent {
     ///
     /// Default: right
     pub dock: Option<DockPosition>,
+    /// Whether to restore notepad content on app startup.
+    ///
+    /// Default: false
+    pub restore: Option<bool>,
+    /// 자동 줄바꿈 대신 가로 스크롤을 표시합니다.
+    ///
+    /// Default: false
+    pub horizontal_scroll: Option<bool>,
 }
 
 #[with_fallible_options]

@@ -1,46 +1,42 @@
-# 터미널 렌더링 멈춤 현상 수정
+# 코드 리뷰 지적사항 수정
 
 ## 목표
-- Dokkaebi 내장 터미널에서 TUI 앱(예: Claude Code CLI) 실행 시 화면이 멈추는 현상 해결
-- 포커스 변경 없이도 터미널 렌더링이 안정적으로 지속되도록 개선
-
-## 근본 원인
-1. WM_PAINT 생성이 VSync 스레드(~16.67ms 간격)에만 의존하여, dirty 상태에서도 WM_PAINT가 없으면 그리기 불가
-2. dispatch_on_main_thread()에서 PostMessageW 실패 시 wake_posted가 true로 남아 task 큐 영구 차단 가능
+- 코드 리뷰에서 발견된 6개 이슈 수정
 
 ## 범위
 
-### 수정하는 파일
+### 수정 파일
 
 | 파일 | 변경 내용 |
 |------|-----------|
-| `crates/gpui_windows/src/platform.rs` | paint check 시 WM_PAINT가 없으면 RedrawWindow(RDW_INVALIDATE) 호출하여 강제 생성 |
-| `crates/gpui_windows/src/dispatcher.rs` | PostMessageW 실패 시 wake_posted를 false로 복원 |
+| `crates/notepad_panel/src/notepad_panel.rs` | SettingsStore 옵저버 변경 감지 추가 + soft_wrap 호출 통일 + 주석 개선 |
+| `crates/agent_ui/src/conversation_view.rs` | ZED_AGENT_ID 중복 비교 제거 |
+| `crates/settings_ui/src/page_data.rs` | "Notepad Restore" 설정 i18n 키 적용 |
+| `assets/locales/ko.json` | `settings.notepad_panel.restore.*` 키 추가 |
+| `assets/locales/en.json` | `settings.notepad_panel.restore.*` 키 추가 |
 
 ### 수정하지 않는 것
-- gpui 코어 (platform trait 변경 없음)
-- terminal.rs / terminal_view.rs (기존 로직 유지)
-- VSync 스레드 로직
+- 구조 변경, 새 의존성, 공개 API 변경 없음
 
 ## 작업 단계
 
-### [x] 1단계: paint check 시 강제 윈도우 무효화 (platform.rs)
-- `run_foreground_task()`의 paint check에서 WM_PAINT 미발견 시 `RedrawWindow(RDW_INVALIDATE)` 호출
-- 타임아웃 핸들러의 paint check에도 동일 적용
+### [x] 1. `notepad_panel.rs` — SettingsStore 옵저버 개선
+- `NotepadPanel` 구조체에 `last_horizontal_scroll: bool` 필드 추가
+- 옵저버 콜백에서 이전 값과 비교 → 변경 시에만 `set_soft_wrap_mode()` 호출
+- 초기화 블록의 `set_soft_wrap()` → `set_soft_wrap_mode(SoftWrap::EditorWidth, cx)`로 통일
+- WHAT 주석 → WHY 주석으로 변경
 
-### [x] 2단계: PostMessageW 실패 안전망 (dispatcher.rs)
-- `dispatch_on_main_thread()`에서 PostMessageW 실패 시 `wake_posted`를 false로 복원
+### [x] 2. `conversation_view.rs` — ZED_AGENT_ID 비교 통합
+- `is_native_agent` 변수로 한 번만 비교 후 재사용
 
-### [x] 3단계: 빌드 검증
-- `cargo check -p gpui_windows`
+### [x] 3. `page_data.rs` + i18n 파일 — "Notepad Restore" i18n 적용
+- title/description을 i18n 키로 변경
+- `ko.json`, `en.json`에 `settings.notepad_panel.restore.title/description` 키 추가
 
-### [x] 4단계: 문서 갱신
-- notes.md 업데이트
+### [x] 4. cargo check 검증
 
 ## 검증 방법
-1. 빌드 성공 확인
-2. 터미널에서 대량 출력 생성 테스트 (예: `yes | head -10000`)
-3. Claude Code CLI 실행 시 렌더링 멈춤 없이 지속되는지 확인
+- `cargo check` 통과
 
 ## 승인 필요 사항
-- 없음 (기존 구조 내 수정, 새 의존성/API 변경 없음)
+- 없음

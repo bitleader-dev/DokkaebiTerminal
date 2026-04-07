@@ -12,6 +12,7 @@ use agent_ui::{
 use chrono::Utc;
 use editor::Editor;
 use feature_flags::{AgentV2FeatureFlag, FeatureFlagViewExt as _};
+use i18n::t;
 use gpui::{
     Action as _, AnyElement, App, Context, DismissEvent, Entity, FocusHandle, Focusable,
     KeyContext, ListState, MouseButton, MouseDownEvent, PathPromptOptions, Pixels, Point, Render,
@@ -2606,7 +2607,7 @@ impl Sidebar {
             .gap_1()
             .track_focus(&self.focus_handle(cx))
             .child(
-                Button::new("open_project", "Open Project")
+                Button::new("open_project", t("sidebar.open_project", cx))
                     .full_width()
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.add_project_folder(window, cx);

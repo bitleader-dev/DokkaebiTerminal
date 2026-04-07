@@ -8,8 +8,9 @@ use gpui::{
     Focusable, IntoElement, ParentElement, Pixels, Render, Styled, WeakEntity, Window,
 };
 use i18n::t;
+use language::language_settings::SoftWrap;
 use serde::{Deserialize, Serialize};
-use settings::{RegisterSetting, Settings};
+use settings::{RegisterSetting, Settings, SettingsStore};
 use std::path::PathBuf;
 use std::sync::Arc;
 use ui::{prelude::*, IconName, Label};
@@ -23,6 +24,8 @@ use workspace::{
 pub struct NotepadPanelSettings {
     pub button: bool,
     pub dock: DockPosition,
+    pub restore: bool,
+    pub horizontal_scroll: bool,
 }
 
 impl Settings for NotepadPanelSettings {
@@ -31,6 +34,8 @@ impl Settings for NotepadPanelSettings {
         Self {
             button: notepad_panel.button.unwrap(),
             dock: notepad_panel.dock.unwrap().into(),
+            restore: notepad_panel.restore.unwrap(),
+            horizontal_scroll: notepad_panel.horizontal_scroll.unwrap(),
         }
     }
 }
@@ -64,6 +69,8 @@ pub struct NotepadPanel {
     save_path: PathBuf,
     /// 파일 시스템 (설정 저장용)
     fs: Arc<dyn fs::Fs>,
+    /// 옵저버 변경 감지용 이전 설정값
+    last_horizontal_scroll: bool,
 }
 
 impl NotepadPanel {
@@ -88,15 +95,39 @@ impl NotepadPanel {
             editor.set_show_runnables(false, cx);
             editor.set_show_code_actions(false, cx);
             editor.set_show_git_diff_gutter(false, cx);
-            // 에디터 너비에 맞춰 자동 줄바꿈 (가로 스크롤 방지)
-            editor.set_soft_wrap();
-            // 기존 내용 로드
-            let text = Self::load_from_file(&save_path);
-            if !text.is_empty() {
-                editor.set_text(text, window, cx);
+            // 가로 스크롤 활성화 시 줄바꿈을 끄고, 비활성화 시 에디터 너비에 맞춰 줄바꿈
+            let horizontal_scroll = NotepadPanelSettings::get_global(cx).horizontal_scroll;
+            if horizontal_scroll {
+                editor.set_soft_wrap_mode(SoftWrap::None, cx);
+            } else {
+                editor.set_soft_wrap_mode(SoftWrap::EditorWidth, cx);
+            }
+            // 복원 설정이 켜져 있을 때만 기존 내용 로드
+            let restore = NotepadPanelSettings::get_global(cx).restore;
+            if restore {
+                let text = Self::load_from_file(&save_path);
+                if !text.is_empty() {
+                    editor.set_text(text, window, cx);
+                }
             }
             editor
         });
+
+        // 설정 변경 감지 → 가로 스크롤 모드 반영 (값 변경 시에만 에디터 레이아웃 재계산)
+        cx.observe_global::<SettingsStore>(|this, cx| {
+            let horizontal_scroll = NotepadPanelSettings::get_global(cx).horizontal_scroll;
+            if horizontal_scroll != this.last_horizontal_scroll {
+                this.last_horizontal_scroll = horizontal_scroll;
+                this.editor.update(cx, |editor, cx| {
+                    if horizontal_scroll {
+                        editor.set_soft_wrap_mode(SoftWrap::None, cx);
+                    } else {
+                        editor.set_soft_wrap_mode(SoftWrap::EditorWidth, cx);
+                    }
+                });
+            }
+        })
+        .detach();
 
         // 에디터 변경 감지 → 자동 저장
         cx.subscribe_in(&editor, window, |this, _editor, event: &editor::EditorEvent, _window, cx| {
@@ -110,6 +141,7 @@ impl NotepadPanel {
             editor,
             save_path,
             fs,
+            last_horizontal_scroll: NotepadPanelSettings::get_global(cx).horizontal_scroll,
         }
     }
 

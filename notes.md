@@ -1,6 +1,10 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-04-07: 코드 리뷰 지적사항 수정 — (1) notepad_panel SettingsStore 옵저버에 변경 감지 가드 추가 (불필요한 레이아웃 재계산 방지) (2) set_soft_wrap() → set_soft_wrap_mode(EditorWidth) 통일 (3) conversation_view ZED_AGENT_ID 중복 비교 제거 (4) "Notepad Restore" 설정 i18n 키 적용
+- 2026-04-07: 메모장 패널 가로 스크롤 표시 설정 추가 — 설정 UI 패널 > 메모장 패널 섹션에 "Notepad Horizontal Scroll" on/off 토글 추가. 기본값 off(자동 줄바꿈), on 시 줄바꿈 없이 가로 스크롤 표시. 설정 변경 시 실시간 반영
+- 2026-04-07: 설정 화면 전체 드롭다운 한글화 — 모든 설정 페이지의 enum variant 약 95개에 한글 번역 추가 (CursorShape, RestoreOnStartupBehavior, BottomDockLayout, DockPosition, SoftWrap, ScrollBeyondLastLine, GitGutterSetting, GitHunkStyleSetting, ActivateOnClose, ShowCloseButton, DiffViewStyle, ShowScrollbar, NotifyWhenAgentWaiting, WallpaperFitContent 등)
+- 2026-04-07: 메모장 복원 설정 추가 — 설정 UI 패널 > 메모장 패널 섹션에 "메모장 복원" on/off 토글 추가. 기본값 off로 앱 실행 시 메모장 내용을 복원하지 않으며, on 시에만 이전 내용 복원
 - 2026-04-06: 터미널 렌더링 멈춤 현상 수정 — (1) run_foreground_task의 paint check에서 WM_PAINT가 없을 때 RedrawWindow(RDW_INVALIDATE)로 강제 무효화하여 VSync 대기 없이 즉시 렌더링 보장 (2) dispatch_on_main_thread에서 PostMessageW 실패 시 wake_posted를 false로 복원하여 task 큐 영구 차단 방지
 - 2026-04-06: 메모장 패널 자동 줄바꿈 수정 — 에디터에 soft wrap(EditorWidth) 설정 추가하여 가로 스크롤 대신 패널 너비에 맞춰 자동 줄바꿈 되도록 변경
 - 2026-04-06: 워크스페이스 그룹 알림 아이콘 추가 — 비활성 그룹 터미널에서 bell 발생 시 그룹 목록 항목의 X 버튼 왼쪽에 BellDot 아이콘(Accent 색상) 표시. 그룹 선택(전환) 시 알림 자동 해제. WorkspaceGroupState에 has_notification 플래그 추가, terminal_view에서 workspace.notify_bell_for_item() 호출로 전달

@@ -14377,6 +14377,7 @@ dependencies = [
  "fs",
  "git",
  "gpui",
+ "i18n",
  "language_model",
  "menu",
  "pretty_assertions",

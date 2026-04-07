@@ -936,6 +936,10 @@
     "button": true,
     // Where to dock the notepad panel. Can be 'left', 'bottom' or 'right'.
     "dock": "right",
+    // Whether to restore notepad content on app startup.
+    "restore": false,
+    // 자동 줄바꿈 대신 가로 스크롤을 표시합니다.
+    "horizontal_scroll": false,
   },
   "agent": {
     // Whether the inline assistant should use streaming tools, when available

@@ -949,6 +949,7 @@ impl TerminalView {
     fn send_text(&mut self, text: &SendText, _: &mut Window, cx: &mut Context<Self>) {
         self.clear_bell(cx);
         self.clear_task_completed(cx);
+        self.blink_manager.update(cx, BlinkManager::pause_blinking);
         self.terminal.update(cx, |term, _| {
             term.input(text.0.to_string().into_bytes());
         });
@@ -958,6 +959,7 @@ impl TerminalView {
         if let Some(keystroke) = Keystroke::parse(&text.0).log_err() {
             self.clear_bell(cx);
             self.clear_task_completed(cx);
+            self.blink_manager.update(cx, BlinkManager::pause_blinking);
             self.process_keystroke(&keystroke, cx);
         }
     }

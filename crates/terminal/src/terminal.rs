@@ -2139,19 +2139,16 @@ impl Terminal {
         }
     }
 
-    /// Returns the working directory of the process that's connected to the PTY.
-    /// That means it returns the working directory of the local shell or program
-    /// that's running inside the terminal.
-    ///
-    /// This does *not* return the working directory of the shell that runs on the
-    /// remote host, in case Zed is connected to a remote host.
+    /// PTY에 연결된 프로세스의 작업 디렉토리를 반환한다.
+    /// 빈 경로는 None으로 처리한다 (sysinfo가 cwd를 가져오지 못한 경우).
     fn client_side_working_directory(&self) -> Option<PathBuf> {
         match &self.terminal_type {
             TerminalType::Pty { info, .. } => info
                 .current
                 .read()
                 .as_ref()
-                .map(|process| process.cwd.clone()),
+                .map(|process| process.cwd.clone())
+                .filter(|cwd| !cwd.as_os_str().is_empty()),
             TerminalType::DisplayOnly => None,
         }
     }

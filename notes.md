@@ -1,6 +1,11 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-04-07: 터미널 컨텍스트 메뉴 "작업 실행" — 터미널의 현재 작업 디렉토리(cwd)를 캡처하여 Spawn Task 모달에 전달. TaskOverrides에 cwd 필드 추가, toggle_modal_with_overrides 함수 신설, confirm/confirm_input/spawn_oneshot에서 cwd override 적용
+- 2026-04-07: 터미널 컨텍스트 메뉴에 "작업 실행(Spawn Task)" 항목 추가 — "새 터미널" 메뉴 바로 아래에 배치, i18n 적용(한글: 작업 실행, 영문: Spawn Task)
+- 2026-04-07: PowerShell 터미널 작업 디렉토리 복원 수정 — PowerShell이 Set-Location 시 Win32 CurrentDirectory를 갱신하지 않는 근본 원인 해결. (1) 터미널 탭 복원 시에만 PowerShell prompt 함수를 래핑하여 매 명령 후 [Environment]::CurrentDirectory를 $PWD와 동기화하는 스크립트 주입 (restore_terminal_shell 분리) (2) sysinfo 실패 시 원래 ConPTY 핸들로 PEB에서 cwd를 직접 읽는 폴백 구현 (3) ProcessIdGetter.handle i32→isize 64비트 안전성 확보
+- 2026-04-07: 터미널 작업 디렉토리 복원 버그 수정 — (1) pty_info.rs의 emit_title_changed_if_changed()에서 load()가 self.current를 비교 전에 덮어써 cwd 변경이 항상 감지 실패하던 버그 수정 (2) sysinfo가 빈 cwd를 반환할 때 이전 유효 값 보존 로직 추가 (3) terminal.rs에서 빈 경로를 None으로 필터링하여 빈 cwd가 DB에 저장되는 것 방지 (4) 진단용 로그 추가
+- 2026-04-07: 앱 시작 성능 개선 — (1) system_id/installation_id block_on 제거하고 텔레메트리를 cx.spawn()으로 비동기 처리 (2) 비핵심 모듈 8개(git_graph, feedback, markdown_preview, csv_preview, svg_preview, extensions_ui, inspector_ui, which_key) init을 cx.spawn()으로 지연하여 이벤트 루프 시작 시간 단축
 - 2026-04-07: Info 다이얼로그 커스터마이징 — (1) 버전 0.1.0으로 변경 (2) 커밋 SHA/풀 버전 라인 제거 (3) Zed 오픈소스 프로젝트 크레딧 및 클릭 가능 링크 추가 (4) 원본 버전(upstream_version)을 Cargo.toml 메타데이터에서 관리 (5) Windows 네이티브 TaskDialog 대신 커스텀 모달(AboutDialog)로 변경하여 i18n 타이틀("정보"/"Info") 지원
 - 2026-04-07: 코드 리뷰 지적사항 수정 — (1) notepad_panel SettingsStore 옵저버에 변경 감지 가드 추가 (불필요한 레이아웃 재계산 방지) (2) set_soft_wrap() → set_soft_wrap_mode(EditorWidth) 통일 (3) conversation_view ZED_AGENT_ID 중복 비교 제거 (4) "Notepad Restore" 설정 i18n 키 적용
 - 2026-04-07: 메모장 패널 가로 스크롤 표시 설정 추가 — 설정 UI 패널 > 메모장 패널 섹션에 "Notepad Horizontal Scroll" on/off 토글 추가. 기본값 off(자동 줄바꿈), on 시 줄바꿈 없이 가로 스크롤 표시. 설정 변경 시 실시간 반영

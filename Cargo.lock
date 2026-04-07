@@ -15611,6 +15611,7 @@ dependencies = [
  "settings",
  "shellexpand 2.1.2",
  "task",
+ "tasks_ui",
  "terminal",
  "theme",
  "theme_settings",

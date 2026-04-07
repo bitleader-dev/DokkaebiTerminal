@@ -64,7 +64,8 @@ use workspace::{
         Direction, SearchEvent, SearchOptions, SearchToken, SearchableItem, SearchableItemHandle,
     },
 };
-use zed_actions::{agent::AddSelectionToThread, assistant::InlineAssist};
+use tasks_ui::{self, TaskOverrides};
+use zed_actions::{Spawn, agent::AddSelectionToThread, assistant::InlineAssist};
 
 struct ImeState {
     marked_text: String,
@@ -554,8 +555,12 @@ impl TerminalView {
             .selection_text
             .as_ref()
             .is_some_and(|text| !text.is_empty());
+        // 터미널의 현재 작업 디렉토리를 캡처 (Spawn Task에서 사용)
+        let terminal_cwd = self.terminal.read(cx).working_directory();
+        let workspace_handle = self.workspace.clone();
         // 번역 문자열 미리 생성 (내부 클로저에서 cx 접근 불가)
         let label_new_terminal = t("terminal.menu.new_terminal", cx);
+        let label_spawn_task = t("terminal.menu.spawn_task", cx);
         let label_copy = t("terminal.menu.copy", cx);
         let label_paste = t("terminal.menu.paste", cx);
         let label_select_all = t("terminal.menu.select_all", cx);
@@ -570,6 +575,28 @@ impl TerminalView {
         let context_menu = ContextMenu::build(window, cx, |menu, _, _| {
             menu.context(self.focus_handle.clone())
                 .action(label_new_terminal, Box::new(NewTerminal::default()))
+                .entry(
+                    label_spawn_task,
+                    Some(Spawn::modal().boxed_clone()),
+                    {
+                        let workspace_handle = workspace_handle.clone();
+                        let terminal_cwd = terminal_cwd.clone();
+                        move |window, cx| {
+                            if let Some(workspace) = workspace_handle.upgrade() {
+                                workspace.update(cx, |workspace, cx| {
+                                    let overrides = Some(TaskOverrides {
+                                        cwd: terminal_cwd.clone(),
+                                        ..Default::default()
+                                    });
+                                    tasks_ui::toggle_modal_with_overrides(
+                                        workspace, overrides, window, cx,
+                                    )
+                                    .detach();
+                                });
+                            }
+                        }
+                    },
+                )
                 .separator()
                 .action(label_copy, Box::new(Copy))
                 .action(label_paste, Box::new(Paste))
@@ -1888,6 +1915,13 @@ impl SerializableItem for TerminalView {
         let custom_title = self.custom_title.clone();
         self.needs_serialize = false;
 
+        log::debug!(
+            "터미널 serialize: item_id={}, workspace_id={:?}, cwd={:?}",
+            item_id,
+            workspace_id,
+            cwd
+        );
+
         let db = TerminalDb::global(cx);
         Some(cx.background_spawn(async move {
             if let Some(cwd) = cwd {
@@ -1920,15 +1954,23 @@ impl SerializableItem for TerminalView {
                         .get_working_directory(item_id, workspace_id)
                         .log_err()
                         .flatten();
+                    log::debug!(
+                        "터미널 deserialize: item_id={}, workspace_id={:?}, from_db={:?}",
+                        item_id,
+                        workspace_id,
+                        from_db
+                    );
                     let cwd = if from_db
                         .as_ref()
                         .is_some_and(|from_db| !from_db.as_os_str().is_empty())
                     {
                         from_db
                     } else {
-                        workspace
+                        let fallback = workspace
                             .upgrade()
-                            .and_then(|workspace| default_working_directory(workspace.read(cx), cx))
+                            .and_then(|workspace| default_working_directory(workspace.read(cx), cx));
+                        log::debug!("터미널 deserialize: DB에 저장된 cwd 없음, fallback={:?}", fallback);
+                        fallback
                     };
                     let custom_title = db
                         .get_custom_title(item_id, workspace_id)
@@ -1941,7 +1983,7 @@ impl SerializableItem for TerminalView {
                 .unwrap_or((None, None));
 
             let terminal = project
-                .update(cx, |project, cx| project.create_terminal_shell(cwd, cx))
+                .update(cx, |project, cx| project.restore_terminal_shell(cwd, cx))
                 .await?;
             cx.update(|window, cx| {
                 cx.new(|cx| {

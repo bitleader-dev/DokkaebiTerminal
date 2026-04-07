@@ -264,6 +264,7 @@
   "terminal.failed_spawn": "Failed to spawn terminal",
   "terminal.edit_settings": "Edit Settings",
   "terminal.menu.new_terminal": "New Terminal",
+  "terminal.menu.spawn_task": "Spawn Task",
   "terminal.menu.copy": "Copy",
   "terminal.menu.paste": "Paste",
   "terminal.menu.select_all": "Select All",

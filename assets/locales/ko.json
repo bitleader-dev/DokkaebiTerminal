@@ -261,6 +261,7 @@
   "terminal.failed_spawn": "터미널 생성 실패",
   "terminal.edit_settings": "설정 편집",
   "terminal.menu.new_terminal": "새 터미널",
+  "terminal.menu.spawn_task": "작업 실행",
   "terminal.menu.copy": "복사",
   "terminal.menu.paste": "붙여넣기",
   "terminal.menu.select_all": "모두 선택",

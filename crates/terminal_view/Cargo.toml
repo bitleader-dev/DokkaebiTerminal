@@ -35,6 +35,7 @@ pretty_assertions.workspace = true
 project.workspace = true
 regex.workspace = true
 task.workspace = true
+tasks_ui.workspace = true
 schemars.workspace = true
 
 serde.workspace = true

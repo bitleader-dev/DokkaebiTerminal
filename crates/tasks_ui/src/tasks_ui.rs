@@ -108,6 +108,7 @@ fn spawn_task_or_modal(
         } => {
             let overrides = reveal_target.map(|reveal_target| TaskOverrides {
                 reveal_target: Some(reveal_target),
+                ..Default::default()
             });
             let name = task_name.clone();
             spawn_tasks_filtered(move |(_, task)| task.label.eq(&name), overrides, window, cx)
@@ -119,6 +120,7 @@ fn spawn_task_or_modal(
         } => {
             let overrides = reveal_target.map(|reveal_target| TaskOverrides {
                 reveal_target: Some(reveal_target),
+                ..Default::default()
             });
             let tag = task_tag.clone();
             spawn_tasks_filtered(
@@ -141,6 +143,21 @@ pub fn toggle_modal(
     window: &mut Window,
     cx: &mut Context<Workspace>,
 ) -> Task<()> {
+    let overrides = reveal_target.map(|target| TaskOverrides {
+        reveal_target: Some(target),
+        ..Default::default()
+    });
+    toggle_modal_with_overrides(workspace, overrides, window, cx)
+}
+
+/// TaskOverrides를 직접 전달하여 모달을 열 수 있는 확장 버전.
+/// 터미널 컨텍스트 메뉴 등에서 cwd를 함께 전달할 때 사용한다.
+pub fn toggle_modal_with_overrides(
+    workspace: &mut Workspace,
+    task_overrides: Option<TaskOverrides>,
+    window: &mut Window,
+    cx: &mut Context<Workspace>,
+) -> Task<()> {
     let task_store = workspace.project().read(cx).task_store().clone();
     let workspace_handle = workspace.weak_handle();
     let can_open_modal = workspace
@@ -156,9 +173,7 @@ pub fn toggle_modal(
                         TasksModal::new(
                             task_store.clone(),
                             task_contexts,
-                            reveal_target.map(|target| TaskOverrides {
-                                reveal_target: Some(target),
-                            }),
+                            task_overrides,
                             true,
                             workspace_handle,
                             window,

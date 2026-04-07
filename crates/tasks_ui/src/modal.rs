@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::TaskContexts;
@@ -42,6 +43,9 @@ pub struct TasksModalDelegate {
 pub struct TaskOverrides {
     /// See [`RevealTarget`].
     pub reveal_target: Option<RevealTarget>,
+    /// 작업 실행 시 사용할 작업 디렉토리 override.
+    /// 터미널 컨텍스트 메뉴에서 호출 시 해당 터미널의 현재 경로가 전달된다.
+    pub cwd: Option<PathBuf>,
 }
 
 impl TasksModalDelegate {
@@ -53,6 +57,7 @@ impl TasksModalDelegate {
     ) -> Self {
         let placeholder_text = if let Some(TaskOverrides {
             reveal_target: Some(RevealTarget::Center),
+            ..
         }) = &task_overrides
         {
             Arc::from("Find a task, or run a command in the central pane")
@@ -91,16 +96,19 @@ impl TasksModalDelegate {
             command: self.prompt.clone(),
             ..TaskTemplate::default()
         };
-        if let Some(TaskOverrides {
-            reveal_target: Some(reveal_target),
-        }) = &self.task_overrides
-        {
-            new_oneshot.reveal_target = *reveal_target;
+        if let Some(overrides) = &self.task_overrides {
+            if let Some(reveal_target) = overrides.reveal_target {
+                new_oneshot.reveal_target = reveal_target;
+            }
         }
-        Some((
-            source_kind,
-            new_oneshot.resolve_task(&id_base, active_context)?,
-        ))
+        let mut resolved = new_oneshot.resolve_task(&id_base, active_context)?;
+        // oneshot 타스크에 cwd override 적용
+        if let Some(overrides) = &self.task_overrides {
+            if let Some(cwd) = &overrides.cwd {
+                resolved.resolved.cwd = Some(cwd.clone());
+            }
+        }
+        Some((source_kind, resolved))
     }
 
     fn delete_previously_used(&mut self, ix: usize, cx: &mut App) {
@@ -403,11 +411,13 @@ impl PickerDelegate for TasksModalDelegate {
         let Some((task_source_kind, mut task)) = task else {
             return;
         };
-        if let Some(TaskOverrides {
-            reveal_target: Some(reveal_target),
-        }) = &self.task_overrides
-        {
-            task.resolved.reveal_target = *reveal_target;
+        if let Some(overrides) = &self.task_overrides {
+            if let Some(reveal_target) = overrides.reveal_target {
+                task.resolved.reveal_target = reveal_target;
+            }
+            if let Some(cwd) = &overrides.cwd {
+                task.resolved.cwd = Some(cwd.clone());
+            }
         }
 
         self.workspace
@@ -602,11 +612,13 @@ impl PickerDelegate for TasksModalDelegate {
             return;
         };
 
-        if let Some(TaskOverrides {
-            reveal_target: Some(reveal_target),
-        }) = self.task_overrides
-        {
-            task.resolved.reveal_target = reveal_target;
+        if let Some(overrides) = &self.task_overrides {
+            if let Some(reveal_target) = overrides.reveal_target {
+                task.resolved.reveal_target = reveal_target;
+            }
+            if let Some(cwd) = &overrides.cwd {
+                task.resolved.cwd = Some(cwd.clone());
+            }
         }
         self.workspace
             .update(cx, |workspace, cx| {

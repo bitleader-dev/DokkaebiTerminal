@@ -568,17 +568,12 @@ fn main() {
         project::Project::init(&client, cx);
         client::init(&client, cx);
 
-        let system_id = cx.foreground_executor().block_on(system_id).ok();
-        let installation_id = cx.foreground_executor().block_on(installation_id).ok();
+        // session만 블로킹 — AppState 구성에 필수
         let session = cx.foreground_executor().block_on(session);
 
         let telemetry = client.telemetry();
-        telemetry.start(
-            system_id.as_ref().map(|id| id.to_string()),
-            installation_id.as_ref().map(|id| id.to_string()),
-            session.id().to_owned(),
-            cx,
-        );
+
+        // crashes::set_user_info 구독은 텔레메트리와 독립적이므로 그대로 유지
         cx.subscribe(&user_store, {
             let telemetry = telemetry.clone();
             move |_, evt: &client::user::Event, _| match evt {
@@ -593,21 +588,42 @@ fn main() {
         })
         .detach();
 
-        // We should rename these in the future to `first app open`, `first app open for release channel`, and `app open`
-        if let (Some(system_id), Some(installation_id)) = (&system_id, &installation_id) {
-            match (&system_id, &installation_id) {
-                (IdType::New(_), IdType::New(_)) => {
-                    telemetry::event!("App First Opened");
-                    telemetry::event!("App First Opened For Release Channel");
-                }
-                (IdType::Existing(_), IdType::New(_)) => {
-                    telemetry::event!("App First Opened For Release Channel");
-                }
-                (_, IdType::Existing(_)) => {
-                    telemetry::event!("App Opened");
-                }
+        // system_id, installation_id는 비동기로 처리 — 창이 먼저 뜬 후 텔레메트리 시작
+        let session_id_for_telemetry = session.id().to_owned();
+        cx.spawn({
+            let telemetry = telemetry.clone();
+            async move |cx| {
+                let system_id = system_id.await.ok();
+                let installation_id = installation_id.await.ok();
+                cx.update(|cx| {
+                    telemetry.start(
+                        system_id.as_ref().map(|id| id.to_string()),
+                        installation_id.as_ref().map(|id| id.to_string()),
+                        session_id_for_telemetry,
+                        cx,
+                    );
+
+                    if let (Some(system_id), Some(installation_id)) =
+                        (&system_id, &installation_id)
+                    {
+                        match (system_id, installation_id) {
+                            (IdType::New(_), IdType::New(_)) => {
+                                telemetry::event!("App First Opened");
+                                telemetry::event!("App First Opened For Release Channel");
+                            }
+                            (IdType::Existing(_), IdType::New(_)) => {
+                                telemetry::event!("App First Opened For Release Channel");
+                            }
+                            (_, IdType::Existing(_)) => {
+                                telemetry::event!("App Opened");
+                            }
+                        }
+                    }
+                });
             }
-        }
+        })
+        .detach();
+
         let app_session = cx.new(|cx| AppSession::new(session, cx));
 
         let app_state = Arc::new(AppState {
@@ -728,21 +744,31 @@ fn main() {
         language_tools::init(cx);
         title_bar::init(cx);
         git_ui::init(cx);
-        git_graph::init(cx);
-        feedback::init(cx);
-        markdown_preview::init(cx);
-        csv_preview::init(cx);
-        svg_preview::init(cx);
         onboarding::init(cx);
         settings_ui::init(cx);
         keymap_editor::init(cx);
-        extensions_ui::init(cx);
-        inspector_ui::init(app_state.clone(), cx);
         json_schema_store::init(cx);
         miniprofiler_ui::init(*STARTUP_TIME.get().unwrap(), cx);
-        which_key::init(cx);
         #[cfg(target_os = "windows")]
         etw_tracing::init(cx);
+
+        // 비핵심 모듈은 이벤트 루프 시작 후 지연 초기화 — 창이 더 빨리 열림
+        {
+            let app_state = app_state.clone();
+            cx.spawn(async move |cx| {
+                cx.update(|cx| {
+                    git_graph::init(cx);
+                    feedback::init(cx);
+                    markdown_preview::init(cx);
+                    csv_preview::init(cx);
+                    svg_preview::init(cx);
+                    extensions_ui::init(cx);
+                    inspector_ui::init(app_state, cx);
+                    which_key::init(cx);
+                });
+            })
+            .detach();
+        }
 
         cx.observe_global::<SettingsStore>({
             let http = app_state.client.http_client();

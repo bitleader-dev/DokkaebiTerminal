@@ -15713,13 +15713,16 @@ dependencies = [
 name = "theme_selector"
 version = "0.1.0"
 dependencies = [
+ "editor",
  "fs",
  "fuzzy",
  "gpui",
  "i18n",
  "log",
  "picker",
+ "project",
  "serde",
+ "serde_json",
  "settings",
  "settings_content",
  "telemetry",

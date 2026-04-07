@@ -1,6 +1,8 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-04-08: 설정 창 타이틀바 "Zed — Settings" → "Dokkaebi — Settings"로 변경
+- 2026-04-08: ��� 시작 속도 개선 — (1) 테마 Eager Load 비동기화: eager_load_active_theme_and_icon_theme()의 block_on → cx.spawn 비동기 전환으로 확장 테마 파일 I/O 차단 제거 (2) 폰트 로드 분할: 필수 monospace 폰트(Lilex)만 동기 로드, UI 폰트(IBM Plex Sans)는 비동기 로드 (3) 컴포넌트 초기화 지연 확대: journal/encoding_selector/language_selector 등 13개 비필수 컴포넌트를 cx.spawn().detach() 지연 초기화 블록으로 이동 (4) 초기화 단계별 타이밍 로그 추가
 - 2026-04-07: 터미널 컨텍스트 메뉴 "작업 실행" — 터미널의 현재 작업 디렉토리(cwd)를 캡처하여 Spawn Task 모달에 전달. TaskOverrides에 cwd 필드 추가, toggle_modal_with_overrides 함수 신설, confirm/confirm_input/spawn_oneshot에서 cwd override 적용
 - 2026-04-07: 터미널 컨텍스트 메뉴에 "작업 실행(Spawn Task)" 항목 추가 — "새 터미널" 메뉴 바로 아래에 배치, i18n 적용(한글: 작업 실행, 영문: Spawn Task)
 - 2026-04-07: PowerShell 터미널 작업 디렉토리 복원 수정 — PowerShell이 Set-Location 시 Win32 CurrentDirectory를 갱신하지 않는 근본 원인 해결. (1) 터미널 탭 복원 시에만 PowerShell prompt 함수를 래핑하여 매 명령 후 [Environment]::CurrentDirectory를 $PWD와 동기화하는 스크립트 주입 (restore_terminal_shell 분리) (2) sysinfo 실패 시 원래 ConPTY 핸들로 PEB에서 cwd를 직접 읽는 폴백 구현 (3) ProcessIdGetter.handle i32→isize 64비트 안전성 확보

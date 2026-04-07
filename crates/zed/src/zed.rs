@@ -2257,7 +2257,7 @@ pub(crate) fn eager_load_active_theme_and_icon_theme(fs: Arc<dyn Fs>, cx: &mut A
 
     let theme_name = theme_settings.theme.name(appearance);
     let icon_theme_name = theme_settings.icon_theme.name(appearance);
-    let themes_to_load = [
+    let themes_to_load: Vec<LoadTarget> = [
         theme_registry
             .get(&theme_name.0)
             .is_err()
@@ -2278,60 +2278,63 @@ pub(crate) fn eager_load_active_theme_and_icon_theme(fs: Arc<dyn Fs>, cx: &mut A
             })
             .flatten()
             .map(LoadTarget::IconTheme),
-    ];
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
 
-    enum ReloadTarget {
-        Theme,
-        IconTheme,
-    }
-
-    let executor = cx.background_executor();
-    let reload_tasks = parking_lot::Mutex::new(Vec::with_capacity(themes_to_load.len()));
-
-    let mut themes_to_load = themes_to_load.into_iter().flatten().peekable();
-
-    if themes_to_load.peek().is_none() {
+    if themes_to_load.is_empty() {
         return;
     }
 
-    cx.foreground_executor().block_on(executor.scoped(|scope| {
-        for load_target in themes_to_load {
-            let theme_registry = &theme_registry;
-            let reload_tasks = &reload_tasks;
-            let fs = fs.clone();
+    // 비동기로 확장 테마를 로드하여 UI 차단을 방지한다.
+    // 로드 완료 전까지는 빌트인 기본 테마로 렌더링된다.
+    cx.spawn(async move |cx| {
+        enum ReloadTarget {
+            Theme,
+            IconTheme,
+        }
 
-            scope.spawn(async move {
-                match load_target {
-                    LoadTarget::Theme(theme_path) => {
-                        if let Some(bytes) = fs.load_bytes(&theme_path).await.log_err()
-                            && load_user_theme(theme_registry, &bytes).log_err().is_some()
-                        {
-                            reload_tasks.lock().push(ReloadTarget::Theme);
-                        }
+        let mut reload_targets = Vec::new();
+
+        for load_target in themes_to_load {
+            match load_target {
+                LoadTarget::Theme(theme_path) => {
+                    if let Some(bytes) = fs.load_bytes(&theme_path).await.log_err()
+                        && load_user_theme(&theme_registry, &bytes).log_err().is_some()
+                    {
+                        reload_targets.push(ReloadTarget::Theme);
                     }
-                    LoadTarget::IconTheme((icon_theme_path, icons_root_path)) => {
-                        if let Some(bytes) = fs.load_bytes(&icon_theme_path).await.log_err()
-                            && let Some(icon_theme_family) =
-                                deserialize_icon_theme(&bytes).log_err()
-                            && theme_registry
-                                .load_icon_theme(icon_theme_family, &icons_root_path)
-                                .log_err()
-                                .is_some()
-                        {
-                            reload_tasks.lock().push(ReloadTarget::IconTheme);
-                        }
+                }
+                LoadTarget::IconTheme((icon_theme_path, icons_root_path)) => {
+                    if let Some(bytes) = fs.load_bytes(&icon_theme_path).await.log_err()
+                        && let Some(icon_theme_family) =
+                            deserialize_icon_theme(&bytes).log_err()
+                        && theme_registry
+                            .load_icon_theme(icon_theme_family, &icons_root_path)
+                            .log_err()
+                            .is_some()
+                    {
+                        reload_targets.push(ReloadTarget::IconTheme);
                     }
+                }
+            }
+        }
+
+        if !reload_targets.is_empty() {
+            cx.update(|cx| {
+                for reload_target in reload_targets {
+                    match reload_target {
+                        ReloadTarget::Theme => theme_settings::reload_theme(cx),
+                        ReloadTarget::IconTheme => theme_settings::reload_icon_theme(cx),
+                    };
                 }
             });
         }
-    }));
 
-    for reload_target in reload_tasks.into_inner() {
-        match reload_target {
-            ReloadTarget::Theme => theme_settings::reload_theme(cx),
-            ReloadTarget::IconTheme => theme_settings::reload_icon_theme(cx),
-        };
-    }
+        log::info!("[startup] 확장 테마 비동기 로드 완료");
+    })
+    .detach();
 }
 
 #[cfg(test)]

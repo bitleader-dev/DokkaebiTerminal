@@ -20,7 +20,10 @@ use fs::{Fs, RealFs};
 use futures::{StreamExt, channel::oneshot, future};
 use git::GitHostingProviderRegistry;
 use git_ui::clone::clone_and_open;
-use gpui::{App, AppContext, Application, AsyncApp, Focusable as _, QuitMode, UpdateGlobal as _};
+use gpui::{
+    App, AppContext, Application, AsyncApp, Focusable as _, QuitMode, SharedString,
+    UpdateGlobal as _,
+};
 use gpui_platform;
 
 use gpui_tokio::Tokio;
@@ -453,6 +456,8 @@ fn main() {
     });
 
     app.run(move |cx| {
+        let t_run_start = Instant::now();
+
         cx.set_global(app_db);
         let db_trusted_paths = match workspace::WorkspaceDb::global(cx).fetch_trusted_worktrees() {
             Ok(trusted_paths) => trusted_paths,
@@ -465,6 +470,9 @@ fn main() {
         menu::init();
         zed_actions::init();
 
+        log::info!("[startup] 기본 초기화 완료: {:?}", t_run_start.elapsed());
+
+        let t_phase = Instant::now();
         release_channel::init(app_version, cx);
         gpui_tokio::init(cx);
         if let Some(app_commit_sha) = app_commit_sha {
@@ -539,7 +547,12 @@ fn main() {
 
         let node_runtime = NodeRuntime::new(client.http_client(), Some(shell_env_loaded_rx), rx);
 
+        log::info!("[startup] 설정/HTTP/언어레지스트리 생성: {:?}", t_phase.elapsed());
+
+        let t_phase = Instant::now();
         languages::init(languages.clone(), fs.clone(), node_runtime.clone(), cx);
+        log::info!("[startup] 언어 레지스트리 초기화: {:?}", t_phase.elapsed());
+
         let user_store = cx.new(|cx| UserStore::new(client.clone(), cx));
         let workspace_store = cx.new(|cx| WorkspaceStore::new(client.clone(), cx));
 
@@ -568,8 +581,10 @@ fn main() {
         project::Project::init(&client, cx);
         client::init(&client, cx);
 
+        let t_phase = Instant::now();
         // session만 블로킹 — AppState 구성에 필수
         let session = cx.foreground_executor().block_on(session);
+        log::info!("[startup] 세션 block_on: {:?}", t_phase.elapsed());
 
         let telemetry = client.telemetry();
 
@@ -649,8 +664,10 @@ fn main() {
             cx,
         );
 
+        let t_phase = Instant::now();
         theme_settings::init(theme::LoadThemes::All(Box::new(Assets)), cx);
         eager_load_active_theme_and_icon_theme(fs.clone(), cx);
+        log::info!("[startup] 테마 초기화 + eager 로드: {:?}", t_phase.elapsed());
         theme_extension::init(
             extension_host_proxy,
             ThemeRegistry::global(cx),
@@ -699,8 +716,37 @@ fn main() {
         recent_projects::init(cx);
         dev_container::init(cx);
 
-        load_embedded_fonts(cx);
+        let t_phase = Instant::now();
+        let deferred_font_paths = load_embedded_fonts(cx);
+        log::info!("[startup] 필수 폰트 로드: {:?}", t_phase.elapsed());
 
+        // UI 폰트 비동기 로드 — 시스템 폰트로 폴백 후 로드 완료 시 적용
+        if let Some(deferred_paths) = deferred_font_paths {
+            let asset_source = cx.asset_source().clone();
+            let text_system = cx.text_system().clone();
+            let background = cx.background_executor().clone();
+            cx.spawn(async move |_cx| {
+                let deferred_fonts = Mutex::new(Vec::new());
+                background
+                    .scoped(|scope| {
+                        for font_path in &deferred_paths {
+                            scope.spawn(async {
+                                let font_bytes =
+                                    asset_source.load(font_path).unwrap().unwrap();
+                                deferred_fonts.lock().push(font_bytes);
+                            });
+                        }
+                    })
+                    .await;
+                text_system
+                    .add_fonts(deferred_fonts.into_inner())
+                    .unwrap();
+                log::info!("[startup] UI 폰트 비동기 로드 완료");
+            })
+            .detach();
+        }
+
+        let t_phase = Instant::now();
         editor::init(cx);
         image_viewer::init(cx);
         repl::notebook::init(cx);
@@ -733,38 +779,43 @@ fn main() {
         vim::init(cx);
         terminal_view::init(cx);
         notepad_panel::init(cx);
-        journal::init(app_state.clone(), cx);
-        encoding_selector::init(cx);
-        language_selector::init(cx);
-        line_ending_selector::init(cx);
-        toolchain_selector::init(cx);
-        theme_selector::init(cx);
-        prompt_palette::init(cx);
-        settings_profile_selector::init(cx);
-        language_tools::init(cx);
         title_bar::init(cx);
         git_ui::init(cx);
-        onboarding::init(cx);
-        settings_ui::init(cx);
-        keymap_editor::init(cx);
-        json_schema_store::init(cx);
         miniprofiler_ui::init(*STARTUP_TIME.get().unwrap(), cx);
+        log::info!("[startup] 에디터/패널/핵심 컴포넌트 초기화: {:?}", t_phase.elapsed());
+
         #[cfg(target_os = "windows")]
         etw_tracing::init(cx);
 
-        // 비핵심 모듈은 이벤트 루프 시작 후 지연 초기화 — 창이 더 빨리 열림
+        // ���핵심 모듈은 이벤트 루프 시작 후 지연 초기화 — 창이 더 빨리 ��림
         {
             let app_state = app_state.clone();
             cx.spawn(async move |cx| {
                 cx.update(|cx| {
+                    // 기존 지연 초기화 항목
                     git_graph::init(cx);
                     feedback::init(cx);
                     markdown_preview::init(cx);
                     csv_preview::init(cx);
                     svg_preview::init(cx);
                     extensions_ui::init(cx);
+                    journal::init(app_state.clone(), cx);
                     inspector_ui::init(app_state, cx);
                     which_key::init(cx);
+
+                    // 추가 지연: 상태바 셀렉터/설정 UI 등 사용자 요청 시에만 필요
+                    encoding_selector::init(cx);
+                    language_selector::init(cx);
+                    line_ending_selector::init(cx);
+                    toolchain_selector::init(cx);
+                    theme_selector::init(cx);
+                    prompt_palette::init(cx);
+                    settings_profile_selector::init(cx);
+                    language_tools::init(cx);
+                    onboarding::init(cx);
+                    settings_ui::init(cx);
+                    keymap_editor::init(cx);
+                    json_schema_store::init(cx);
                 });
             })
             .detach();
@@ -852,6 +903,11 @@ fn main() {
         let menus = app_menus(cx);
         cx.set_menus(menus);
         initialize_workspace(app_state.clone(), prompt_builder, cx);
+
+        log::info!(
+            "[startup] ===== 총 초기화 시간 (app.run 시작 ~ activate): {:?} =====",
+            t_run_start.elapsed()
+        );
 
         cx.activate(true);
 
@@ -1731,28 +1787,48 @@ fn parse_url_arg(arg: &str, cx: &App) -> String {
     }
 }
 
-fn load_embedded_fonts(cx: &App) {
+/// 에디터에 필수인 monospace 폰트(Lilex)만 동기 로드하고,
+/// UI 폰트(IBM Plex Sans)는 비동기로 로드하여 시작 시간을 단축한다.
+/// 반환값: 비동기 로드할 폰트 데이터 (None이면 추가 로드 없음)
+fn load_embedded_fonts(cx: &App) -> Option<Vec<SharedString>> {
     let asset_source = cx.asset_source();
     let font_paths = asset_source.list("fonts").unwrap();
-    let embedded_fonts = Mutex::new(Vec::new());
+
+    // 필수 폰트(monospace)와 나머지 폰트를 분류
+    let mut essential_paths = Vec::new();
+    let mut deferred_paths = Vec::new();
+    for font_path in &font_paths {
+        if !font_path.ends_with(".ttf") {
+            continue;
+        }
+        if font_path.contains("lilex") {
+            essential_paths.push(font_path.clone());
+        } else {
+            deferred_paths.push(font_path.clone());
+        }
+    }
+
+    // Phase 1: monospace 폰트 동기 로드 — 에디터 렌더링에 필수
+    let essential_fonts = Mutex::new(Vec::new());
     let executor = cx.background_executor();
-
     cx.foreground_executor().block_on(executor.scoped(|scope| {
-        for font_path in &font_paths {
-            if !font_path.ends_with(".ttf") {
-                continue;
-            }
-
+        for font_path in &essential_paths {
             scope.spawn(async {
                 let font_bytes = asset_source.load(font_path).unwrap().unwrap();
-                embedded_fonts.lock().push(font_bytes);
+                essential_fonts.lock().push(font_bytes);
             });
         }
     }));
-
     cx.text_system()
-        .add_fonts(embedded_fonts.into_inner())
+        .add_fonts(essential_fonts.into_inner())
         .unwrap();
+
+    // Phase 2용 경로 반환
+    if deferred_paths.is_empty() {
+        None
+    } else {
+        Some(deferred_paths)
+    }
 }
 
 /// Spawns a background task to load the user themes from the themes directory.

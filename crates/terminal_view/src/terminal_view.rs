@@ -1355,7 +1355,9 @@ impl TerminalView {
         }
 
         window.invalidate_character_coordinates();
+        // 포커스 복귀 시 프레임 갱신을 보장하여 리사이즈 후 멈춤 방지
         cx.notify();
+        window.refresh();
     }
 
     fn focus_out(&mut self, _window: &mut Window, cx: &mut Context<Self>) {

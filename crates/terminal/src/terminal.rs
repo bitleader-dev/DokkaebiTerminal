@@ -1061,12 +1061,10 @@ impl Terminal {
                 }
 
                 term.resize(new_bounds);
-                // If there are matches we need to emit a wake up event to
-                // invalidate the matches and recalculate their locations
-                // in the new terminal layout
-                if !self.matches.is_empty() {
-                    cx.emit(Event::Wakeup);
-                }
+                // 리사이즈 후 무조건 Wakeup 발생: TUI 앱 응답 전에 draw 사이클이
+                // 끝나면 dirty 플래그가 설정되지 않아 렌더링이 멈출 수 있으므로,
+                // flush_effects()에서 window.refresh()가 호출되도록 보장한다.
+                cx.emit(Event::Wakeup);
             }
             InternalEvent::Clear => {
                 trace!("Clearing");

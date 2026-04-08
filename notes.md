@@ -1,6 +1,7 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-04-08: 터미널 리사이즈 후 TUI 앱 렌더링 멈춤 수정 — Resize 이벤트 처리 시 무조건 Wakeup 발생하도록 변경, focus_in에 window.refresh() 추가
 - 2026-04-08: Git 패널 빈 상태 메시지 한글화 — "No Git repositories" → "Git 저장소 없음", "No changes to commit" → "커밋할 변경 사항이 없습니다" i18n 적용
 - 2026-04-08: 확장 탭 UI 한글화 — Extensions 페이지의 제목, 탭 텍스트, 버튼(Install Dev Extension), 검색 placeholder, 필터 버튼(All/Installed/Not Installed), 카테고리 필터(Themes/Icon Themes/Languages/Language Servers)에 i18n 적용
 - 2026-04-08: 터미널 종료 확인 다이얼로그 개선 — 터미널 dirty item이 파일 저장 다이얼로그를 트리거하지 않도록 분리. 작업 중/완료 상태에 따라 전용 한글 확인 다이얼로그 표시. 파일 저장 다이얼로그도 i18n 적용. Item trait에 is_terminal_item(), has_running_task() 메서드 추가

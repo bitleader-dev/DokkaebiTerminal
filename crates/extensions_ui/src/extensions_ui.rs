@@ -29,6 +29,7 @@ use ui::{
     ToggleButtonGroupSize, ToggleButtonGroupStyle, ToggleButtonSimple, Tooltip, WithScrollbar,
     prelude::*,
 };
+use i18n::t;
 use vim_mode_setting::VimModeSetting;
 use workspace::{
     Workspace,
@@ -181,19 +182,19 @@ pub fn init(cx: &mut App) {
     .detach();
 }
 
-fn extension_provides_label(provides: ExtensionProvides) -> &'static str {
+fn extension_provides_label(provides: ExtensionProvides, cx: &App) -> SharedString {
     match provides {
-        ExtensionProvides::Themes => "Themes",
-        ExtensionProvides::IconThemes => "Icon Themes",
-        ExtensionProvides::Languages => "Languages",
-        ExtensionProvides::Grammars => "Grammars",
-        ExtensionProvides::LanguageServers => "Language Servers",
-        ExtensionProvides::ContextServers => "MCP Servers",
-        ExtensionProvides::AgentServers => "Agent Servers",
-        ExtensionProvides::SlashCommands => "Slash Commands",
-        ExtensionProvides::IndexedDocsProviders => "Indexed Docs Providers",
-        ExtensionProvides::Snippets => "Snippets",
-        ExtensionProvides::DebugAdapters => "Debug Adapters",
+        ExtensionProvides::Themes => t("extensions.category.themes", cx),
+        ExtensionProvides::IconThemes => t("extensions.category.icon_themes", cx),
+        ExtensionProvides::Languages => t("extensions.category.languages", cx),
+        ExtensionProvides::Grammars => "Grammars".into(),
+        ExtensionProvides::LanguageServers => t("extensions.category.language_servers", cx),
+        ExtensionProvides::ContextServers => "MCP Servers".into(),
+        ExtensionProvides::AgentServers => "Agent Servers".into(),
+        ExtensionProvides::SlashCommands => "Slash Commands".into(),
+        ExtensionProvides::IndexedDocsProviders => "Indexed Docs Providers".into(),
+        ExtensionProvides::Snippets => "Snippets".into(),
+        ExtensionProvides::DebugAdapters => "Debug Adapters".into(),
     }
 }
 
@@ -367,7 +368,7 @@ impl ExtensionsPage {
 
             let query_editor = cx.new(|cx| {
                 let mut input = Editor::single_line(window, cx);
-                input.set_placeholder_text("Search extensions...", window, cx);
+                input.set_placeholder_text(t("extensions.search_placeholder", &cx).as_ref(), window, cx);
                 if let Some(id) = focus_extension_id {
                     input.set_text(format!("id:{id}"), window, cx);
                 }
@@ -835,7 +836,7 @@ impl ExtensionsPage {
                                                     _ => {}
                                                 }
 
-                                                Some(Chip::new(extension_provides_label(*provides)))
+                                                Some(Chip::new(extension_provides_label(*provides, cx)))
                                             })
                                             .collect::<Vec<_>>(),
                                     ),
@@ -1727,9 +1728,9 @@ impl Render for ExtensionsPage {
                             .w_full()
                             .gap_1p5()
                             .justify_between()
-                            .child(Headline::new("Extensions").size(HeadlineSize::Large))
+                            .child(Headline::new(t("extensions.title", cx)).size(HeadlineSize::Large))
                             .child(
-                                Button::new("install-dev-extension", "Install Dev Extension")
+                                Button::new("install-dev-extension", t("extensions.install_dev", cx))
                                     .style(ButtonStyle::Outlined)
                                     .size(ButtonSize::Medium)
                                     .on_click(|_event, window, cx| {
@@ -1749,7 +1750,7 @@ impl Render for ExtensionsPage {
                                         "filter-buttons",
                                         [
                                             ToggleButtonSimple::new(
-                                                "All",
+                                                t("extensions.filter.all", cx),
                                                 cx.listener(|this, _event, _, cx| {
                                                     this.filter = ExtensionFilter::All;
                                                     this.filter_extension_entries(cx);
@@ -1757,7 +1758,7 @@ impl Render for ExtensionsPage {
                                                 }),
                                             ),
                                             ToggleButtonSimple::new(
-                                                "Installed",
+                                                t("extensions.filter.installed", cx),
                                                 cx.listener(|this, _event, _, cx| {
                                                     this.filter = ExtensionFilter::Installed;
                                                     this.filter_extension_entries(cx);
@@ -1765,7 +1766,7 @@ impl Render for ExtensionsPage {
                                                 }),
                                             ),
                                             ToggleButtonSimple::new(
-                                                "Not Installed",
+                                                t("extensions.filter.not_installed", cx),
                                                 cx.listener(|this, _event, _, cx| {
                                                     this.filter = ExtensionFilter::NotInstalled;
                                                     this.filter_extension_entries(cx);
@@ -1798,7 +1799,7 @@ impl Render for ExtensionsPage {
                     .border_color(cx.theme().colors().border_variant)
                     .overflow_x_scroll()
                     .child(
-                        Button::new("filter-all-categories", "All")
+                        Button::new("filter-all-categories", t("extensions.filter.all", cx))
                             .when(self.provides_filter.is_none(), |button| {
                                 button.style(ButtonStyle::Filled)
                             })
@@ -1822,7 +1823,7 @@ impl Render for ExtensionsPage {
                             _ => {}
                         }
 
-                        let label = extension_provides_label(provides);
+                        let label = extension_provides_label(provides, cx);
                         let button_id = SharedString::from(format!("filter-category-{}", label));
 
                         Some(
@@ -1881,8 +1882,8 @@ impl Focusable for ExtensionsPage {
 impl Item for ExtensionsPage {
     type Event = ItemEvent;
 
-    fn tab_content_text(&self, _detail: usize, _cx: &App) -> SharedString {
-        "Extensions".into()
+    fn tab_content_text(&self, _detail: usize, cx: &App) -> SharedString {
+        t("extensions.title", cx)
     }
 
     fn telemetry_event_text(&self) -> Option<&'static str> {

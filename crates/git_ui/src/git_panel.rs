@@ -4586,9 +4586,9 @@ impl GitPanel {
             has_repo && self.changes_count == 0 && !self.is_on_main_branch(cx);
 
         let label = if has_repo {
-            "No changes to commit"
+            t("git_panel.empty.no_changes", cx)
         } else {
-            "No Git repositories"
+            t("git_panel.empty.no_repositories", cx)
         };
 
         v_flex()

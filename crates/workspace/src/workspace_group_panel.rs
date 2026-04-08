@@ -956,6 +956,7 @@ impl Render for WorkspaceGroupPanel {
                         let is_editing = editing_index == Some(index);
                         let can_delete = group_count > 1;
                         let name_for_menu = name.clone();
+                        let name_for_rename = name.clone();
                         let name_shared: SharedString = name.clone().into();
 
                         // 드래그 데이터·리스너를 미리 생성
@@ -989,8 +990,13 @@ impl Render for WorkspaceGroupPanel {
                                 }
                             })
                             .when(!is_editing, |el| {
-                                el.on_click(cx.listener(move |this, _, window, cx| {
-                                    this.switch_group(index, window, cx);
+                                el.on_click(cx.listener(move |this, event: &gpui::ClickEvent, window, cx| {
+                                    if event.click_count() == 2 {
+                                        // 더블클릭 → 이름 변경
+                                        this.start_rename(index, name_for_rename.clone(), window, cx);
+                                    } else {
+                                        this.switch_group(index, window, cx);
+                                    }
                                 }))
                             })
                             // 드래그 앤 드롭 — 편집 중이 아닌 항목만

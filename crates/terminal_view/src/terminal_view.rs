@@ -1826,6 +1826,19 @@ impl Item for TerminalView {
         }
     }
 
+    /// 터미널 item 여부 판별
+    fn is_terminal_item(&self) -> bool {
+        true
+    }
+
+    /// 실행 중인 작업이 있는지 확인
+    fn has_running_task(&self, cx: &App) -> bool {
+        match self.terminal.read(cx).task() {
+            Some(task) => task.status == TaskStatus::Running,
+            None => false,
+        }
+    }
+
     fn has_conflict(&self, _cx: &App) -> bool {
         // 작업 완료(실패) 알림이 있으면 conflict 표시 (Warning 색상 점)
         self.task_completed == Some(false)

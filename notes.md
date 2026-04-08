@@ -1,6 +1,12 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-04-08: Git 패널 빈 상태 메시지 한글화 — "No Git repositories" → "Git 저장소 없음", "No changes to commit" → "커밋할 변경 사항이 없습니다" i18n 적용
+- 2026-04-08: 확장 탭 UI 한글화 — Extensions 페이지의 제목, 탭 텍스트, 버튼(Install Dev Extension), 검색 placeholder, 필터 버튼(All/Installed/Not Installed), 카테고리 필터(Themes/Icon Themes/Languages/Language Servers)에 i18n 적용
+- 2026-04-08: 터미널 종료 확인 다이얼로그 개선 — 터미널 dirty item이 파일 저장 다이얼로그를 트리거하지 않도록 분리. 작업 중/완료 상태에 따라 전용 한글 확인 다이얼로그 표시. 파일 저장 다이얼로그도 i18n 적용. Item trait에 is_terminal_item(), has_running_task() 메서드 추가
+- 2026-04-08: 워크스페이스 그룹 순환 전환 단축키 추가 — Alt+Shift+Tab으로 다음 워크스페이스 그룹으로 순환 전환 (마지막→처음). ActivateNextWorkspaceGroup 액션 정의, 키맵 편집기에서 커스텀 바인딩 가능. Windows/Linux 기본 키맵 적용 (macOS는 기존 바인딩 충돌로 미설정)
+- 2026-04-08: 워크스페이스 그룹 단축키 전환 기능 추가 — Alt+Shift+[1-9]로 워크스페이스 그룹 1~9번 직접 전환. ActivateWorkspaceGroup(usize) 액션 정의, 키맵 편집기에서 커스텀 바인딩 가능. Windows/Linux/macOS 기본 키맵 모두 적용
+- 2026-04-08: 워크스페이스 그룹 목록 더블클릭 이름 변경 기능 추가 — 항목 더블클릭 시 인라인 이름 편집기 활성화 (기존 우클릭 메뉴 rename과 동일 동작)
 - 2026-04-08: 설정 창 타이틀바 "Zed — Settings" → "Dokkaebi — Settings"로 변경
 - 2026-04-08: ��� 시작 속도 개선 — (1) 테마 Eager Load 비동기화: eager_load_active_theme_and_icon_theme()의 block_on → cx.spawn 비동기 전환으로 확장 테마 파일 I/O 차단 제거 (2) 폰트 로드 분할: 필수 monospace 폰트(Lilex)만 동기 로드, UI 폰트(IBM Plex Sans)는 비동기 로드 (3) 컴포넌트 초기화 지연 확대: journal/encoding_selector/language_selector 등 13개 비필수 컴포넌트를 cx.spawn().detach() 지연 초기화 블록으로 이동 (4) 초기화 단계별 타이밍 로그 추가
 - 2026-04-07: 터미널 컨텍스트 메뉴 "작업 실행" — 터미널의 현재 작업 디렉토리(cwd)를 캡처하여 Spawn Task 모달에 전달. TaskOverrides에 cwd 필드 추가, toggle_modal_with_overrides 함수 신설, confirm/confirm_input/spawn_oneshot에서 cwd override 적용

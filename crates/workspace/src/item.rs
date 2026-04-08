@@ -255,6 +255,14 @@ pub trait Item: Focusable + EventEmitter<Self::Event> + Render + Sized {
     fn is_dirty(&self, _: &App) -> bool {
         false
     }
+    /// 터미널 item 여부 판별
+    fn is_terminal_item(&self) -> bool {
+        false
+    }
+    /// 실행 중인 작업이 있는지 확인 (터미널 전용)
+    fn has_running_task(&self, _: &App) -> bool {
+        false
+    }
     fn capability(&self, _: &App) -> Capability {
         Capability::ReadWrite
     }
@@ -504,6 +512,10 @@ pub trait ItemHandle: 'static + Send {
     fn item_id(&self) -> EntityId;
     fn to_any_view(&self) -> AnyView;
     fn is_dirty(&self, cx: &App) -> bool;
+    /// 터미널 item 여부 판별
+    fn is_terminal_item(&self, cx: &App) -> bool;
+    /// 실행 중인 작업이 있는지 확인 (터미널 전용)
+    fn has_running_task(&self, cx: &App) -> bool;
     fn capability(&self, cx: &App) -> Capability;
     fn toggle_read_only(&self, window: &mut Window, cx: &mut App);
     fn has_deleted_file(&self, cx: &App) -> bool;
@@ -1015,6 +1027,14 @@ impl<T: Item> ItemHandle for Entity<T> {
 
     fn is_dirty(&self, cx: &App) -> bool {
         self.read(cx).is_dirty(cx)
+    }
+
+    fn is_terminal_item(&self, cx: &App) -> bool {
+        self.read(cx).is_terminal_item()
+    }
+
+    fn has_running_task(&self, cx: &App) -> bool {
+        self.read(cx).has_running_task(cx)
     }
 
     fn capability(&self, cx: &App) -> Capability {

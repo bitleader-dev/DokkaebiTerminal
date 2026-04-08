@@ -60,7 +60,7 @@ use gpui::{
     Action, AnyEntity, AnyView, AnyWeakView, App, AsyncApp, AsyncWindowContext, Axis, Bounds,
     Context, CursorStyle, Decorations, DragMoveEvent, Entity, EntityId, EventEmitter, FocusHandle,
     Focusable, Global, HitboxBehavior, Hsla, KeyContext, Keystroke, ManagedView, MouseButton,
-    PathPromptOptions, Point, PromptLevel, Render, ResizeEdge, Size, Stateful,
+    PathPromptOptions, Point, PromptButton, PromptLevel, Render, ResizeEdge, Size, Stateful,
     StyledImage as _, Subscription, SystemWindowTabController, Task, Tiling, WeakEntity,
     WindowBounds, WindowHandle, WindowId, WindowOptions, actions, canvas, img, point, relative,
     size, transparent_black,
@@ -312,6 +312,8 @@ actions!(
         RestoreBanner,
         /// Toggles expansion of the selected item.
         ToggleExpandItem,
+        /// 다음 워크스페이스 그룹으로 순환 전환한다.
+        ActivateNextWorkspaceGroup,
     ]
 );
 
@@ -319,6 +321,11 @@ actions!(
 #[derive(Clone, Deserialize, PartialEq, JsonSchema, Action)]
 #[action(namespace = workspace)]
 pub struct ActivatePane(pub usize);
+
+/// 워크스페이스 그룹을 인덱스로 전환한다.
+#[derive(Clone, Deserialize, PartialEq, JsonSchema, Action)]
+#[action(namespace = workspace)]
+pub struct ActivateWorkspaceGroup(pub usize);
 
 /// Moves an item to a specific pane by index.
 #[derive(Clone, Deserialize, PartialEq, JsonSchema, Action)]
@@ -3204,23 +3211,59 @@ impl Workspace {
         if self.project.read(cx).is_disconnected(cx) {
             return Task::ready(Ok(true));
         }
-        let dirty_items = self
-            .panes
-            .iter()
-            .flat_map(|pane| {
-                pane.read(cx).items().filter_map(|item| {
-                    if item.is_dirty(cx) {
-                        item.tab_content_text(0, cx);
-                        Some((pane.downgrade(), item.boxed_clone()))
+        // dirty item을 터미널과 파일로 분리하여 수집
+        let mut terminal_dirty_items = Vec::new();
+        let mut file_dirty_items = Vec::new();
+        for pane in self.panes.iter() {
+            for item in pane.read(cx).items() {
+                if item.is_dirty(cx) {
+                    item.tab_content_text(0, cx);
+                    if item.is_terminal_item(cx) {
+                        terminal_dirty_items.push((pane.downgrade(), item.boxed_clone()));
                     } else {
-                        None
+                        file_dirty_items.push((pane.downgrade(), item.boxed_clone()));
                     }
-                })
-            })
-            .collect::<Vec<_>>();
+                }
+            }
+        }
 
         let project = self.project.clone();
         cx.spawn_in(window, async move |workspace, cx| {
+            // 터미널 dirty item 확인 다이얼로그 (저장이 아닌 종료 확인)
+            if save_intent == SaveIntent::Close && !terminal_dirty_items.is_empty() {
+                let has_running = cx.update(|_, cx| {
+                    terminal_dirty_items
+                        .iter()
+                        .any(|(_, item)| item.has_running_task(cx))
+                })?;
+
+                workspace.update(cx, |_, cx| cx.emit(Event::Activate))?;
+
+                let answer = workspace.update_in(cx, |_, window, cx| {
+                    let message = if has_running {
+                        t("workspace.terminal.running_confirm", cx)
+                    } else {
+                        t("workspace.terminal.completed_confirm", cx)
+                    };
+                    window.prompt(
+                        PromptLevel::Warning,
+                        &message,
+                        None,
+                        &[
+                            PromptButton::new(t("workspace.terminal.close", cx)),
+                            PromptButton::cancel(t("dialog.cancel", cx)),
+                        ],
+                        cx,
+                    )
+                })?;
+                match answer.await.log_err() {
+                    Some(0) => {} // 종료 진행
+                    _ => return Ok(false), // 취소
+                }
+            }
+
+            // 파일 dirty item 저장 플로우
+            let dirty_items = file_dirty_items;
             let dirty_items = if save_intent == SaveIntent::Close && !dirty_items.is_empty() {
                 let (serialize_tasks, remaining_dirty_items) =
                     workspace.update_in(cx, |workspace, window, cx| {
@@ -3247,15 +3290,20 @@ impl Workspace {
 
                 if remaining_dirty_items.len() > 1 {
                     let answer = workspace.update_in(cx, |_, window, cx| {
+                        let message = t("workspace.file.save_confirm", cx);
                         let detail = Pane::file_names_for_prompt(
                             &mut remaining_dirty_items.iter().map(|(_, handle)| handle),
                             cx,
                         );
                         window.prompt(
                             PromptLevel::Warning,
-                            "Do you want to save all changes in the following files?",
+                            &message,
                             Some(&detail),
-                            &["Save all", "Discard all", "Cancel"],
+                            &[
+                                PromptButton::new(t("dialog.save_all", cx)),
+                                PromptButton::new(t("dialog.discard_all", cx)),
+                                PromptButton::cancel(t("dialog.cancel", cx)),
+                            ],
                             cx,
                         )
                     })?;
@@ -4600,6 +4648,33 @@ impl Workspace {
         } else {
             self.split_and_clone(self.active_pane.clone(), SplitDirection::Right, window, cx)
                 .detach();
+        }
+    }
+
+    /// 워크스페이스 그룹을 인덱스로 전환
+    fn activate_workspace_group_at_index(
+        &mut self,
+        action: &ActivateWorkspaceGroup,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let index = action.0;
+        if index < self.workspace_group_count() {
+            self.switch_workspace_group(index, window, cx);
+        }
+    }
+
+    /// 다음 워크스페이스 그룹으로 순환 전환
+    fn activate_next_workspace_group(
+        &mut self,
+        _: &ActivateNextWorkspaceGroup,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let count = self.workspace_group_count();
+        if count > 1 {
+            let next = (self.active_group_index() + 1) % count;
+            self.switch_workspace_group(next, window, cx);
         }
     }
 
@@ -7267,6 +7342,8 @@ impl Workspace {
             .on_action(cx.listener(Self::add_folder_to_project))
             .on_action(cx.listener(Self::follow_next_collaborator))
             .on_action(cx.listener(Self::activate_pane_at_index))
+            .on_action(cx.listener(Self::activate_workspace_group_at_index))
+            .on_action(cx.listener(Self::activate_next_workspace_group))
             .on_action(cx.listener(Self::move_item_to_pane_at_index))
             .on_action(cx.listener(Self::move_focused_panel_to_next_position))
             .on_action(cx.listener(Self::toggle_edit_predictions_all_files))

@@ -218,6 +218,11 @@
   "dialog.discard_all": "Discard all",
   "dialog.cancel": "Cancel",
   "dialog.close_without_saving": "Close Without Saving",
+
+  "workspace.terminal.running_confirm": "There are terminals with running tasks. Do you want to close?",
+  "workspace.terminal.completed_confirm": "There are terminals with completed tasks. Do you want to close?",
+  "workspace.terminal.close": "Close",
+  "workspace.file.save_confirm": "Do you want to save all changes in the following files?",
   "dialog.save": "Save",
   "dialog.close": "Close",
   "dialog.overwrite": "Overwrite",
@@ -320,6 +325,17 @@
   "settings.notepad_panel.horizontal_scroll.description": "Show horizontal scrollbar instead of word wrapping.",
 
   "sidebar.open_project": "Open Project",
+
+  "extensions.title": "Extensions",
+  "extensions.install_dev": "Install Dev Extension",
+  "extensions.search_placeholder": "Search extensions...",
+  "extensions.filter.all": "All",
+  "extensions.filter.installed": "Installed",
+  "extensions.filter.not_installed": "Not Installed",
+  "extensions.category.themes": "Themes",
+  "extensions.category.icon_themes": "Icon Themes",
+  "extensions.category.languages": "Languages",
+  "extensions.category.language_servers": "Language Servers",
 
   "agent_panel.tooltip": "Agent Panel",
   "agent_panel.menu.toggle": "Toggle Agent Menu",
@@ -1312,6 +1328,9 @@
   "git_panel.remote.publish_tooltip": "Publish branch to remote",
   "git_panel.remote.republish": "Republish",
   "git_panel.remote.republish_tooltip": "Re-publish branch to remote",
+
+  "git_panel.empty.no_changes": "No changes to commit",
+  "git_panel.empty.no_repositories": "No Git repositories",
 
   "editor.context_menu.go_to_definition": "Go to Definition",
   "editor.context_menu.go_to_declaration": "Go to Declaration",

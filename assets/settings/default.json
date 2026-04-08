@@ -205,6 +205,8 @@
   // When set to false, Zed will use its built-in prompts. Note that on Linux,
   // this option is ignored and Zed will always use the built-in prompts.
   "use_system_prompts": true,
+  // Whether to show system monitoring (CPU, memory, GPU usage) in the status bar.
+  "system_monitoring": false,
   // Whether the cursor blinks in the editor.
   "cursor_blink": true,
   // Cursor shape for the default editor.

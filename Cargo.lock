@@ -15360,6 +15360,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "system_monitor"
+version = "0.1.0"
+dependencies = [
+ "gpui",
+ "settings",
+ "settings_content",
+ "sysinfo 0.37.2",
+ "ui",
+ "windows 0.61.3",
+ "workspace",
+]
+
+[[package]]
 name = "system_specs"
 version = "0.1.0"
 dependencies = [
@@ -20046,6 +20059,7 @@ dependencies = [
  "snippets_ui",
  "svg_preview",
  "sysinfo 0.37.2",
+ "system_monitor",
  "system_specs",
  "tab_switcher",
  "task",

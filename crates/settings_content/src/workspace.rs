@@ -80,6 +80,10 @@ pub struct WorkspaceSettingsContent {
     ///
     /// Default: true
     pub use_system_prompts: Option<bool>,
+    /// Whether to show system monitoring (CPU, memory, GPU usage) in the status bar.
+    ///
+    /// Default: false
+    pub system_monitoring: Option<bool>,
     /// Aliases for the command palette. When you type a key in this map,
     /// it will be assumed to equal the value.
     ///

@@ -1,6 +1,7 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-04-08: 시스템 모니터링 기능 추가 — 상태표시줄 중앙에 CPU%, MEM%, GPU% 실시간 표시. 설정 UI(일반 → 시스템 모니터링)에서 on/off 토글 제공. Windows PDH API로 GPU 사용률 수집. 새 크레이트 system_monitor 추가, StatusBar에 center_items 영역 추가
 - 2026-04-08: 터미널 리사이즈 후 TUI 앱 렌더링 멈춤 수정 — Resize 이벤트 처리 시 무조건 Wakeup 발생하도록 변경, focus_in에 window.refresh() 추가
 - 2026-04-08: Git 패널 빈 상태 메시지 한글화 — "No Git repositories" → "Git 저장소 없음", "No changes to commit" → "커밋할 변경 사항이 없습니다" i18n 적용
 - 2026-04-08: 확장 탭 UI 한글화 — Extensions 페이지의 제목, 탭 텍스트, 버튼(Install Dev Extension), 검색 placeholder, 필터 버튼(All/Installed/Not Installed), 카테고리 필터(Themes/Icon Themes/Languages/Language Servers)에 i18n 적용

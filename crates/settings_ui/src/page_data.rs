@@ -76,7 +76,7 @@ pub(crate) fn settings_data(cx: &App) -> Vec<SettingsPage> {
 }
 
 fn general_page() -> SettingsPage {
-    fn general_settings_section() -> [SettingsPageItem; 6] {
+    fn general_settings_section() -> [SettingsPageItem; 7] {
         [
             SettingsPageItem::SectionHeader("General Settings"),
             SettingsPageItem::SettingItem(SettingItem {
@@ -159,6 +159,21 @@ fn general_page() -> SettingsPage {
                     pick: |settings_content| settings_content.workspace.use_system_prompts.as_ref(),
                     write: |settings_content, value| {
                         settings_content.workspace.use_system_prompts = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "System Monitoring",
+                description: "Show CPU, memory, and GPU usage in the status bar.",
+                field: Box::new(SettingField {
+                    json_path: Some("system_monitoring"),
+                    pick: |settings_content| {
+                        settings_content.workspace.system_monitoring.as_ref()
+                    },
+                    write: |settings_content, value| {
+                        settings_content.workspace.system_monitoring = value;
                     },
                 }),
                 metadata: None,

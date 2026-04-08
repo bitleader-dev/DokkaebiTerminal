@@ -176,6 +176,7 @@ members = [
     "crates/streaming_diff",
     "crates/sum_tree",
     "crates/svg_preview",
+    "crates/system_monitor",
     "crates/system_specs",
     "crates/tab_switcher",
     "crates/task",
@@ -417,6 +418,7 @@ story = { path = "crates/story" }
 streaming_diff = { path = "crates/streaming_diff" }
 sum_tree = { path = "crates/sum_tree" }
 codestral = { path = "crates/codestral" }
+system_monitor = { path = "crates/system_monitor" }
 system_specs = { path = "crates/system_specs" }
 tab_switcher = { path = "crates/tab_switcher" }
 task = { path = "crates/task" }

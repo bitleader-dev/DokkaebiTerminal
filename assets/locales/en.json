@@ -412,6 +412,8 @@
   "Use native OS dialogs for 'Open' and 'Save As'.": "Use native OS dialogs for 'Open' and 'Save As'.",
   "Use System Prompts": "Use System Prompts",
   "Use native OS dialogs for confirmations.": "Use native OS dialogs for confirmations.",
+  "System Monitoring": "System Monitoring",
+  "Show CPU, memory, and GPU usage in the status bar.": "Show CPU, memory, and GPU usage in the status bar.",
   "Redact Private Values": "Redact Private Values",
   "Hide the values of variables in private files.": "Hide the values of variables in private files.",
   "Private Files": "Private Files",

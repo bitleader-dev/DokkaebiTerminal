@@ -1648,40 +1648,35 @@ impl Terminal {
             self.process_terminal_event(&e, &mut terminal, window, cx)
         }
 
-        self.last_content = Self::make_content(&terminal, &self.last_content);
+        Self::update_content(&terminal, &mut self.last_content);
     }
 
-    fn make_content(term: &Term<ZedListener>, last_content: &TerminalContent) -> TerminalContent {
-        let content = term.renderable_content();
+    /// Update `last_content` in-place, reusing the existing cells buffer to
+    /// avoid allocating a new Vec on every frame. This reduces time spent
+    /// under the term lock (fewer allocator calls while PTY writer is blocked).
+    fn update_content(term: &Term<ZedListener>, content: &mut TerminalContent) {
+        let renderable = term.renderable_content();
 
-        // Pre-allocate with estimated size to reduce reallocations
-        let estimated_size = content.display_iter.size_hint().0;
-        let mut cells = Vec::with_capacity(estimated_size);
-
-        cells.extend(content.display_iter.map(|ic| IndexedCell {
+        content.cells.clear();
+        content.cells.extend(renderable.display_iter.map(|ic| IndexedCell {
             point: ic.point,
             cell: ic.cell.clone(),
         }));
 
-        let selection_text = if content.selection.is_some() {
+        content.selection_text = if renderable.selection.is_some() {
             term.selection_to_string()
         } else {
             None
         };
 
-        TerminalContent {
-            cells,
-            mode: content.mode,
-            display_offset: content.display_offset,
-            selection_text,
-            selection: content.selection,
-            cursor: content.cursor,
-            cursor_char: term.grid()[content.cursor.point].c,
-            terminal_bounds: last_content.terminal_bounds,
-            last_hovered_word: last_content.last_hovered_word.clone(),
-            scrolled_to_top: content.display_offset == term.history_size(),
-            scrolled_to_bottom: content.display_offset == 0,
-        }
+        content.mode = renderable.mode;
+        content.display_offset = renderable.display_offset;
+        content.selection = renderable.selection;
+        content.cursor = renderable.cursor;
+        content.cursor_char = term.grid()[renderable.cursor.point].c;
+        content.scrolled_to_top = renderable.display_offset == term.history_size();
+        content.scrolled_to_bottom = renderable.display_offset == 0;
+        // terminal_bounds and last_hovered_word are preserved from previous frame
     }
 
     pub fn get_content(&self) -> String {
@@ -2608,6 +2603,15 @@ mod tests {
     use smol::channel::Receiver;
     use task::{Shell, ShellBuilder};
 
+    impl Terminal {
+        /// Test helper: snapshot current terminal content.
+        fn snapshot_content(&mut self) -> TerminalContent {
+            let term = self.term.lock_unfair();
+            Self::update_content(&term, &mut self.last_content);
+            self.last_content.clone()
+        }
+    }
+
     #[cfg(not(target_os = "windows"))]
     fn init_test(cx: &mut TestAppContext) {
         cx.update(|cx| {
@@ -2685,7 +2689,7 @@ mod tests {
 
         terminal.update(cx, |terminal, _cx| {
             let term_lock = terminal.term.lock();
-            terminal.last_content = Terminal::make_content(&term_lock, &terminal.last_content);
+            Terminal::update_content(&term_lock, &mut terminal.last_content);
             drop(term_lock);
 
             let terminal_bounds = TerminalBounds::new(
@@ -3129,10 +3133,7 @@ mod tests {
         });
 
         // Get the content by directly accessing the term
-        let content = terminal.update(cx, |terminal, _cx| {
-            let term = terminal.term.lock_unfair();
-            Terminal::make_content(&term, &terminal.last_content)
-        });
+        let content = terminal.update(cx, |terminal, _cx| terminal.snapshot_content());
 
         // If LF is properly converted to CRLF, each line should start at column 0
         // The diagonal staircase bug would cause increasing column positions
@@ -3177,10 +3178,7 @@ mod tests {
         });
 
         // Get the content by directly accessing the term
-        let content = terminal.update(cx, |terminal, _cx| {
-            let term = terminal.term.lock_unfair();
-            Terminal::make_content(&term, &terminal.last_content)
-        });
+        let content = terminal.update(cx, |terminal, _cx| terminal.snapshot_content());
 
         let cells = &content.cells;
 
@@ -3219,10 +3217,7 @@ mod tests {
         });
 
         // Get the content by directly accessing the term
-        let content = terminal.update(cx, |terminal, _cx| {
-            let term = terminal.term.lock_unfair();
-            Terminal::make_content(&term, &terminal.last_content)
-        });
+        let content = terminal.update(cx, |terminal, _cx| terminal.snapshot_content());
 
         let cells = &content.cells;
 

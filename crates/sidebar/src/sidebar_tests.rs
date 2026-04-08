@@ -2288,6 +2288,7 @@ async fn test_cmd_n_shows_new_thread_entry_in_absorbed_worktree(cx: &mut TestApp
             path: std::path::PathBuf::from("/wt-feature-a"),
             ref_name: Some("refs/heads/feature-a".into()),
             sha: "aaa".into(),
+            is_main: false,
         });
     })
     .unwrap();
@@ -2399,6 +2400,7 @@ async fn test_search_matches_worktree_name(cx: &mut TestAppContext) {
                 path: std::path::PathBuf::from("/wt/rosewood"),
                 ref_name: Some("refs/heads/rosewood".into()),
                 sha: "abc".into(),
+                is_main: false,
             });
         })
         .unwrap();
@@ -2460,6 +2462,7 @@ async fn test_git_worktree_added_live_updates_sidebar(cx: &mut TestAppContext) {
                 path: std::path::PathBuf::from("/wt/rosewood"),
                 ref_name: Some("refs/heads/rosewood".into()),
                 sha: "abc".into(),
+                is_main: false,
             });
         })
         .unwrap();
@@ -2557,11 +2560,13 @@ async fn test_two_worktree_workspaces_absorbed_when_main_added(cx: &mut TestAppC
             path: std::path::PathBuf::from("/wt-feature-a"),
             ref_name: Some("refs/heads/feature-a".into()),
             sha: "aaa".into(),
+            is_main: false,
         });
         state.worktrees.push(git::repository::Worktree {
             path: std::path::PathBuf::from("/wt-feature-b"),
             ref_name: Some("refs/heads/feature-b".into()),
             sha: "bbb".into(),
+            is_main: false,
         });
     })
     .unwrap();
@@ -2584,6 +2589,103 @@ async fn test_two_worktree_workspaces_absorbed_when_main_added(cx: &mut TestAppC
             "v [project]",
             "  Thread A {wt-feature-a}",
             "  Thread B {wt-feature-b}",
+        ]
+    );
+}
+
+#[gpui::test]
+async fn test_threadless_workspace_shows_new_thread_with_worktree_chip(cx: &mut TestAppContext) {
+    // When a group has two workspaces — one with threads and one
+    // without — the threadless workspace should appear as a
+    // "New Thread" button with its worktree chip.
+    init_test(cx);
+    let fs = FakeFs::new(cx.executor());
+
+    // Main repo with two linked worktrees.
+    fs.insert_tree(
+        "/project",
+        serde_json::json!({
+            ".git": {
+                "worktrees": {
+                    "feature-a": {
+                        "commondir": "../../",
+                        "HEAD": "ref: refs/heads/feature-a",
+                    },
+                    "feature-b": {
+                        "commondir": "../../",
+                        "HEAD": "ref: refs/heads/feature-b",
+                    },
+                },
+            },
+            "src": {},
+        }),
+    )
+    .await;
+    fs.insert_tree(
+        "/wt-feature-a",
+        serde_json::json!({
+            ".git": "gitdir: /project/.git/worktrees/feature-a",
+            "src": {},
+        }),
+    )
+    .await;
+    fs.insert_tree(
+        "/wt-feature-b",
+        serde_json::json!({
+            ".git": "gitdir: /project/.git/worktrees/feature-b",
+            "src": {},
+        }),
+    )
+    .await;
+
+    fs.with_git_state(std::path::Path::new("/project/.git"), false, |state| {
+        state.worktrees.push(git::repository::Worktree {
+            path: std::path::PathBuf::from("/wt-feature-a"),
+            ref_name: Some("refs/heads/feature-a".into()),
+            sha: "aaa".into(),
+            is_main: false,
+        });
+        state.worktrees.push(git::repository::Worktree {
+            path: std::path::PathBuf::from("/wt-feature-b"),
+            ref_name: Some("refs/heads/feature-b".into()),
+            sha: "bbb".into(),
+            is_main: false,
+        });
+    })
+    .unwrap();
+
+    cx.update(|cx| <dyn fs::Fs>::set_global(fs.clone(), cx));
+
+    // Workspace A: worktree feature-a (has threads).
+    let project_a = project::Project::test(fs.clone(), ["/wt-feature-a".as_ref()], cx).await;
+    project_a.update(cx, |p, cx| p.git_scans_complete(cx)).await;
+
+    // Workspace B: worktree feature-b (no threads).
+    let project_b = project::Project::test(fs.clone(), ["/wt-feature-b".as_ref()], cx).await;
+    project_b.update(cx, |p, cx| p.git_scans_complete(cx)).await;
+
+    let (multi_workspace, cx) =
+        cx.add_window_view(|window, cx| MultiWorkspace::test_new(project_a.clone(), window, cx));
+    multi_workspace.update_in(cx, |mw, window, cx| {
+        mw.test_add_workspace(project_b.clone(), window, cx);
+    });
+    let sidebar = setup_sidebar(&multi_workspace, cx);
+
+    // Only save a thread for workspace A.
+    let paths_a = PathList::new(&[std::path::PathBuf::from("/wt-feature-a")]);
+    save_named_thread_metadata("thread-a", "Thread A", &paths_a, cx).await;
+
+    multi_workspace.update_in(cx, |_, _window, cx| cx.notify());
+    cx.run_until_parked();
+
+    // Workspace A's thread appears normally. Workspace B (threadless)
+    // appears as a "New Thread" button with its worktree chip.
+    assert_eq!(
+        visible_entries_as_strings(&sidebar, cx),
+        vec![
+            "v [project]",
+            "  [+ New Thread {wt-feature-b}]",
+            "  Thread A {wt-feature-a}",
         ]
     );
 }
@@ -2663,6 +2765,7 @@ async fn test_multi_worktree_thread_shows_multiple_chips(cx: &mut TestAppContext
                     path: std::path::PathBuf::from(format!("/worktrees/{repo}/{branch}/{repo}")),
                     ref_name: Some(format!("refs/heads/{branch}").into()),
                     sha: "aaa".into(),
+                    is_main: false,
                 });
             }
         })
@@ -2765,6 +2868,7 @@ async fn test_same_named_worktree_chips_are_deduplicated(cx: &mut TestAppContext
                 path: std::path::PathBuf::from(format!("/worktrees/{repo}/olivetti/{repo}")),
                 ref_name: Some("refs/heads/olivetti".into()),
                 sha: "aaa".into(),
+                is_main: false,
             });
         })
         .unwrap();
@@ -2855,6 +2959,7 @@ async fn test_absorbed_worktree_running_thread_shows_live_status(cx: &mut TestAp
             path: std::path::PathBuf::from("/wt-feature-a"),
             ref_name: Some("refs/heads/feature-a".into()),
             sha: "aaa".into(),
+            is_main: false,
         });
     })
     .unwrap();
@@ -2965,6 +3070,7 @@ async fn test_absorbed_worktree_completion_triggers_notification(cx: &mut TestAp
             path: std::path::PathBuf::from("/wt-feature-a"),
             ref_name: Some("refs/heads/feature-a".into()),
             sha: "aaa".into(),
+            is_main: false,
         });
     })
     .unwrap();
@@ -3062,6 +3168,7 @@ async fn test_clicking_worktree_thread_opens_workspace_when_none_exists(cx: &mut
             path: std::path::PathBuf::from("/wt-feature-a"),
             ref_name: Some("refs/heads/feature-a".into()),
             sha: "aaa".into(),
+            is_main: false,
         });
     })
     .unwrap();
@@ -3163,6 +3270,7 @@ async fn test_clicking_worktree_thread_does_not_briefly_render_as_separate_proje
             path: std::path::PathBuf::from("/wt-feature-a"),
             ref_name: Some("refs/heads/feature-a".into()),
             sha: "aaa".into(),
+            is_main: false,
         });
     })
     .unwrap();
@@ -3321,6 +3429,7 @@ async fn test_clicking_absorbed_worktree_thread_activates_worktree_workspace(
             path: std::path::PathBuf::from("/wt-feature-a"),
             ref_name: Some("refs/heads/feature-a".into()),
             sha: "aaa".into(),
+            is_main: false,
         });
     })
     .unwrap();
@@ -3911,6 +4020,7 @@ async fn test_archive_thread_uses_next_threads_own_workspace(cx: &mut TestAppCon
             path: std::path::PathBuf::from("/wt-feature-a"),
             ref_name: Some("refs/heads/feature-a".into()),
             sha: "aaa".into(),
+            is_main: false,
         });
     })
     .unwrap();
@@ -4081,6 +4191,7 @@ async fn test_linked_worktree_threads_not_duplicated_across_groups(cx: &mut Test
             path: std::path::PathBuf::from("/wt-feature-a"),
             ref_name: Some("refs/heads/feature-a".into()),
             sha: "aaa".into(),
+            is_main: false,
         });
     })
     .unwrap();
@@ -4417,6 +4528,7 @@ mod property_test {
                             path: worktree_pathbuf,
                             ref_name: Some(format!("refs/heads/{}", worktree_name).into()),
                             sha: "aaa".into(),
+                            is_main: false,
                         });
                     })
                     .unwrap();

@@ -5324,17 +5324,25 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.center.remove(&pane, cx).unwrap() {
-            self.force_remove_pane(&pane, &focus_on, window, cx);
-            self.unfollow_in_pane(&pane, window, cx);
-            self.last_leaders_by_pane.remove(&pane.downgrade());
-            for removed_item in pane.read(cx).items() {
-                self.panes_by_item.remove(&removed_item.item_id());
-            }
+        // 비동기 close_items 과정에서 pane이 이미 제거된 경우 Err 반환 가능
+        match self.center.remove(&pane, cx) {
+            Ok(true) => {
+                self.force_remove_pane(&pane, &focus_on, window, cx);
+                self.unfollow_in_pane(&pane, window, cx);
+                self.last_leaders_by_pane.remove(&pane.downgrade());
+                for removed_item in pane.read(cx).items() {
+                    self.panes_by_item.remove(&removed_item.item_id());
+                }
 
-            cx.notify();
-        } else {
-            self.active_item_path_changed(true, window, cx);
+                cx.notify();
+            }
+            Ok(false) => {
+                self.active_item_path_changed(true, window, cx);
+            }
+            Err(_) => {
+                // Pane이 이미 center에서 제거됨 — 중복 Remove 이벤트 무시
+                return;
+            }
         }
         cx.emit(Event::PaneRemoved);
     }

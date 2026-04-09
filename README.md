@@ -1,6 +1,6 @@
 # Dokkaebi
 
-[![CI](https://github.com/zed-industries/zed/actions/workflows/run_tests.yml/badge.svg)](https://github.com/zed-industries/zed/actions/workflows/run_tests.yml)
+![Dokkaebi](https://raw.githubusercontent.com/bitleader-dev/DokkaebiTerminal/main/icon.png)
 
 Dokkaebi는 [Zed](https://github.com/zed-industries/zed) 기반으로 개발된 고성능 터미널로, AI 코딩 에이전트 및 멀티태스킹 워크플로우에 최적화되어 있습니다.
 

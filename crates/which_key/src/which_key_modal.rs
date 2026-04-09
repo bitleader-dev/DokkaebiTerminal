@@ -91,7 +91,7 @@ impl WhichKeyModal {
                 // Map to remaining keystrokes and action name
                 let remaining_keystrokes = keystrokes[pending_keys.len()..].to_vec();
                 let action_name: SharedString =
-                    command_palette::humanize_action_name(action.name()).into();
+                    command_palette::humanize_action_name_localized(action.name(), cx);
                 (remaining_keystrokes, action_name)
             })
             .collect();

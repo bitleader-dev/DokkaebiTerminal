@@ -441,6 +441,8 @@ impl TerminalBuilder {
             event_loop_task: Task::ready(Ok(())),
             background_executor: background_executor.clone(),
             path_style,
+            content_dirty: true,
+            last_sync_time: Instant::now(),
             #[cfg(any(test, feature = "test-support"))]
             input_log: Vec::new(),
         };
@@ -677,9 +679,13 @@ impl TerminalBuilder {
                 event_loop_task: Task::ready(Ok(())),
                 background_executor,
                 path_style,
+                content_dirty: true,
+                last_sync_time: Instant::now(),
                 #[cfg(any(test, feature = "test-support"))]
                 input_log: Vec::new(),
             };
+
+            let should_clear = !activation_script.is_empty() && no_task;
 
             if !activation_script.is_empty() && no_task {
                 for activation_script in activation_script {
@@ -689,6 +695,9 @@ impl TerminalBuilder {
                     // and generally mess up the rendering.
                     terminal.write_to_pty(b"\x0d");
                 }
+            }
+
+            if should_clear {
                 // In order to clear the screen at this point, we have two options:
                 // 1. We can send a shell-specific command such as "clear" or "cls"
                 // 2. We can "echo" a marker message that we will then catch when handling a Wakeup event
@@ -732,7 +741,7 @@ impl TerminalBuilder {
                     #[cfg(not(any(test, feature = "test-support")))]
                     let mut timer = cx
                         .background_executor()
-                        .timer(std::time::Duration::from_millis(4))
+                        .timer(EVENT_BATCH_INTERVAL)
                         .fuse();
 
                     let mut wakeup = false;
@@ -747,7 +756,7 @@ impl TerminalBuilder {
                                         events.push(event);
                                     }
 
-                                    if events.len() > 100 {
+                                    if events.len() > 500 {
                                         break;
                                     }
                                 } else {
@@ -906,6 +915,10 @@ pub struct Terminal {
     event_loop_task: Task<Result<(), anyhow::Error>>,
     background_executor: BackgroundExecutor,
     path_style: PathStyle,
+    /// 터미널 콘텐츠 변경 여부 플래그 (대량 출력 시 불필요한 셀 복제 방지)
+    content_dirty: bool,
+    /// 마지막 sync 시점 (프레임 예산 제한용)
+    last_sync_time: Instant,
     #[cfg(any(test, feature = "test-support"))]
     input_log: Vec<Vec<u8>>,
 }
@@ -955,6 +968,10 @@ impl TaskStatus {
 }
 
 const FIND_HYPERLINK_THROTTLE_PX: Pixels = px(5.0);
+/// 이벤트 루프에서 PTY 이벤트를 배치 수집하는 최대 대기 시간
+const EVENT_BATCH_INTERVAL: Duration = Duration::from_millis(8);
+/// 대량 출력 시 메인 스레드 블로킹 방지를 위한 콘텐츠 갱신 최소 간격
+const CONTENT_SYNC_THROTTLE: Duration = Duration::from_millis(8);
 
 impl Terminal {
     fn process_event(&mut self, event: AlacTermEvent, cx: &mut Context<Self>) {
@@ -971,6 +988,24 @@ impl Terminal {
                         .unwrap_or(false)
                     {
                         return;
+                    }
+
+                    // Windows: PowerShell은 cd 시 PEB CWD를 갱신하지 않지만,
+                    // 터미널 제목을 현재 경로로 설정한다.
+                    // 제목에서 유효한 Windows 경로를 추출하여 CWD를 갱신한다.
+                    if let TerminalType::Pty { info, .. } = &self.terminal_type {
+                        let extracted = Self::extract_windows_path_from_title(&title);
+                        if let Some(cwd) = extracted {
+                            let mut current = info.current.write();
+                            if let Some(ref mut process_info) = *current {
+                                process_info.cwd = cwd;
+                            } else {
+                                *current = Some(PtyProcessInfo::make_process_info(cwd));
+                            }
+                            drop(current);
+                            // PEB 백그라운드 읽기가 이 CWD를 덮어쓰지 않도록 버전 증가
+                            info.mark_cwd_from_title();
+                        }
                     }
                 }
 
@@ -1011,11 +1046,16 @@ impl Terminal {
                 //NOOP, Handled in render
             }
             AlacTermEvent::Wakeup => {
+                self.content_dirty = true;
                 cx.emit(Event::Wakeup);
 
                 if let TerminalType::Pty { info, .. } = &self.terminal_type {
                     info.emit_title_changed_if_changed(cx);
                 }
+
+                // Windows: PowerShell 프롬프트 화면에서 CWD 추출 (OSC 타이틀 미지원 대응)
+                #[cfg(windows)]
+                self.try_update_cwd_from_screen();
             }
             AlacTermEvent::ColorRequest(index, format) => {
                 // It's important that the color request is processed here to retain relative order
@@ -1034,6 +1074,108 @@ impl Terminal {
                 self.register_task_finished(Some(raw_status), cx);
             }
         }
+    }
+
+    /// Windows: 터미널 제목에서 유효한 Windows 디렉토리 경로를 추출한다.
+    /// PowerShell은 제목을 현재 디렉토리 경로로 설정한다.
+    /// "PS D:\path", "Administrator: D:\path" 등 접두사가 붙은 제목도 처리한다.
+    #[cfg(windows)]
+    fn extract_windows_path_from_title(title: &str) -> Option<PathBuf> {
+        let trimmed = title.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        // 제목 문자열에서 Windows 절대 경로 패턴(드라이브 문자 + ':' + '\' 또는 '/')을
+        // 찾는다. "PS D:\path" 같은 접두사가 붙은 경우도 올바르게 처리한다.
+        let bytes = trimmed.as_bytes();
+        for i in 0..bytes.len().saturating_sub(2) {
+            if bytes[i].is_ascii_alphabetic()
+                && bytes[i + 1] == b':'
+                && (bytes[i + 2] == b'\\' || bytes[i + 2] == b'/')
+            {
+                let path = PathBuf::from(&trimmed[i..]);
+                // 실제 존재하는 디렉토리인 경우에만 CWD로 인정한다.
+                // is_dir()로 파일 경로(예: cmd.exe 경로)를 제외한다.
+                if path.is_dir() {
+                    return Some(path);
+                }
+            }
+        }
+
+        None
+    }
+
+    /// Windows: PowerShell 화면 버퍼에서 프롬프트 패턴("PS C:\path>")을 파싱하여
+    /// 현재 작업 디렉토리를 추출한다. PowerShell 7은 OSC 타이틀 시퀀스를 전송하지 않고,
+    /// PEB CWD도 cd 시 갱신하지 않으므로, 화면에 표시된 프롬프트가 유일한 CWD 소스이다.
+    #[cfg(windows)]
+    fn try_update_cwd_from_screen(&mut self) {
+        let is_ps = self.shell_program.as_ref().is_some_and(|p| {
+            let l = p.to_lowercase();
+            l.contains("pwsh") || l.contains("powershell")
+        });
+        if !is_ps {
+            return;
+        }
+
+        let Some(term) = self.term.try_lock_unfair() else {
+            return;
+        };
+
+        let cursor = term.grid().cursor.point;
+        let row = &term.grid()[cursor.line];
+        let text = row_to_string(row);
+        let trimmed = text.trim_end();
+
+        if let Some(candidate) = Self::extract_cwd_candidate_from_prompt(trimmed) {
+            drop(term);
+            // 현재 CWD와 동일하면 is_dir() I/O를 스킵한다.
+            if let TerminalType::Pty { info, .. } = &self.terminal_type {
+                let current = info.current.read();
+                let same = current
+                    .as_ref()
+                    .is_some_and(|p| p.cwd == candidate);
+                drop(current);
+                if same {
+                    return;
+                }
+                // 새 경로일 때만 is_dir() 검증
+                if !candidate.is_dir() {
+                    return;
+                }
+                let mut current = info.current.write();
+                if let Some(ref mut process_info) = *current {
+                    process_info.cwd = candidate;
+                } else {
+                    *current = Some(PtyProcessInfo::make_process_info(candidate));
+                }
+                drop(current);
+                info.mark_cwd_from_title();
+            }
+        }
+    }
+
+    /// PowerShell 프롬프트 라인에서 CWD 후보 경로를 추출한다 (is_dir 검증 미포함).
+    /// 기본 프롬프트 형식: "PS C:\Users\jongc>"
+    #[cfg(windows)]
+    fn extract_cwd_candidate_from_prompt(line: &str) -> Option<PathBuf> {
+        let idx = line.find("PS ")?;
+        let after_ps = &line[idx + 3..];
+        if after_ps.len() < 3 {
+            return None;
+        }
+        let bytes = after_ps.as_bytes();
+        if !bytes[0].is_ascii_alphabetic()
+            || bytes[1] != b':'
+            || (bytes[2] != b'\\' && bytes[2] != b'/')
+        {
+            return None;
+        }
+        // ">" 앞까지가 경로
+        let path_end = after_ps.find('>').unwrap_or(after_ps.len());
+        let path_str = after_ps[..path_end].trim();
+        Some(PathBuf::from(path_str))
     }
 
     pub fn selection_started(&self) -> bool {
@@ -1459,10 +1601,17 @@ impl Terminal {
         self.last_content.scrolled_to_bottom
     }
 
-    ///Resize the terminal and the PTY.
+    /// 터미널과 PTY 크기를 변경한다.
     pub fn set_size(&mut self, new_bounds: TerminalBounds) {
         if self.last_content.terminal_bounds != new_bounds {
-            self.events.push_back(InternalEvent::Resize(new_bounds))
+            // try_lock 실패로 이전 Resize가 미처리 상태일 때 중복 방지.
+            // 중간에 다른 이벤트가 있을 수 있으므로 역순 검색.
+            let has_same_resize = self.events.iter().rev().any(|e| {
+                matches!(e, InternalEvent::Resize(pending) if *pending == new_bounds)
+            });
+            if !has_same_resize {
+                self.events.push_back(InternalEvent::Resize(new_bounds))
+            }
         }
     }
 
@@ -1641,14 +1790,43 @@ impl Terminal {
     }
 
     pub fn sync(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let term = self.term.clone();
-        let mut terminal = term.lock_unfair();
-        //Note that the ordering of events matters for event processing
-        while let Some(e) = self.events.pop_front() {
-            self.process_terminal_event(&e, &mut terminal, window, cx)
+        if self.events.is_empty() && !self.content_dirty {
+            return;
         }
 
-        Self::update_content(&terminal, &mut self.last_content);
+        let term = self.term.clone();
+        // PTY 리더가 lock을 점유 중이면 블로킹 없이 다음 프레임에서 재시도.
+        // prepaint() 중 호출되므로 lock 대기 시 메인 스레드가 멈추는 문제 방지.
+        let Some(mut terminal) = term.try_lock_unfair() else {
+            Self::schedule_next_frame(window, cx);
+            return;
+        };
+
+        if !self.events.is_empty() {
+            self.content_dirty = true;
+            while let Some(e) = self.events.pop_front() {
+                self.process_terminal_event(&e, &mut terminal, window, cx)
+            }
+        }
+
+        if self.content_dirty {
+            let now = Instant::now();
+            if now.duration_since(self.last_sync_time) >= CONTENT_SYNC_THROTTLE {
+                Self::update_content(&terminal, &mut self.last_content);
+                self.content_dirty = false;
+                self.last_sync_time = now;
+            } else {
+                drop(terminal);
+                Self::schedule_next_frame(window, cx);
+            }
+        }
+    }
+
+    /// 다음 프레임에서 이 엔티티의 재렌더링을 예약한다.
+    /// draw phase 중에는 cx.notify()가 무효이므로 on_next_frame 콜백을 사용한다.
+    fn schedule_next_frame(window: &Window, cx: &Context<Self>) {
+        let entity_id = cx.entity_id();
+        window.on_next_frame(move |_, cx| cx.notify(entity_id));
     }
 
     /// Update `last_content` in-place, reusing the existing cells buffer to
@@ -2338,6 +2516,11 @@ impl Terminal {
 
     pub fn vi_mode_enabled(&self) -> bool {
         self.vi_mode_enabled
+    }
+
+    /// 터미널에서 사용 중인 셸 정보 반환
+    pub fn shell(&self) -> &Shell {
+        &self.template.shell
     }
 
     pub fn clone_builder(&self, cx: &App, cwd: Option<PathBuf>) -> Task<Result<TerminalBuilder>> {

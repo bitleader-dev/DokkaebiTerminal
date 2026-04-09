@@ -2859,6 +2859,7 @@ dependencies = [
  "fuzzy",
  "go_to_line",
  "gpui",
+ "i18n",
  "language",
  "log",
  "menu",
@@ -15588,6 +15589,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "terminal_history"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs 4.0.0",
+ "fuzzy",
+ "gpui",
+ "i18n",
+ "picker",
+ "serde_json",
+ "terminal",
+ "terminal_view",
+ "ui",
+ "util",
+ "workspace",
+ "zed_actions",
+]
+
+[[package]]
 name = "terminal_size"
 version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -20070,6 +20090,7 @@ dependencies = [
  "telemetry",
  "telemetry_events",
  "tempfile",
+ "terminal_history",
  "terminal_view",
  "theme",
  "theme_extension",

@@ -1077,6 +1077,7 @@
     "context": "Terminal",
     "bindings": {
       "ctrl-alt-p": "prompt_palette::Toggle",
+      "ctrl-alt-h": "terminal_history::Toggle",
       "ctrl-alt-space": "terminal::ShowCharacterPalette",
       "copy": "terminal::Copy",
       "ctrl-insert": "terminal::Copy",

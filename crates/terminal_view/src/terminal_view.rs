@@ -55,7 +55,7 @@ use util::ResultExt;
 use workspace::{
     CloseActiveItem, DraggedSelection, DraggedTab, NewCenterTerminal, NewTerminal, Pane,
     SplitDown, SplitLeft, SplitRight, SplitUp,
-    ToolbarItemLocation, WallpaperSettings, Workspace, WorkspaceId, delete_unloaded_items,
+    ToolbarItemLocation, WallpaperSettings, Workspace, WorkspaceId,
     item::{
         HighlightedText, Item, ItemEvent, SerializableItem, TabContentParams, TabTooltipContent,
     },
@@ -320,7 +320,7 @@ impl TerminalView {
             block_below_cursor: None,
             scroll_top: Pixels::ZERO,
             scroll_handle,
-            needs_serialize: false,
+            needs_serialize: workspace_id.is_some(),
             custom_title: None,
             ime_state: None,
             self_handle: cx.entity().downgrade(),
@@ -1911,13 +1911,14 @@ impl SerializableItem for TerminalView {
     }
 
     fn cleanup(
-        workspace_id: WorkspaceId,
-        alive_items: Vec<workspace::ItemId>,
+        _workspace_id: WorkspaceId,
+        _alive_items: Vec<workspace::ItemId>,
         _window: &mut Window,
-        cx: &mut App,
+        _cx: &mut App,
     ) -> Task<anyhow::Result<()>> {
-        let db = TerminalDb::global(cx);
-        delete_unloaded_items(alive_items, workspace_id, "terminals", &db, cx)
+        // 터미널 패널이 자체적으로 cleanup을 처리하므로 여기서는 아무 작업도 하지 않음
+        // (terminal_panel.rs 초기화 코드에서 패널 아이템 ID를 수집하여 직접 cleanup 수행)
+        Task::ready(Ok(()))
     }
 
     fn serialize(
@@ -1941,13 +1942,6 @@ impl SerializableItem for TerminalView {
         let cwd = terminal.working_directory();
         let custom_title = self.custom_title.clone();
         self.needs_serialize = false;
-
-        log::debug!(
-            "터미널 serialize: item_id={}, workspace_id={:?}, cwd={:?}",
-            item_id,
-            workspace_id,
-            cwd
-        );
 
         let db = TerminalDb::global(cx);
         Some(cx.background_spawn(async move {
@@ -1977,27 +1971,21 @@ impl SerializableItem for TerminalView {
             let (cwd, custom_title) = cx
                 .update(|_window, cx| {
                     let db = TerminalDb::global(cx);
+                    // DB에 저장된 마지막 종료 시 경로를 우선 사용하고,
+                    // 없으면 설정의 기본 작업 디렉토리로 폴백
                     let from_db = db
                         .get_working_directory(item_id, workspace_id)
                         .log_err()
                         .flatten();
-                    log::debug!(
-                        "터미널 deserialize: item_id={}, workspace_id={:?}, from_db={:?}",
-                        item_id,
-                        workspace_id,
-                        from_db
-                    );
                     let cwd = if from_db
                         .as_ref()
-                        .is_some_and(|from_db| !from_db.as_os_str().is_empty())
+                        .is_some_and(|p| !p.as_os_str().is_empty())
                     {
                         from_db
                     } else {
-                        let fallback = workspace
+                        workspace
                             .upgrade()
-                            .and_then(|workspace| default_working_directory(workspace.read(cx), cx));
-                        log::debug!("터미널 deserialize: DB에 저장된 cwd 없음, fallback={:?}", fallback);
-                        fallback
+                            .and_then(|ws| default_working_directory(ws.read(cx), cx))
                     };
                     let custom_title = db
                         .get_custom_title(item_id, workspace_id)
@@ -2010,7 +1998,7 @@ impl SerializableItem for TerminalView {
                 .unwrap_or((None, None));
 
             let terminal = project
-                .update(cx, |project, cx| project.restore_terminal_shell(cwd, cx))
+                .update(cx, |project, cx| project.create_terminal_shell(cwd, cx))
                 .await?;
             cx.update(|window, cx| {
                 cx.new(|cx| {
@@ -2186,7 +2174,8 @@ impl SearchableItem for TerminalView {
 /// Gets the working directory for the given workspace, respecting the user's settings.
 /// Falls back to home directory when no project directory is available.
 pub(crate) fn default_working_directory(workspace: &Workspace, cx: &App) -> Option<PathBuf> {
-    let directory = match &TerminalSettings::get_global(cx).working_directory {
+    let settings = TerminalSettings::get_global(cx);
+    let directory = match &settings.working_directory {
         WorkingDirectory::CurrentFileDirectory => workspace
             .project()
             .read(cx)

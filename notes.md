@@ -1,6 +1,14 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-04-09: 터미널 패널 탭 CWD 복원 실패 수정 — workspace center cleanup이 터미널 패널 DB 항목을 삭제하는 문제 해결. TerminalView의 SerializableItem::cleanup을 no-op으로 변경하여 터미널 패널 자체 cleanup만 동작하도록 수정
+- 2026-04-09: 터미널 CWD 복원 수정(3차, 최종) — PowerShell 7이 OSC 타이틀 시퀀스를 미전송하고 PEB CWD도 cd 시 미갱신하는 문제 해결. 스크립트 주입 없이 터미널 화면 버퍼에서 PowerShell 프롬프트 패턴("PS C:\path>")을 파싱하여 CWD 추출. Wakeup 이벤트에서 커서 라인을 읽고, 현재 CWD와 다를 때만 is_dir() 검증 후 갱신. (1) extract_windows_path_from_title: 접두사 붙은 제목 처리 (2) PEB 경쟁 조건: cwd_title_version 카운터로 Title/화면 파싱 CWD를 PEB가 덮어쓰지 않도록 방지
+- 2026-04-09: 터미널 탭 복원 방식 개선 — 세션 복원 시 PowerShell 스크립트 주입 제거. DB에 저장된 마지막 종료 경로를 `CreateProcessW`의 `lpCurrentDirectory`로 직접 전달하는 방식으로 변경. DB 경로 없으면 설정의 기본 작업 디렉토리로 폴백. `restore_terminal_shell` 함수 및 `restoring` 파라미터 제거, 디버그 로깅 정리
+- 2026-04-09: 메모장 패널 불필요한 세로 스크롤바 수정 — SizingBehavior::ExcludeOverscrollMargin 적용으로 내용이 화면 내일 때 overscroll 여분 공간 제거
+- 2026-04-09: 터미널 대량 출력 시 렌더링 멈춤 근본 원인 수정 — sync()에서 lock_unfair()→try_lock_unfair()로 변경하여 PTY 리더와의 FairMutex 경합 시 메인 스레드 블로킹 방지. draw phase에서 무효인 cx.notify()를 on_next_frame 콜백으로 교체하여 다음 프레임 스케줄링 보장. set_size()에 Resize 이벤트 중복 방지 추가
+- 2026-04-09: 액션 이름 한글화 및 어순 보정 — 키맵 편집기, 명령어 팔레트, Which Key 모달에서 액션 이름을 한글로 표시. humanize_action_name_localized() 함수 추가, i18n 폴백 지원. ~902개 액션 번역 키 추가 (ko.json/en.json). 한국어 어순(목적어+동사) 보정 완료, 170개 수동 오버라이드 포함
+- 2026-04-09: 터미널 명령어 히스토리 팝업 기능 추가 — 터미널에서 Ctrl+Alt+H로 셸 히스토리 파일을 읽어 검색 가능한 팝업 표시. Picker 기반 fuzzy 검색, 선택 시 터미널에 명령어 입력. PowerShell/bash/zsh/fish/nushell 지원. 새 크레이트 terminal_history 추가
+- 2026-04-09: 터미널 대량 출력 시 렌더링 멈춤 수정 — (1) Dirty Flag 메커니즘 도입: content_dirty 플래그로 변경 없을 때 update_content() 스킵 (2) sync() 프레임 예산 제한: 8ms 간격으로 콘텐츠 갱신 제한하여 메인 스레드 블로킹 방지 (3) 이벤트 배치 윈도우 확대: 4ms→8ms, 이벤트 캡 100→500으로 sync() 호출 빈도 50% 감소 (4) selection_to_string() 조건부 실행: 선택 영역 변경 시에만 전체 그리드 순회
 - 2026-04-09: GPUI 리스트 follow_tail 스크롤 버그 수정 — FollowState 상태머신 도입(Normal/Tail/일시중지/재개), Unmeasured 항목에 size_hint 보존으로 스크롤 점프 방지, remeasure_items() 메서드 추가로 스트리밍 중 스크롤 위치 유지, agent_ui EntryUpdated에서 splice→remeasure_items 전환
 - 2026-04-09: 메인 워크트리 삭제 방지 — Git worktree picker에서 메인 워크트리 삭제 버튼 비활성화 (git 바이너리가 이미 거부하던 동작을 UI에서도 방지)
 - 2026-04-09: 탭 순환 wrap_around 옵션 추가 — ActivateNextItem/ActivatePreviousItem 액션에 wrap_around 필드 추가 (기본값 true). 키맵에서 { "wrap_around": false }로 마지막 탭에서 순환 비활성화 가능

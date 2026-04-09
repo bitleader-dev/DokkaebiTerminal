@@ -1141,6 +1141,7 @@
     "use_key_equivalents": true,
     "bindings": {
       "ctrl-alt-p": "prompt_palette::Toggle",
+      "ctrl-alt-h": "terminal_history::Toggle",
       "ctrl-cmd-space": "terminal::ShowCharacterPalette",
       "cmd-c": "terminal::Copy",
       "cmd-v": "terminal::Paste",

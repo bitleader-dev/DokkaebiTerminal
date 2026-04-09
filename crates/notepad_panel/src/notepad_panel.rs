@@ -2,7 +2,7 @@
 // 오른쪽에 도킹되는 간단한 텍스트 메모장 패널
 
 use anyhow::Result;
-use editor::Editor;
+use editor::{Editor, EditorMode, SizingBehavior};
 use gpui::{
     actions, div, px, App, AsyncWindowContext, Context, Entity, EventEmitter, FocusHandle,
     Focusable, IntoElement, ParentElement, Pixels, Render, Styled, WeakEntity, Window,
@@ -102,6 +102,12 @@ impl NotepadPanel {
             } else {
                 editor.set_soft_wrap_mode(SoftWrap::EditorWidth, cx);
             }
+            // 메모장은 overscroll 불필요 → 내용이 화면 내일 때 스크롤바 미표시
+            editor.set_mode(EditorMode::Full {
+                scale_ui_elements_with_buffer_font_size: true,
+                show_active_line_background: true,
+                sizing_behavior: SizingBehavior::ExcludeOverscrollMargin,
+            });
             // 복원 설정이 켜져 있을 때만 기존 내용 로드
             let restore = NotepadPanelSettings::get_global(cx).restore;
             if restore {
@@ -158,7 +164,9 @@ impl NotepadPanel {
     /// 현재 에디터 내용을 파일에 저장
     fn save_content(&self, cx: &App) {
         let text = self.editor.read(cx).text(cx);
-        let data = NotepadData { content: text };
+        // 마지막 빈 라인 제거 후 저장
+        let trimmed = text.trim_end_matches(|c: char| c == '\n' || c == '\r');
+        let data = NotepadData { content: trimmed.to_string() };
         if let Some(parent) = self.save_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }

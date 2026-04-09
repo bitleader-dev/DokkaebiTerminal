@@ -810,6 +810,7 @@ fn main() {
                     toolchain_selector::init(cx);
                     theme_selector::init(cx);
                     prompt_palette::init(cx);
+                    terminal_history::init(cx);
                     settings_profile_selector::init(cx);
                     language_tools::init(cx);
                     onboarding::init(cx);

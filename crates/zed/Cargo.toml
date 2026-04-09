@@ -190,6 +190,7 @@ task.workspace = true
 tasks_ui.workspace = true
 telemetry.workspace = true
 telemetry_events.workspace = true
+terminal_history.workspace = true
 terminal_view.workspace = true
 theme.workspace = true
 theme_settings.workspace = true
@@ -290,7 +291,7 @@ osx_info_plist_exts = ["resources/info/*"]
 osx_url_schemes = ["zed"]
 
 [package.metadata.dokkaebi]
-upstream_version = "0.231.0"
+upstream_version = "0.231.1"
 
 [package.metadata.cargo-machete]
 ignored = ["profiling", "zstd", "tracing"]

@@ -1744,7 +1744,7 @@ impl HumanizedActionNameCache {
         let cache = HashMap::from_iter(cx.all_action_names().iter().map(|&action_name| {
             (
                 action_name,
-                command_palette::humanize_action_name(action_name).into(),
+                command_palette::humanize_action_name_localized(action_name, cx),
             )
         }));
         Self { cache }
@@ -2602,7 +2602,7 @@ impl KeybindingEditorModal {
 
             let humanized_names: HashMap<&'static str, SharedString> = actions
                 .iter()
-                .map(|&name| (name, command_palette::humanize_action_name(name).into()))
+                .map(|&name| (name, command_palette::humanize_action_name_localized(name, cx)))
                 .collect();
 
             let action_name_to_static: HashMap<String, &'static str> = actions
@@ -2905,7 +2905,7 @@ impl KeybindingEditorModal {
             .map_err(InputError::error)?;
 
         let humanized_action_name: SharedString =
-            command_palette::humanize_action_name(action_name).into();
+            command_palette::humanize_action_name_localized(action_name, cx);
 
         let action_information = ActionInformation::new(
             action_name,

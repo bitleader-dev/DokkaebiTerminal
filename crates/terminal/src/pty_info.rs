@@ -86,6 +86,9 @@ mod win_peb_cwd {
         current_directory: CurDir,
     }
 
+    const PROCESS_QUERY_INFORMATION: u32 = 0x0400;
+    const PROCESS_VM_READ: u32 = 0x0010;
+
     unsafe extern "system" {
         fn LoadLibraryW(name: *const u16) -> *mut c_void;
         fn GetProcAddress(module: *mut c_void, name: *const u8) -> *mut c_void;
@@ -96,9 +99,29 @@ mod win_peb_cwd {
             size: usize,
             number_of_bytes_read: *mut usize,
         ) -> i32;
+        fn OpenProcess(desired_access: u32, inherit_handle: i32, process_id: u32) -> *mut c_void;
+        fn CloseHandle(handle: *mut c_void) -> i32;
     }
 
-    /// 원래 프로세스 핸들을 사용하여 PEB에서 현재 작업 디렉토리를 읽는다.
+    /// PID로 프로세스를 열고 PEB에서 현재 작업 디렉토리를 읽는다.
+    pub fn read_process_cwd_by_pid(pid: u32) -> Option<PathBuf> {
+        unsafe {
+            let handle = OpenProcess(
+                PROCESS_QUERY_INFORMATION | PROCESS_VM_READ,
+                0,
+                pid,
+            );
+            if handle.is_null() {
+                log::debug!("PEB cwd: OpenProcess 실패 (pid={})", pid);
+                return None;
+            }
+            let result = read_process_cwd(handle as isize);
+            CloseHandle(handle);
+            result
+        }
+    }
+
+    /// 프로세스 핸들을 사용하여 PEB에서 현재 작업 디렉토리를 읽는다.
     pub fn read_process_cwd(handle: isize) -> Option<PathBuf> {
         unsafe {
             // ntdll.dll에서 NtQueryInformationProcess를 동적 로드
@@ -205,6 +228,8 @@ mod win_peb_cwd {
     }
 }
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use crate::{Event, Terminal};
 
 #[derive(Clone, Copy)]
@@ -267,16 +292,15 @@ impl ProcessIdGetter {
     }
 
     fn pid(&self) -> Option<Pid> {
-        let pid = unsafe { GetProcessId(HANDLE(self.handle as *mut std::ffi::c_void)) };
-        // the GetProcessId may fail and returns zero, which will lead to a stack overflow issue
-        if pid == 0 {
-            // in the builder process, there is a small chance, almost negligible,
-            // that this value could be zero, which means child_watcher returns None,
-            // GetProcessId returns 0.
-            if self.fallback_pid == 0 {
-                return None;
-            }
+        // Windows ConPTY에서는 handle이 중간 호스트 프로세스를 가리키고,
+        // fallback_pid(child.pid())가 실제 셸 프로세스의 PID이다.
+        // 실제 셸의 CWD를 추적하려면 fallback_pid를 우선 사용해야 한다.
+        if self.fallback_pid != 0 {
             return Some(Pid::from_u32(self.fallback_pid));
+        }
+        let pid = unsafe { GetProcessId(HANDLE(self.handle as *mut std::ffi::c_void)) };
+        if pid == 0 {
+            return None;
         }
         Some(Pid::from_u32(pid))
     }
@@ -296,6 +320,10 @@ pub struct PtyProcessInfo {
     pid_getter: ProcessIdGetter,
     pub current: RwLock<Option<ProcessInfo>>,
     task: Mutex<Option<Task<()>>>,
+    /// Windows: Title 이벤트에서 CWD가 설정될 때마다 증가하는 버전 카운터.
+    /// PEB 읽기 백그라운드 작업이 Title에서 설정한 CWD를 덮어쓰지 않도록 한다.
+    #[cfg(target_os = "windows")]
+    cwd_title_version: AtomicU64,
 }
 
 impl PtyProcessInfo {
@@ -313,6 +341,8 @@ impl PtyProcessInfo {
             pid_getter: ProcessIdGetter::new(pty),
             current: RwLock::new(None),
             task: Mutex::new(None),
+            #[cfg(target_os = "windows")]
+            cwd_title_version: AtomicU64::new(0),
         }
     }
 
@@ -362,10 +392,16 @@ impl PtyProcessInfo {
         let process = self.refresh();
         if process.is_none() {
             log::debug!("터미널 cwd: refresh 실패 (pid={:?})", pid);
-            // Windows: sysinfo refresh 실패 시에도 원래 핸들로 PEB에서 cwd를 읽는다
+            // Windows: sysinfo refresh 실패 시에도 실제 셸 PID로 PEB에서 cwd를 읽는다
             #[cfg(target_os = "windows")]
             {
-                if let Some(cwd) = win_peb_cwd::read_process_cwd(self.pid_getter.handle()) {
+                let shell_pid = self.pid_getter.fallback_pid;
+                let peb_cwd = if shell_pid != 0 {
+                    win_peb_cwd::read_process_cwd_by_pid(shell_pid)
+                } else {
+                    win_peb_cwd::read_process_cwd(self.pid_getter.handle())
+                };
+                if let Some(cwd) = peb_cwd {
                     return Some(ProcessInfo {
                         name: String::new(),
                         cwd,
@@ -376,24 +412,29 @@ impl PtyProcessInfo {
             return None;
         }
         let process = process.unwrap();
-        let raw_cwd = process.cwd();
-        let mut cwd = raw_cwd.map_or(PathBuf::new(), |p| p.to_owned());
 
-        // Windows: sysinfo가 cwd를 가져오지 못한 경우 원래 핸들로 직접 읽기 시도
+        // Windows: sysinfo는 CWD를 캐시하여 cd 후에도 갱신하지 않는 문제가 있으므로
+        // 항상 PEB에서 직접 읽는다. PEB 읽기 실패 시에만 sysinfo 폴백.
         #[cfg(target_os = "windows")]
-        if cwd.as_os_str().is_empty() {
-            if let Some(peb_cwd) = win_peb_cwd::read_process_cwd(self.pid_getter.handle()) {
-                log::debug!("터미널 cwd: sysinfo 실패, PEB 폴백 성공 = {:?}", peb_cwd);
-                cwd = peb_cwd;
-            }
-        }
+        let cwd = {
+            // 실제 셸 PID로 PEB에서 CWD를 읽는다 (sysinfo는 CWD 갱신이 안 됨)
+            let shell_pid = self.pid_getter.fallback_pid;
+            let peb_cwd = if shell_pid != 0 {
+                win_peb_cwd::read_process_cwd_by_pid(shell_pid)
+            } else {
+                win_peb_cwd::read_process_cwd(self.pid_getter.handle())
+            };
+            peb_cwd.unwrap_or_else(|| {
+                let raw_cwd = process.cwd();
+                raw_cwd.map_or(PathBuf::new(), |p| p.to_owned())
+            })
+        };
 
-        log::debug!(
-            "터미널 cwd: pid={:?}, name={:?}, cwd={:?}",
-            pid,
-            process.name(),
-            cwd
-        );
+        #[cfg(not(target_os = "windows"))]
+        let cwd = {
+            let raw_cwd = process.cwd();
+            raw_cwd.map_or(PathBuf::new(), |p| p.to_owned())
+        };
 
         let info = ProcessInfo {
             name: process.name().to_str()?.to_owned(),
@@ -413,15 +454,58 @@ impl PtyProcessInfo {
             return;
         }
         let this = self.clone();
+        // Windows: Title 이벤트에서 CWD를 설정한 버전을 캡처한다.
+        // 백그라운드 작업 중 Title 이벤트가 CWD를 갱신했으면 PEB 값으로 덮어쓰지 않는다.
+        #[cfg(target_os = "windows")]
+        let title_ver_before = this.cwd_title_version.load(Ordering::Acquire);
+
         let has_changed = cx.background_executor().spawn(async move {
             // 이전 값을 먼저 캡처한 후 새 값을 조회하여 비교한다.
             let previous = this.current.read().clone();
-            let current = this.load();
+            let loaded = this.load();
+
+            // Windows: 백그라운드 작업 중 Title이 CWD를 갱신했으면 PEB CWD를 무시한다.
+            // Title에서 추출한 CWD가 더 정확하다 (PowerShell은 PEB CWD를 갱신하지 않음).
+            #[cfg(target_os = "windows")]
+            let current = {
+                let title_ver_after = this.cwd_title_version.load(Ordering::Acquire);
+                if title_ver_after != title_ver_before {
+                    // Title이 CWD를 갱신함 → PEB CWD 무시, name/argv만 갱신
+                    if let Some(ref new_info) = loaded {
+                        let mut current_lock = this.current.write();
+                        if let Some(ref mut existing) = *current_lock {
+                            existing.name.clone_from(&new_info.name);
+                            existing.argv.clone_from(&new_info.argv);
+                        }
+                    }
+                    // 변경 여부를 현재 실제 current와 previous로 재비교
+                    let actual = this.current.read().clone();
+                    let changed = match (previous.as_ref(), actual.as_ref()) {
+                        (None, None) => false,
+                        (Some(prev), Some(now)) => prev.cwd != now.cwd || prev.name != now.name,
+                        _ => true,
+                    };
+                    return changed;
+                }
+                loaded
+            };
+
+            #[cfg(not(target_os = "windows"))]
+            let current = loaded;
+
             let has_changed = match (previous.as_ref(), current.as_ref()) {
                 (None, None) => false,
                 (Some(prev), Some(now)) => prev.cwd != now.cwd || prev.name != now.name,
                 _ => true,
             };
+            if has_changed {
+                log::debug!(
+                    "터미널 CWD 변경 감지: pid={:?}, previous={:?}, current={:?}",
+                    this.pid_getter.pid(),
+                    previous.as_ref().map(|p| &p.cwd),
+                    current.as_ref().map(|p| &p.cwd),
+                );
+            }
             // 새 값이 있을 때만 current를 갱신한다.
             // sysinfo가 빈 cwd를 반환하면 이전 유효한 cwd를 보존한다.
             if let Some(ref new_info) = current {
@@ -448,7 +532,23 @@ impl PtyProcessInfo {
         }));
     }
 
+    /// Windows: Title 이벤트에서 CWD가 설정되었음을 표시한다.
+    /// PEB 백그라운드 읽기가 Title에서 설정한 CWD를 덮어쓰지 않도록 방지한다.
+    #[cfg(target_os = "windows")]
+    pub fn mark_cwd_from_title(&self) {
+        self.cwd_title_version.fetch_add(1, Ordering::Release);
+    }
+
     pub fn pid(&self) -> Option<Pid> {
         self.pid_getter.pid()
+    }
+
+    /// CWD만 포함하는 ProcessInfo를 생성한다 (제목에서 CWD 추출 시 사용).
+    pub fn make_process_info(cwd: PathBuf) -> ProcessInfo {
+        ProcessInfo {
+            name: String::new(),
+            cwd,
+            argv: Vec::new(),
+        }
     }
 }

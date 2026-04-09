@@ -115,7 +115,7 @@ impl CommandPalette {
                 }
 
                 Some(Command {
-                    name: humanize_action_name(action.name()),
+                    name: humanize_action_name_localized(action.name(), cx).to_string(),
                     action,
                 })
             })
@@ -714,6 +714,19 @@ pub fn humanize_action_name(name: &str) -> String {
         }
     }
     result
+}
+
+/// i18n 지원 액션 이름 변환.
+/// `action.{원본이름}` 키로 번역을 찾고, 없으면 영문 humanized 이름으로 폴백한다.
+pub fn humanize_action_name_localized(name: &str, cx: &gpui::App) -> gpui::SharedString {
+    let key = format!("action.{}", name);
+    let translated = i18n::t(&key, cx);
+    // i18n::t는 키가 없으면 키 자체를 반환
+    if translated.as_ref() == key.as_str() {
+        humanize_action_name(name).into()
+    } else {
+        translated
+    }
 }
 
 impl std::fmt::Debug for Command {

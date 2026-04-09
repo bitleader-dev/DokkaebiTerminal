@@ -395,6 +395,18 @@ pub mod prompt_palette {
     );
 }
 
+pub mod terminal_history {
+    use gpui::actions;
+
+    actions!(
+        terminal_history,
+        [
+            /// 터미널 명령어 히스토리 팝업을 토글한다.
+            Toggle,
+        ]
+    );
+}
+
 pub mod search {
     use gpui::actions;
     actions!(

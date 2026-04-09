@@ -290,17 +290,7 @@ impl Project {
         cwd: Option<PathBuf>,
         cx: &mut Context<Self>,
     ) -> Task<Result<Entity<Terminal>>> {
-        self.create_terminal_shell_internal(cwd, false, false, cx)
-    }
-
-    /// 앱 재시작 시 터미널 탭 복원 전용.
-    /// PowerShell/Pwsh에서 cwd 동기화 스크립트를 주입한다.
-    pub fn restore_terminal_shell(
-        &mut self,
-        cwd: Option<PathBuf>,
-        cx: &mut Context<Self>,
-    ) -> Task<Result<Entity<Terminal>>> {
-        self.create_terminal_shell_internal(cwd, false, true, cx)
+        self.create_terminal_shell_internal(cwd, false, cx)
     }
 
     /// Creates a local terminal even if the project is remote.
@@ -317,17 +307,15 @@ impl Project {
             // Local project: use project directory like normal terminals
             self.active_project_directory(cx).map(|p| p.to_path_buf())
         };
-        self.create_terminal_shell_internal(working_directory, true, false, cx)
+        self.create_terminal_shell_internal(working_directory, true, cx)
     }
 
-    /// Internal method for creating terminal shells.
-    /// If force_local is true, creates a local terminal even if the project has a remote client.
-    /// This allows "breaking out" to a local shell in remote projects.
+    /// 터미널 쉘 생성 내부 구현.
+    /// force_local이 true이면 원격 프로젝트에서도 로컬 터미널을 생성한다.
     fn create_terminal_shell_internal(
         &mut self,
         cwd: Option<PathBuf>,
         force_local: bool,
-        restoring: bool,
         cx: &mut Context<Self>,
     ) -> Task<Result<Entity<Terminal>>> {
         let path = cwd.map(|p| Arc::from(&*p));
@@ -405,21 +393,6 @@ impl Project {
             })
             .await
             .unwrap_or_default();
-
-            // Windows PowerShell: 탭 복원 시 prompt 함수를 래핑하여
-            // [Environment]::CurrentDirectory를 $PWD와 동기화한다.
-            // 이를 통해 sysinfo/PEB에서 cwd를 올바르게 읽을 수 있다.
-            #[cfg(target_os = "windows")]
-            let activation_script = if restoring
-                && matches!(shell_kind, ShellKind::PowerShell | ShellKind::Pwsh)
-            {
-                let ps_sync = "$__zedPrompt=$function:prompt;function prompt{if($PWD.Provider.Name -eq 'FileSystem'){[Environment]::CurrentDirectory=$PWD.ProviderPath};&$__zedPrompt}".to_string();
-                let mut scripts = vec![ps_sync];
-                scripts.extend(activation_script);
-                scripts
-            } else {
-                activation_script
-            };
 
             let builder = project
                 .update(cx, move |_, cx| {

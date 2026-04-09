@@ -1,6 +1,10 @@
 # 변경 내역
 
 ## 최근 변경
+- 2026-04-09: GPUI 리스트 follow_tail 스크롤 버그 수정 — FollowState 상태머신 도입(Normal/Tail/일시중지/재개), Unmeasured 항목에 size_hint 보존으로 스크롤 점프 방지, remeasure_items() 메서드 추가로 스트리밍 중 스크롤 위치 유지, agent_ui EntryUpdated에서 splice→remeasure_items 전환
+- 2026-04-09: 메인 워크트리 삭제 방지 — Git worktree picker에서 메인 워크트리 삭제 버튼 비활성화 (git 바이너리가 이미 거부하던 동작을 UI에서도 방지)
+- 2026-04-09: 탭 순환 wrap_around 옵션 추가 — ActivateNextItem/ActivatePreviousItem 액션에 wrap_around 필드 추가 (기본값 true). 키맵에서 { "wrap_around": false }로 마지막 탭에서 순환 비활성화 가능
+- 2026-04-09: Zed v0.231.1 upstream cherry-pick 반영 — (1) 설정 보존 버그 수정: 폐기된 키 포함 시 설정 UI 변경이 다른 설정을 덮어쓰는 문제 해결 (2) 브랜치 diff 성능 개선: 매 프레임 hunk 순회를 SumTree summary 상수 시간 조회로 대체 (3) Edit Prediction ======= 토큰 체크 수정: 주석/문자열 내 =======에서 편집 예측 오작동 방지 (4) 터미널 커서 깜빡임 리셋: SendText/SendKeystroke 시 커서 blink 리셋 (5) 테마 선택기: 빈 필터 후 선택 상태 유지
 - 2026-04-08: 시스템 모니터링 기능 추가 — 상태표시줄 중앙에 CPU%, MEM%, GPU% 실시간 표시. 설정 UI(일반 → 시스템 모니터링)에서 on/off 토글 제공. Windows PDH API로 GPU 사용률 수집. 새 크레이트 system_monitor 추가, StatusBar에 center_items 영역 추가
 - 2026-04-08: 터미널 리사이즈 후 TUI 앱 렌더링 멈춤 수정 — Resize 이벤트 처리 시 무조건 Wakeup 발생하도록 변경, focus_in에 window.refresh() 추가
 - 2026-04-08: Git 패널 빈 상태 메시지 한글화 — "No Git repositories" → "Git 저장소 없음", "No changes to commit" → "커밋할 변경 사항이 없습니다" i18n 적용

@@ -1238,9 +1238,12 @@ impl ConversationView {
             AcpThreadEvent::EntryUpdated(index) => {
                 if let Some(active) = self.thread_view(&thread_id) {
                     let entry_view_state = active.read(cx).entry_view_state.clone();
+                    let list_state = active.read(cx).list_state.clone();
                     entry_view_state.update(cx, |view_state, cx| {
-                        view_state.sync_entry(*index, thread, window, cx)
+                        view_state.sync_entry(*index, thread, window, cx);
                     });
+                    // splice 대신 remeasure_items 사용하여 스크롤 위치 유지
+                    list_state.remeasure_items(*index..*index + 1);
                     active.update(cx, |active, cx| {
                         active.auto_expand_streaming_thought(cx);
                     });
@@ -1279,7 +1282,9 @@ impl ConversationView {
                     active.update(cx, |active, cx| {
                         active.thread_retry_status.take();
                         active.clear_auto_expand_tracking();
-                        active.list_state.set_follow_tail(false);
+                        if active.list_state.is_following_tail() {
+                            active.list_state.scroll_to_end();
+                        }
                         active.sync_generating_indicator(cx);
                     });
                 }
@@ -1350,7 +1355,9 @@ impl ConversationView {
                 if let Some(active) = self.thread_view(&thread_id) {
                     active.update(cx, |active, cx| {
                         active.thread_retry_status.take();
-                        active.list_state.set_follow_tail(false);
+                        if active.list_state.is_following_tail() {
+                            active.list_state.scroll_to_end();
+                        }
                         active.sync_generating_indicator(cx);
                     });
                 }

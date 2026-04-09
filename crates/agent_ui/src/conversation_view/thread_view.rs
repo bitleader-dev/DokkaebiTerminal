@@ -538,31 +538,15 @@ impl ThreadView {
         let thread_view = cx.entity().downgrade();
 
         this.list_state
-            .set_scroll_handler(move |event, _window, cx| {
+            .set_scroll_handler(move |_event, _window, cx| {
                 let list_state = list_state_for_scroll.clone();
                 let thread_view = thread_view.clone();
-                let is_following_tail = event.is_following_tail;
                 // N.B. We must defer because the scroll handler is called while the
                 // ListState's RefCell is mutably borrowed. Reading logical_scroll_top()
                 // directly would panic from a double borrow.
                 cx.defer(move |cx| {
                     let scroll_top = list_state.logical_scroll_top();
                     let _ = thread_view.update(cx, |this, cx| {
-                        if !is_following_tail {
-                            let is_at_bottom = {
-                                let current_offset =
-                                    list_state.scroll_px_offset_for_scrollbar().y.abs();
-                                let max_offset = list_state.max_offset_for_scrollbar().y;
-                                current_offset >= max_offset - px(1.0)
-                            };
-
-                            let is_generating =
-                                matches!(this.thread.read(cx).status(), ThreadStatus::Generating);
-
-                            if is_at_bottom && is_generating {
-                                list_state.set_follow_tail(true);
-                            }
-                        }
                         if let Some(thread) = this.as_native_thread(cx) {
                             thread.update(cx, |thread, _cx| {
                                 thread.set_ui_scroll_position(Some(scroll_top));

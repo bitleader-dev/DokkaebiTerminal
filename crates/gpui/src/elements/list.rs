@@ -72,7 +72,7 @@ struct StateInner {
     scrollbar_drag_start_height: Option<Pixels>,
     measuring_behavior: ListMeasuringBehavior,
     pending_scroll: Option<PendingScrollFraction>,
-    follow_tail: bool,
+    follow_state: FollowState,
 }
 
 /// Keeps track of a fractional scroll position within an item for restoration
@@ -82,6 +82,50 @@ struct PendingScrollFraction {
     item_ix: usize,
     /// Fractional offset (0.0 to 1.0) within the item's height.
     fraction: f32,
+}
+
+/// 리스트가 새 콘텐츠를 자동으로 따라갈지 제어하는 모드.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum FollowMode {
+    /// 일반 스크롤 — 자동 추적 없음.
+    #[default]
+    Normal,
+    /// 리스트 끝에 스크롤이 위치할 때 자동 추적.
+    Tail,
+}
+
+/// follow_tail 내부 상태.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum FollowState {
+    #[default]
+    Normal,
+    Tail {
+        is_following: bool,
+    },
+}
+
+impl FollowState {
+    fn is_following(&self) -> bool {
+        matches!(self, FollowState::Tail { is_following: true })
+    }
+
+    fn has_stopped_following(&self) -> bool {
+        matches!(
+            self,
+            FollowState::Tail {
+                is_following: false
+            }
+        )
+    }
+
+    fn start_following(&mut self) {
+        if let FollowState::Tail {
+            is_following: false,
+        } = self
+        {
+            *self = FollowState::Tail { is_following: true };
+        }
+    }
 }
 
 /// Whether the list is scrolling from top to bottom or bottom to top.
@@ -169,6 +213,7 @@ pub struct ListPrepaintState {
 #[derive(Clone)]
 enum ListItem {
     Unmeasured {
+        size_hint: Option<Size<Pixels>>,
         focus_handle: Option<FocusHandle>,
     },
     Measured {
@@ -186,9 +231,17 @@ impl ListItem {
         }
     }
 
+    /// 이전에 측정된 크기 힌트 반환 (Unmeasured 상태에서도 이전 높이 유지)
+    fn size_hint(&self) -> Option<Size<Pixels>> {
+        match self {
+            ListItem::Measured { size, .. } => Some(*size),
+            ListItem::Unmeasured { size_hint, .. } => *size_hint,
+        }
+    }
+
     fn focus_handle(&self) -> Option<FocusHandle> {
         match self {
-            ListItem::Unmeasured { focus_handle } | ListItem::Measured { focus_handle, .. } => {
+            ListItem::Unmeasured { focus_handle, .. } | ListItem::Measured { focus_handle, .. } => {
                 focus_handle.clone()
             }
         }
@@ -196,7 +249,7 @@ impl ListItem {
 
     fn contains_focused(&self, window: &Window, cx: &App) -> bool {
         match self {
-            ListItem::Unmeasured { focus_handle } | ListItem::Measured { focus_handle, .. } => {
+            ListItem::Unmeasured { focus_handle, .. } | ListItem::Measured { focus_handle, .. } => {
                 focus_handle
                     .as_ref()
                     .is_some_and(|handle| handle.contains_focused(window, cx))
@@ -240,7 +293,7 @@ impl ListState {
             scrollbar_drag_start_height: None,
             measuring_behavior: ListMeasuringBehavior::default(),
             pending_scroll: None,
-            follow_tail: false,
+            follow_state: FollowState::default(),
         })));
         this.splice(0..0, item_count);
         this
@@ -270,42 +323,56 @@ impl ListState {
         self.splice(0..old_count, element_count);
     }
 
-    /// Remeasure all items while preserving proportional scroll position.
-    ///
-    /// Use this when item heights may have changed (e.g., font size changes)
-    /// but the number and identity of items remains the same.
+    /// 모든 항목을 재측정하며 비례 스크롤 위치를 보존.
     pub fn remeasure(&self) {
+        let count = self.item_count();
+        self.remeasure_items(0..count);
+    }
+
+    /// 지정 범위의 항목만 재측정하며 스크롤 위치를 보존.
+    /// `splice`와 달리 항목 수를 변경하지 않고 `logical_scroll_top`을 건드리지 않음.
+    pub fn remeasure_items(&self, range: Range<usize>) {
         let state = &mut *self.0.borrow_mut();
 
-        let new_items = state.items.iter().map(|item| ListItem::Unmeasured {
-            focus_handle: item.focus_handle(),
-        });
-
-        // If there's a `logical_scroll_top`, we need to keep track of it as a
-        // `PendingScrollFraction`, so we can later preserve that scroll
-        // position proportionally to the item, in case the item's height
-        // changes.
+        // 스크롤 위치 항목이 재측정 범위에 포함되면 비례 오프셋 저장
         if let Some(scroll_top) = state.logical_scroll_top {
-            let mut cursor = state.items.cursor::<Count>(());
-            cursor.seek(&Count(scroll_top.item_ix), Bias::Right);
+            if range.contains(&scroll_top.item_ix) {
+                let mut cursor = state.items.cursor::<Count>(());
+                cursor.seek(&Count(scroll_top.item_ix), Bias::Right);
 
-            if let Some(item) = cursor.item() {
-                if let Some(size) = item.size() {
-                    let fraction = if size.height.0 > 0.0 {
-                        (scroll_top.offset_in_item.0 / size.height.0).clamp(0.0, 1.0)
-                    } else {
-                        0.0
-                    };
+                if let Some(item) = cursor.item() {
+                    if let Some(size) = item.size() {
+                        let fraction = if size.height.0 > 0.0 {
+                            (scroll_top.offset_in_item.0 / size.height.0).clamp(0.0, 1.0)
+                        } else {
+                            0.0
+                        };
 
-                    state.pending_scroll = Some(PendingScrollFraction {
-                        item_ix: scroll_top.item_ix,
-                        fraction,
-                    });
+                        state.pending_scroll = Some(PendingScrollFraction {
+                            item_ix: scroll_top.item_ix,
+                            fraction,
+                        });
+                    }
                 }
             }
         }
 
-        state.items = SumTree::from_iter(new_items, ());
+        // 범위 내 항목만 Unmeasured로 변환 (size_hint로 이전 높이 유지)
+        let new_items = {
+            let mut cursor = state.items.cursor::<Count>(());
+            let mut new_items = cursor.slice(&Count(range.start), Bias::Right);
+            let invalidated = cursor.slice(&Count(range.end), Bias::Right);
+            new_items.extend(
+                invalidated.iter().map(|item| ListItem::Unmeasured {
+                    size_hint: item.size_hint(),
+                    focus_handle: item.focus_handle(),
+                }),
+                (),
+            );
+            new_items.append(cursor.suffix(), ());
+            new_items
+        };
+        state.items = new_items;
         state.measuring_behavior.reset();
     }
 
@@ -339,7 +406,10 @@ impl ListState {
         new_items.extend(
             focus_handles.into_iter().map(|focus_handle| {
                 spliced_count += 1;
-                ListItem::Unmeasured { focus_handle }
+                ListItem::Unmeasured {
+                    size_hint: None,
+                    focus_handle,
+                }
             }),
             (),
         );
@@ -414,17 +484,37 @@ impl ListState {
         });
     }
 
-    /// Set whether the list should automatically follow the tail (auto-scroll to the end).
-    pub fn set_follow_tail(&self, follow: bool) {
-        self.0.borrow_mut().follow_tail = follow;
-        if follow {
-            self.scroll_to_end();
+    /// follow 모드 설정. Tail 모드에서는 리스트 끝으로 자동 스크롤하며,
+    /// 사용자가 스크롤하면 일시 중지하고 다시 끝으로 돌아오면 재개.
+    pub fn set_follow_mode(&self, mode: FollowMode) {
+        let state = &mut *self.0.borrow_mut();
+        match mode {
+            FollowMode::Normal => {
+                state.follow_state = FollowState::Normal;
+            }
+            FollowMode::Tail => {
+                state.follow_state = FollowState::Tail { is_following: true };
+                let item_count = state.items.summary().count;
+                state.logical_scroll_top = Some(ListOffset {
+                    item_ix: item_count,
+                    offset_in_item: px(0.),
+                });
+            }
         }
     }
 
-    /// Returns whether the list is currently in follow-tail mode (auto-scrolling to the end).
+    /// 기존 API 호환용 래퍼.
+    pub fn set_follow_tail(&self, follow: bool) {
+        if follow {
+            self.set_follow_mode(FollowMode::Tail);
+        } else {
+            self.set_follow_mode(FollowMode::Normal);
+        }
+    }
+
+    /// 리스트가 현재 tail을 따라가고 있는지 반환.
     pub fn is_following_tail(&self) -> bool {
-        self.0.borrow().follow_tail
+        self.0.borrow().follow_state.is_following()
     }
 
     /// Scroll the list to the given offset
@@ -613,8 +703,10 @@ impl StateInner {
             });
         }
 
-        if self.follow_tail && delta.y > px(0.) {
-            self.follow_tail = false;
+        if let FollowState::Tail { is_following } = &mut self.follow_state {
+            if delta.y > px(0.) {
+                *is_following = false;
+            }
         }
 
         if let Some(handler) = self.scroll_handler.as_mut() {
@@ -624,7 +716,10 @@ impl StateInner {
                     visible_range,
                     count: self.items.summary().count,
                     is_scrolled: self.logical_scroll_top.is_some(),
-                    is_following_tail: self.follow_tail,
+                    is_following_tail: matches!(
+                        self.follow_state,
+                        FollowState::Tail { is_following: true }
+                    ),
                 },
                 window,
                 cx,
@@ -715,7 +810,7 @@ impl StateInner {
         let mut max_item_width = px(0.);
         let mut scroll_top = self.logical_scroll_top();
 
-        if self.follow_tail {
+        if self.follow_state.is_following() {
             scroll_top = ListOffset {
                 item_ix: self.items.summary().count,
                 offset_in_item: px(0.),
@@ -868,6 +963,17 @@ impl StateInner {
         new_items.append(cursor.suffix(), ());
         self.items = new_items;
 
+        // follow_tail이 일시 중지 상태이고 사용자가 끝으로 돌아왔으면 재개
+        if self.follow_state.has_stopped_following() {
+            let padding = self.last_padding.unwrap_or_default();
+            let total_height = self.items.summary().height + padding.top + padding.bottom;
+            let scroll_offset = self.scroll_top(&scroll_top);
+            // 부동소수점 반올림 오차 허용 (1px)
+            if scroll_offset + available_height >= total_height - px(1.0) {
+                self.follow_state.start_following();
+            }
+        }
+
         // If none of the visible items are focused, check if an off-screen item is focused
         // and include it to be rendered after the visible items so keyboard interaction continues
         // to work for it.
@@ -1004,7 +1110,7 @@ impl StateInner {
             content_height - self.scrollbar_drag_start_height.unwrap_or(content_height);
         let new_scroll_top = (point.y - drag_offset).abs().max(px(0.)).min(scroll_max);
 
-        self.follow_tail = false;
+        self.follow_state = FollowState::Normal;
 
         if self.alignment == ListAlignment::Bottom && new_scroll_top == scroll_max {
             self.logical_scroll_top = None;
@@ -1152,6 +1258,7 @@ impl Element for List {
         {
             let new_items = SumTree::from_iter(
                 state.items.iter().map(|item| ListItem::Unmeasured {
+                    size_hint: None,
                     focus_handle: item.focus_handle(),
                 }),
                 (),
@@ -1238,11 +1345,18 @@ impl sum_tree::Item for ListItem {
 
     fn summary(&self, _: ()) -> Self::Summary {
         match self {
-            ListItem::Unmeasured { focus_handle } => ListItemSummary {
+            ListItem::Unmeasured {
+                size_hint,
+                focus_handle,
+            } => ListItemSummary {
                 count: 1,
                 rendered_count: 0,
                 unrendered_count: 1,
-                height: px(0.),
+                height: if let Some(size) = size_hint {
+                    size.height
+                } else {
+                    px(0.)
+                },
                 has_focus_handles: focus_handle.is_some(),
             },
             ListItem::Measured {

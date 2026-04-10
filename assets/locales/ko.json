@@ -2269,6 +2269,7 @@
   "settings.notepad_panel.restore.title": "메모장 복원",
   "settings_page.language.semantic_tokens.description": "Off: 언어 서버에 시맨틱 토큰을 요청하지 않습니다.\nCombined: LSP 시맨틱 토큰과 tree-sitter 구문 강조를 함께 사용합니다.\nFull: LSP 시맨틱 토큰만 사용하고 tree-sitter 구문 강조를 대체합니다.",
   "sidebar.open_project": "프로젝트 열기",
+  "sidebar.remove_project": "프로젝트 제거",
   "status_bar.open_threads_sidebar": "스레드 사이드바 열기",
   "terminal.edit_settings": "설정 편집",
   "terminal.failed_spawn": "터미널 생성 실패",

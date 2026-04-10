@@ -1,5 +1,5 @@
-use acp_thread::ThreadStatus;
 use action_log::DiffStats;
+use db::kvp::KeyValueStore;
 use agent_client_protocol::{self as acp};
 use agent_settings::AgentSettings;
 use agent_ui::thread_metadata_store::{SidebarThreadMetadataStore, ThreadMetadata};
@@ -9,7 +9,6 @@ use agent_ui::threads_archive_view::{
 use agent_ui::{
     Agent, AgentPanel, AgentPanelEvent, DEFAULT_THREAD_TITLE, NewThread, RemoveSelectedThread,
 };
-use chrono::Utc;
 use editor::Editor;
 use feature_flags::{AgentV2FeatureFlag, FeatureFlagViewExt as _};
 use i18n::t;
@@ -21,13 +20,14 @@ use gpui::{
 use menu::{
     Cancel, Confirm, SelectChild, SelectFirst, SelectLast, SelectNext, SelectParent, SelectPrevious,
 };
-use project::{DirectoryLister, Event as ProjectEvent, linked_worktree_short_name};
+use project::{DirectoryLister, Event as ProjectEvent};
 use recent_projects::sidebar_recent_projects::SidebarRecentProjects;
 use ui::utils::platform_title_bar_height;
 
 use settings::Settings as _;
 use std::collections::{HashMap, HashSet};
 use std::mem;
+use std::path::PathBuf;
 use std::rc::Rc;
 use theme::ActiveTheme;
 use ui::{
@@ -48,8 +48,9 @@ use zed_actions::editor::{MoveDown, MoveUp};
 
 use zed_actions::agents_sidebar::FocusSidebarFilter;
 
-use crate::project_group_builder::ProjectGroupBuilder;
-
+// `project_group_builder` 모듈은 단일 Workspace + 평면 worktree 나열 구조에서는
+// 사이드바 표시 로직에 사용되지 않는다. 모듈 자체는 향후 활용을 위해 유지한다.
+#[allow(dead_code)]
 mod project_group_builder;
 
 #[cfg(test)]
@@ -75,31 +76,6 @@ enum SidebarView {
     #[default]
     ThreadList,
     Archive(Entity<ThreadsArchiveView>),
-}
-
-#[derive(Clone, Debug)]
-struct ActiveThreadInfo {
-    session_id: acp::SessionId,
-    title: SharedString,
-    status: AgentThreadStatus,
-    icon: IconName,
-    icon_from_external_svg: Option<SharedString>,
-    is_background: bool,
-    is_title_generating: bool,
-    diff_stats: DiffStats,
-}
-
-impl From<&ActiveThreadInfo> for acp_thread::AgentSessionInfo {
-    fn from(info: &ActiveThreadInfo) -> Self {
-        Self {
-            session_id: info.session_id.clone(),
-            work_dirs: None,
-            title: Some(info.title.clone()),
-            updated_at: Some(Utc::now()),
-            created_at: Some(Utc::now()),
-            meta: None,
-        }
-    }
 }
 
 #[derive(Clone)]
@@ -131,23 +107,6 @@ struct ThreadEntry {
     diff_stats: DiffStats,
 }
 
-impl ThreadEntry {
-    /// Updates this thread entry with active thread information.
-    ///
-    /// The existing [`ThreadEntry`] was likely deserialized from the database
-    /// but if we have a correspond thread already loaded we want to apply the
-    /// live information.
-    fn apply_active_info(&mut self, info: &ActiveThreadInfo) {
-        self.session_info.title = Some(info.title.clone());
-        self.status = info.status;
-        self.icon = info.icon;
-        self.icon_from_external_svg = info.icon_from_external_svg.clone();
-        self.is_live = true;
-        self.is_background = info.is_background;
-        self.is_title_generating = info.is_title_generating;
-        self.diff_stats = info.diff_stats;
-    }
-}
 
 #[derive(Clone)]
 enum ListEntry {
@@ -262,30 +221,27 @@ fn workspace_path_list(workspace: &Entity<Workspace>, cx: &App) -> PathList {
     PathList::new(&workspace.read(cx).root_paths(cx))
 }
 
-/// Derives worktree display info from a thread's stored path list.
+/// 사이드바가 사용자에게 등록된 프로젝트(worktree root) 목록을
+/// 영속 저장하는 데 사용하는 KeyValueStore 키.
+const REGISTERED_PROJECTS_KVP_KEY: &str = "sidebar.registered_projects";
+
+/// 영속 저장된 등록 프로젝트 목록을 동기적으로 읽어 반환한다.
+/// 저장된 값이 없거나 읽기/파싱이 실패하면 빈 Vec을 반환한다.
 ///
-/// For each path in the thread's `folder_paths` that canonicalizes to a
-/// different path (i.e. it's a git worktree), produces a [`WorktreeInfo`]
-/// with the short worktree name and full path.
-fn worktree_info_from_thread_paths(
-    folder_paths: &PathList,
-    project_groups: &ProjectGroupBuilder,
-) -> Vec<WorktreeInfo> {
-    folder_paths
-        .paths()
-        .iter()
-        .filter_map(|path| {
-            let canonical = project_groups.canonicalize_path(path);
-            if canonical != path.as_path() {
-                Some(WorktreeInfo {
-                    name: linked_worktree_short_name(canonical, path).unwrap_or_default(),
-                    full_path: SharedString::from(path.display().to_string()),
-                    highlight_positions: Vec::new(),
-                })
-            } else {
-                None
-            }
-        })
+/// 저장 포맷: 줄바꿈(`\n`)으로 구분된 절대 경로 문자열. 빈 줄은 무시.
+fn load_persisted_registered_projects(cx: &App) -> Vec<PathBuf> {
+    // 읽기 실패는 비치명적 — 빈 Vec으로 폴백한다.
+    let raw = match KeyValueStore::global(cx)
+        .read_kvp(REGISTERED_PROJECTS_KVP_KEY)
+        .ok()
+        .flatten()
+    {
+        Some(value) => value,
+        None => return Vec::new(),
+    };
+    raw.lines()
+        .filter(|line| !line.is_empty())
+        .map(PathBuf::from)
         .collect()
 }
 
@@ -314,11 +270,19 @@ pub struct Sidebar {
     hovered_thread_index: Option<usize>,
     collapsed_groups: HashSet<PathList>,
     expanded_groups: HashMap<PathList, usize>,
+    /// 사용자가 사이드바에서 선택한 프로젝트(worktree) 경로.
+    /// 클릭 시 갱신되며, 렌더링 시 활성 강조에 사용된다.
+    /// `MultiWorkspace`의 활성 워크스페이스와는 무관하다.
+    selected_project_path: Option<PathList>,
+    /// 사이드바가 알고 있는 모든 프로젝트(worktree root) 경로의 등록 목록.
+    /// Workspace의 worktree 목록과는 별개로 유지되며, 실제 Workspace에는
+    /// 항상 이 목록 중 단 하나의 프로젝트만 worktree로 들어 있다.
+    /// 새 항목을 추가하거나 기존 항목을 클릭하면 Workspace의 worktree가
+    /// 해당 프로젝트로 교체된다.
+    registered_projects: Vec<PathBuf>,
     view: SidebarView,
     recent_projects_popover_handle: PopoverMenuHandle<SidebarRecentProjects>,
     project_header_menu_ix: Option<usize>,
-    /// 프로젝트 항목 우클릭 컨텍스트 메뉴 상태 (메뉴 엔티티, 표시 위치, 구독)
-    project_context_menu: Option<(Entity<ContextMenu>, Point<Pixels>, gpui::Subscription)>,
     _subscriptions: Vec<gpui::Subscription>,
     _draft_observation: Option<gpui::Subscription>,
 }
@@ -394,6 +358,44 @@ impl Sidebar {
             this.update_entries(cx);
         });
 
+        // 등록 프로젝트 시드 — 우선순위:
+        // 1) KVP에 영속 저장된 등록 목록이 있으면 그것을 사용 (재시작 시 복원)
+        // 2) 없거나 비어 있으면 활성 Workspace의 root worktree로 폴백
+        // 어느 경로에서든, 활성 Workspace의 root worktree가 등록 목록에 없으면
+        // 마지막에 보강한다 (세션 복원이 KVP 외 경로로 다른 프로젝트를 열었을 가능성 대비).
+        let active_workspace_roots: Vec<PathBuf> = {
+            let mw = multi_workspace.read(cx);
+            mw.workspaces()
+                .get(mw.active_workspace_index())
+                .map(|ws| {
+                    ws.read(cx)
+                        .root_paths(cx)
+                        .into_iter()
+                        .map(|p| p.to_path_buf())
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let mut initial_registered_projects: Vec<PathBuf> =
+            load_persisted_registered_projects(cx);
+        if initial_registered_projects.is_empty() {
+            initial_registered_projects = active_workspace_roots.clone();
+        } else {
+            for root in &active_workspace_roots {
+                if !initial_registered_projects.contains(root) {
+                    initial_registered_projects.push(root.clone());
+                }
+            }
+        }
+
+        // 활성 표시 기준이 될 초기 selected_project_path —
+        // 활성 Workspace에 실제로 로드된 root worktree가 있으면 그것,
+        // 없으면 등록 목록의 첫 항목을 폴백으로 사용한다.
+        let initial_selected_path = active_workspace_roots
+            .first()
+            .or_else(|| initial_registered_projects.first())
+            .map(|p| PathList::new(std::slice::from_ref(p)));
+
         Self {
             multi_workspace: multi_workspace.downgrade(),
             width: DEFAULT_WIDTH,
@@ -408,13 +410,142 @@ impl Sidebar {
             hovered_thread_index: None,
             collapsed_groups: HashSet::new(),
             expanded_groups: HashMap::new(),
+            selected_project_path: initial_selected_path,
+            registered_projects: initial_registered_projects,
             view: SidebarView::default(),
             recent_projects_popover_handle: PopoverMenuHandle::default(),
             project_header_menu_ix: None,
-            project_context_menu: None,
             _subscriptions: Vec::new(),
             _draft_observation: None,
         }
+    }
+
+    /// 현재 `registered_projects` 목록을 KVP에 비동기로 영속 저장한다.
+    /// 저장 포맷: 줄바꿈(`\n`)으로 구분된 절대 경로 문자열.
+    fn persist_registered_projects(&self, cx: &mut Context<Self>) {
+        let mut serialized = String::new();
+        for path in &self.registered_projects {
+            if !serialized.is_empty() {
+                serialized.push('\n');
+            }
+            serialized.push_str(&path.to_string_lossy());
+        }
+        let kvp = KeyValueStore::global(cx);
+        db::write_and_log(cx, move || async move {
+            kvp.write_kvp(REGISTERED_PROJECTS_KVP_KEY.to_string(), serialized)
+                .await
+        });
+    }
+
+    /// 사이드바 우측의 삭제 버튼에서 호출되는 헬퍼.
+    ///
+    /// `registered_projects`에서 지정한 경로를 제거하고, 만약 그 경로가 현재
+    /// 활성 프로젝트였다면 다음과 같이 처리한다:
+    /// - 등록된 다른 프로젝트가 남아 있으면 첫 항목으로 전환
+    /// - 남은 프로젝트가 없으면 Workspace의 모든 worktree를 제거하여 빈 상태로 만듦
+    fn remove_registered_project(
+        &mut self,
+        workspace: Entity<Workspace>,
+        target_path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.registered_projects
+            .retain(|p| p != &target_path);
+        self.persist_registered_projects(cx);
+
+        let was_active = workspace
+            .read(cx)
+            .root_paths(cx)
+            .into_iter()
+            .next()
+            .is_some_and(|p| p.as_ref() == target_path.as_path());
+
+        if was_active {
+            if let Some(next_path) = self.registered_projects.first().cloned() {
+                self.switch_active_project(workspace, next_path, window, cx);
+            } else {
+                // 남은 프로젝트가 없을 때만 workspace를 빈 상태로 비운다.
+                self.selected_project_path = None;
+                let project = workspace.read(cx).project().clone();
+                project.update(cx, |project, cx| {
+                    let ids: Vec<_> = project
+                        .worktrees(cx)
+                        .map(|wt| wt.read(cx).id())
+                        .collect();
+                    for id in ids {
+                        project.remove_worktree(id, cx);
+                    }
+                });
+                self.update_entries(cx);
+            }
+        } else {
+            self.update_entries(cx);
+        }
+    }
+
+    /// Workspace의 worktree를 지정한 프로젝트로 교체한다.
+    ///
+    /// 새 worktree를 먼저 추가한 뒤 기존 worktree들을 제거하여, 중간에
+    /// "worktree 0개" 상태가 발생하지 않도록 한다. 이미 활성 상태이면 no-op.
+    fn switch_active_project(
+        &mut self,
+        workspace: Entity<Workspace>,
+        abs_path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // 이미 활성 worktree와 동일한 경로면 아무 작업도 하지 않는다.
+        let already_active = workspace
+            .read(cx)
+            .root_paths(cx)
+            .into_iter()
+            .any(|p| p.as_ref() == abs_path.as_path());
+        if already_active {
+            self.selected_project_path =
+                Some(PathList::new(std::slice::from_ref(&abs_path)));
+            self.update_entries(cx);
+            return;
+        }
+
+        self.selected_project_path =
+            Some(PathList::new(std::slice::from_ref(&abs_path)));
+
+        cx.spawn_in(window, async move |_this, cx| {
+            let open_task = workspace.update_in(cx, |workspace, window, cx| {
+                workspace.open_paths(
+                    vec![abs_path.clone()],
+                    workspace::OpenOptions {
+                        visible: Some(workspace::OpenVisible::All),
+                        ..Default::default()
+                    },
+                    None,
+                    window,
+                    cx,
+                )
+            })?;
+            open_task.await;
+
+            // worktree 변경 이벤트 구독이 update_entries를 자동으로 트리거하므로
+            // 여기서 명시적으로 호출하지 않는다.
+            workspace.update_in(cx, |workspace, _window, cx| {
+                let project = workspace.project().clone();
+                let stale_ids: Vec<_> = project
+                    .read(cx)
+                    .worktrees(cx)
+                    .filter(|wt| wt.read(cx).abs_path().as_ref() != abs_path.as_path())
+                    .map(|wt| wt.read(cx).id())
+                    .collect();
+                project.update(cx, |project, cx| {
+                    for id in stale_ids {
+                        project.remove_worktree(id, cx);
+                    }
+                });
+            })?;
+
+            anyhow::Ok(())
+        })
+        .detach_and_log_err(cx);
     }
 
     fn is_active_workspace(&self, workspace: &Entity<Workspace>, cx: &App) -> bool {
@@ -609,52 +740,33 @@ impl Sidebar {
         result
     }
 
-    /// Rebuilds the sidebar contents from current workspace and thread state.
+    /// 사이드바 entries를 활성 Workspace의 root worktree 목록으로부터 평면적으로 재구성한다.
     ///
-    /// Uses [`ProjectGroupBuilder`] to group workspaces by their main git
-    /// repository, then populates thread entries from the metadata store and
-    /// merges live thread info from active agent panels.
-    ///
-    /// Aim for a single forward pass over workspaces and threads plus an
-    /// O(T log T) sort. Avoid adding extra scans over the data.
-    ///
-    /// Properties:
-    ///
-    /// - Should always show every workspace in the multiworkspace
-    ///     - If you have no threads, and two workspaces for the worktree and the main workspace, make sure at least one is shown
-    /// - Should always show every thread, associated with each workspace in the multiworkspace
-    /// - After every build_contents, our "active" state should exactly match the current workspace's, current agent panel's current thread.
+    /// 단일 Workspace 구조를 가정하여, 각 root 폴더(worktree) 1개당
+    /// `ListEntry::ProjectHeader` 1개를 만든다. 그룹화(canonical 경로 매핑)는
+    /// 사용하지 않으며, 워크스페이스 패널/터미널 등 활성 Workspace의 내부 상태에는
+    /// 영향을 주지 않는다.
     fn rebuild_contents(&mut self, cx: &App) {
         let Some(multi_workspace) = self.multi_workspace.upgrade() else {
             return;
         };
         let mw = multi_workspace.read(cx);
-        let workspaces = mw.workspaces().to_vec();
         let active_workspace = mw.workspaces().get(mw.active_workspace_index()).cloned();
-
-        let agent_server_store = workspaces
-            .first()
-            .map(|ws| ws.read(cx).project().read(cx).agent_server_store().clone());
 
         let query = self.filter_editor.read(cx).text(cx);
 
-        // Re-derive agent_panel_visible from the active workspace so it stays
-        // correct after workspace switches.
+        // 활성 Workspace의 패널 상태에서 derive되는 보조 필드들을 갱신한다.
         self.agent_panel_visible = active_workspace
             .as_ref()
             .map_or(false, |ws| AgentPanel::is_visible(ws, cx));
 
-        // Derive active_thread_is_draft BEFORE focused_thread so we can
-        // use it as a guard below.
         self.active_thread_is_draft = active_workspace
             .as_ref()
             .and_then(|ws| ws.read(cx).panel::<AgentPanel>(cx))
             .map_or(false, |panel| panel.read(cx).active_thread_is_draft(cx));
 
-        // Derive focused_thread from the active workspace's agent panel.
-        // Only update when the panel gives us a positive signal — if the
-        // panel returns None (e.g. still loading after a thread activation),
-        // keep the previous value so eager writes from user actions survive.
+        // focused_thread는 패널이 양의 신호를 줄 때만 갱신한다 (로딩 중 None을
+        // 받았다고 잘못 비우지 않도록).
         let panel_focused = active_workspace
             .as_ref()
             .and_then(|ws| ws.read(cx).panel::<AgentPanel>(cx))
@@ -668,250 +780,76 @@ impl Sidebar {
             self.focused_thread = panel_focused;
         }
 
-        let previous = mem::take(&mut self.contents);
-
-        let old_statuses: HashMap<acp::SessionId, AgentThreadStatus> = previous
-            .entries
-            .iter()
-            .filter_map(|entry| match entry {
-                ListEntry::Thread(thread) if thread.is_live => {
-                    Some((thread.session_info.session_id.clone(), thread.status))
-                }
-                _ => None,
-            })
-            .collect();
+        let _ = mem::take(&mut self.contents);
 
         let mut entries = Vec::new();
-        let mut notified_threads = previous.notified_threads;
-        let mut current_session_ids: HashSet<acp::SessionId> = HashSet::new();
         let mut project_header_indices: Vec<usize> = Vec::new();
 
-        // Use ProjectGroupBuilder to canonically group workspaces by their
-        // main git repository. This replaces the manual absorbed-workspace
-        // detection that was here before.
-        let project_groups = ProjectGroupBuilder::from_multiworkspace(mw, cx);
+        // 사이드바 행은 `registered_projects`에서 만든다. Workspace의 worktree
+        // 목록은 항상 단일 항목(=현재 활성 프로젝트)이며, 등록 목록은 그와
+        // 별개로 사이드바가 알고 있는 모든 프로젝트를 보여준다.
+        let representative_workspace = active_workspace
+            .clone()
+            .or_else(|| mw.workspaces().first().cloned());
 
-        let has_open_projects = workspaces
-            .iter()
-            .any(|ws| !workspace_path_list(ws, cx).paths().is_empty());
+        let has_open_projects = !self.registered_projects.is_empty();
 
-        let resolve_agent = |row: &ThreadMetadata| -> (Agent, IconName, Option<SharedString>) {
-            match &row.agent_id {
-                None => (Agent::NativeAgent, IconName::ZedAgent, None),
-                Some(id) => {
-                    let custom_icon = agent_server_store
-                        .as_ref()
-                        .and_then(|store| store.read(cx).agent_icon(id));
-                    (
-                        Agent::Custom { id: id.clone() },
-                        IconName::Terminal,
-                        custom_icon,
-                    )
-                }
-            }
-        };
+        // 활성 프로젝트는 Workspace의 단일 worktree root path로 결정한다.
+        let active_workspace_path: Option<PathBuf> = representative_workspace
+            .as_ref()
+            .and_then(|ws| ws.read(cx).root_paths(cx).into_iter().next())
+            .map(|p| p.to_path_buf());
 
-        for (group_name, group) in project_groups.groups() {
-            let path_list = group_name.path_list().clone();
-            if path_list.paths().is_empty() {
-                continue;
-            }
-
-            let label = group_name.display_name();
-
-            let is_collapsed = self.collapsed_groups.contains(&path_list);
-            let should_load_threads = !is_collapsed || !query.is_empty();
-
-            let is_active = active_workspace
-                .as_ref()
-                .is_some_and(|active| group.workspaces.contains(active));
-
-            // Pick a representative workspace for the group: prefer the active
-            // workspace if it belongs to this group, otherwise use the main
-            // repo workspace (not a linked worktree).
-            let representative_workspace = active_workspace
-                .as_ref()
-                .filter(|_| is_active)
-                .unwrap_or_else(|| group.main_workspace(cx));
-
-            // Collect live thread infos from all workspaces in this group.
-            let live_infos: Vec<_> = group
-                .workspaces
-                .iter()
-                .flat_map(|ws| all_thread_infos_for_workspace(ws, cx))
-                .collect();
-
-            let mut threads: Vec<ThreadEntry> = Vec::new();
-            let mut has_running_threads = false;
-            let mut waiting_thread_count: usize = 0;
-
-            if should_load_threads {
-                let mut seen_session_ids: HashSet<acp::SessionId> = HashSet::new();
-                let thread_store = SidebarThreadMetadataStore::global(cx);
-
-                // Load threads from each workspace in the group.
-                for workspace in &group.workspaces {
-                    let ws_path_list = workspace_path_list(workspace, cx);
-
-                    for row in thread_store.read(cx).entries_for_path(&ws_path_list) {
-                        if !seen_session_ids.insert(row.session_id.clone()) {
-                            continue;
-                        }
-                        let (agent, icon, icon_from_external_svg) = resolve_agent(&row);
-                        let worktrees =
-                            worktree_info_from_thread_paths(&row.folder_paths, &project_groups);
-                        threads.push(ThreadEntry {
-                            agent,
-                            session_info: acp_thread::AgentSessionInfo {
-                                session_id: row.session_id.clone(),
-                                work_dirs: None,
-                                title: Some(row.title.clone()),
-                                updated_at: Some(row.updated_at),
-                                created_at: row.created_at,
-                                meta: None,
-                            },
-                            icon,
-                            icon_from_external_svg,
-                            status: AgentThreadStatus::default(),
-                            workspace: ThreadEntryWorkspace::Open(workspace.clone()),
-                            is_live: false,
-                            is_background: false,
-                            is_title_generating: false,
-                            highlight_positions: Vec::new(),
-                            worktrees,
-                            diff_stats: DiffStats::default(),
-                        });
-                    }
-                }
-
-                // Load threads from linked git worktrees whose
-                // canonical paths belong to this group.
-                let linked_worktree_queries = group
-                    .workspaces
-                    .iter()
-                    .flat_map(|ws| root_repository_snapshots(ws, cx))
-                    .filter(|snapshot| !snapshot.is_linked_worktree())
-                    .flat_map(|snapshot| {
-                        snapshot
-                            .linked_worktrees()
-                            .iter()
-                            .filter(|wt| {
-                                project_groups.group_owns_worktree(group, &path_list, &wt.path)
-                            })
-                            .map(|wt| PathList::new(std::slice::from_ref(&wt.path)))
-                            .collect::<Vec<_>>()
-                    });
-
-                for worktree_path_list in linked_worktree_queries {
-                    for row in thread_store.read(cx).entries_for_path(&worktree_path_list) {
-                        if !seen_session_ids.insert(row.session_id.clone()) {
-                            continue;
-                        }
-                        let (agent, icon, icon_from_external_svg) = resolve_agent(&row);
-                        let worktrees =
-                            worktree_info_from_thread_paths(&row.folder_paths, &project_groups);
-                        threads.push(ThreadEntry {
-                            agent,
-                            session_info: acp_thread::AgentSessionInfo {
-                                session_id: row.session_id.clone(),
-                                work_dirs: None,
-                                title: Some(row.title.clone()),
-                                updated_at: Some(row.updated_at),
-                                created_at: row.created_at,
-                                meta: None,
-                            },
-                            icon,
-                            icon_from_external_svg,
-                            status: AgentThreadStatus::default(),
-                            workspace: ThreadEntryWorkspace::Closed(worktree_path_list.clone()),
-                            is_live: false,
-                            is_background: false,
-                            is_title_generating: false,
-                            highlight_positions: Vec::new(),
-                            worktrees,
-                            diff_stats: DiffStats::default(),
-                        });
-                    }
-                }
-
-                // Build a lookup from live_infos and compute running/waiting
-                // counts in a single pass.
-                let mut live_info_by_session: HashMap<&acp::SessionId, &ActiveThreadInfo> =
-                    HashMap::new();
-                for info in &live_infos {
-                    live_info_by_session.insert(&info.session_id, info);
-                    if info.status == AgentThreadStatus::Running {
-                        has_running_threads = true;
-                    }
-                    if info.status == AgentThreadStatus::WaitingForConfirmation {
-                        waiting_thread_count += 1;
-                    }
-                }
-
-                // Merge live info into threads and update notification state
-                // in a single pass.
-                for thread in &mut threads {
-                    if let Some(info) = live_info_by_session.get(&thread.session_info.session_id) {
-                        thread.apply_active_info(info);
-                    }
-
-                    let session_id = &thread.session_info.session_id;
-
-                    let is_thread_workspace_active = match &thread.workspace {
-                        ThreadEntryWorkspace::Open(thread_workspace) => active_workspace
-                            .as_ref()
-                            .is_some_and(|active| active == thread_workspace),
-                        ThreadEntryWorkspace::Closed(_) => false,
-                    };
-
-                    if thread.status == AgentThreadStatus::Completed
-                        && !is_thread_workspace_active
-                        && old_statuses.get(session_id) == Some(&AgentThreadStatus::Running)
-                    {
-                        notified_threads.insert(session_id.clone());
-                    }
-
-                    if is_thread_workspace_active && !thread.is_background {
-                        notified_threads.remove(session_id);
-                    }
-                }
-
-                threads.sort_by(|a, b| {
-                    let a_time = a.session_info.created_at.or(a.session_info.updated_at);
-                    let b_time = b.session_info.created_at.or(b.session_info.updated_at);
-                    b_time.cmp(&a_time)
-                });
-            } else {
-                for info in live_infos {
-                    if info.status == AgentThreadStatus::Running {
-                        has_running_threads = true;
-                    }
-                    if info.status == AgentThreadStatus::WaitingForConfirmation {
-                        waiting_thread_count += 1;
-                    }
-                }
-            }
-
-            // 프로젝트 그룹 헤더만 표시 (스레드/검색/아카이브 제거)
-            project_header_indices.push(entries.len());
-            entries.push(ListEntry::ProjectHeader {
-                path_list: path_list.clone(),
-                label,
-                workspace: representative_workspace.clone(),
-                highlight_positions: Vec::new(),
-                has_running_threads: false,
-                waiting_thread_count: 0,
-                is_active,
+        // selected_project_path가 등록 목록에 더 이상 없으면 초기화.
+        if let Some(selected) = self.selected_project_path.as_ref() {
+            let still_present = self.registered_projects.iter().any(|p| {
+                let pl = PathList::new(std::slice::from_ref(p));
+                &pl == selected
             });
+            if !still_present {
+                self.selected_project_path = None;
+            }
         }
 
-        // Prune stale notifications using the session IDs we collected during
-        // the build pass (no extra scan needed).
-        notified_threads.retain(|id| current_session_ids.contains(id));
+        if let Some(workspace) = representative_workspace.as_ref() {
+            for path in self.registered_projects.iter() {
+                let label_string = path
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| path.display().to_string());
+
+                // 검색 쿼리가 있으면 라벨에 fuzzy 매칭을 적용한다.
+                let highlight_positions = if query.is_empty() {
+                    Vec::new()
+                } else {
+                    match fuzzy_match_positions(&query, &label_string) {
+                        Some(positions) => positions,
+                        None => continue,
+                    }
+                };
+
+                let path_list = PathList::new(std::slice::from_ref(path));
+                // 활성 표시는 Workspace의 단일 worktree와 일치하는 행에만 적용.
+                let is_active = active_workspace_path
+                    .as_ref()
+                    .map_or(false, |active| active.as_path() == path.as_path());
+
+                project_header_indices.push(entries.len());
+                entries.push(ListEntry::ProjectHeader {
+                    path_list,
+                    label: SharedString::from(label_string),
+                    workspace: workspace.clone(),
+                    highlight_positions,
+                    has_running_threads: false,
+                    waiting_thread_count: 0,
+                    is_active,
+                });
+            }
+        }
 
         self.contents = SidebarContents {
             entries,
-            notified_threads,
+            notified_threads: HashSet::new(),
             project_header_indices,
             has_open_projects,
         };
@@ -1040,27 +978,14 @@ impl Sidebar {
         let id = SharedString::from(format!("{id_prefix}project-header-{ix}"));
         let group_name = SharedString::from(format!("{id_prefix}header-group-{ix}"));
 
-        let is_collapsed = self.collapsed_groups.contains(path_list);
-        let disclosure_icon = if is_collapsed {
-            IconName::ChevronRight
-        } else {
-            IconName::ChevronDown
-        };
-
-        let has_new_thread_entry = self
-            .contents
-            .entries
-            .get(ix + 1)
-            .is_some_and(|entry| matches!(entry, ListEntry::NewThread { .. }));
-        let show_new_thread_button = !has_new_thread_entry && !self.has_filter_query(cx);
+        // 단일 Workspace + 평면 worktree 나열에서는 접을 자식 항목이 없으므로
+        // chevron 아이콘은 시각적 장식 용도로만 유지한다.
+        let disclosure_icon = IconName::ChevronDown;
 
         let workspace_for_remove = workspace.clone();
-        let workspace_for_menu = workspace.clone();
-        let workspace_for_open = workspace.clone();
-
-        let path_list_for_toggle = path_list.clone();
-        let path_list_for_collapse = path_list.clone();
-        let view_more_expanded = self.expanded_groups.contains_key(path_list);
+        let workspace_for_select = workspace.clone();
+        let path_list_for_select = path_list.clone();
+        let path_list_for_remove = path_list.clone();
 
         let label = if highlight_positions.is_empty() {
             Label::new(label.clone())
@@ -1076,6 +1001,16 @@ impl Sidebar {
         let hover_color = color
             .element_active
             .blend(color.element_background.opacity(0.2));
+        // 클릭으로 선택된 프로젝트 행에 적용할 배경 강조 색.
+        let active_bg_color = color
+            .element_selected
+            .blend(color.element_background.opacity(0.2));
+
+        let border_color = if is_selected || is_active {
+            color.border_focused
+        } else {
+            gpui::transparent_black()
+        };
 
         h_flex()
             .id(id.clone())
@@ -1085,20 +1020,14 @@ impl Sidebar {
             .pl_1p5()
             .pr_1()
             .border_1()
-            .map(|this| {
-                if is_selected {
-                    this.border_color(color.border_focused)
-                } else {
-                    this.border_color(gpui::transparent_black())
-                }
-            })
+            .border_color(border_color)
+            .when(is_active, |this| this.bg(active_bg_color))
             .justify_between()
             .hover(|s| s.bg(hover_color))
             .child(
                 h_flex()
                     .relative()
                     .min_w_0()
-                    .w_full()
                     .gap_1p5()
                     .child(
                         h_flex().size_4().flex_none().justify_center().child(
@@ -1109,114 +1038,52 @@ impl Sidebar {
                     )
                     .child(label),
             )
-            .child({
-                let workspace_for_new_thread = workspace.clone();
-                let path_list_for_new_thread = path_list.clone();
-
-                h_flex()
-                    .when(self.project_header_menu_ix != Some(ix), |this| {
-                        this.visible_on_hover(group_name)
-                    })
-                    .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| {
+            .child(
+                IconButton::new(
+                    SharedString::from(format!("{id_prefix}delete-project-{ix}")),
+                    IconName::Trash,
+                )
+                .icon_size(IconSize::Small)
+                .icon_color(Color::Muted)
+                // 부모 행의 group(`group_name`)과 매칭되어야 hover 시 노출됨.
+                // 빈 문자열은 글로벌(이름 없는) 그룹이라 부모와 매칭되지 않음.
+                .visible_on_hover(group_name.clone())
+                .tooltip(Tooltip::text(t("sidebar.remove_project", cx)))
+                .on_click(cx.listener({
+                    let workspace_for_remove = workspace_for_remove.clone();
+                    let path_list_for_remove = path_list_for_remove.clone();
+                    move |this, _, window, cx| {
+                        // 행 클릭(선택) 핸들러로 이벤트가 전파되지 않도록 중단
                         cx.stop_propagation();
-                    })
-                    // 스레드 관련 버튼 제거 — Activate Workspace만 유지
-                    .when(!is_active, |this| {
-                        this.child(
-                            IconButton::new(
-                                SharedString::from(format!(
-                                    "{id_prefix}project-header-open-workspace-{ix}",
-                                )),
-                                IconName::Focus,
-                            )
-                            .icon_size(IconSize::Small)
-                            .icon_color(Color::Muted)
-                            .tooltip(Tooltip::text("Activate Workspace"))
-                            .on_click(cx.listener({
-                                move |this, _, window, cx| {
-                                    this.focused_thread = None;
-                                    if let Some(multi_workspace) = this.multi_workspace.upgrade() {
-                                        multi_workspace.update(cx, |multi_workspace, cx| {
-                                            multi_workspace
-                                                .activate(workspace_for_open.clone(), cx);
-                                        });
-                                    }
-                                    if AgentPanel::is_visible(&workspace_for_open, cx) {
-                                        workspace_for_open.update(cx, |workspace, cx| {
-                                            workspace.focus_panel::<AgentPanel>(window, cx);
-                                        });
-                                    }
-                                }
-                            })),
-                        )
-                    })
-            })
+                        let Some(target_path) =
+                            path_list_for_remove.paths().first().cloned()
+                        else {
+                            return;
+                        };
+                        this.remove_registered_project(
+                            workspace_for_remove.clone(),
+                            target_path,
+                            window,
+                            cx,
+                        );
+                    }
+                })),
+            )
             .on_click(cx.listener(move |this, _, window, cx| {
                 this.selection = None;
-                this.toggle_collapse(&path_list_for_toggle, window, cx);
+
+                // 클릭한 행의 worktree root 경로를 추출하여 활성 프로젝트로 전환한다.
+                // Workspace의 worktree를 해당 프로젝트로 교체하면 project_panel/git_panel은
+                // 자동으로 단일 프로젝트만 표시한다.
+                if let Some(abs_path) = path_list_for_select.paths().first().cloned() {
+                    this.switch_active_project(
+                        workspace_for_select.clone(),
+                        abs_path,
+                        window,
+                        cx,
+                    );
+                }
             }))
-            // 우클릭 컨텍스트 메뉴 — 프로젝트 삭제
-            .on_mouse_down(
-                MouseButton::Right,
-                cx.listener({
-                    let workspace_for_remove = workspace_for_remove.clone();
-                    move |this, event: &MouseDownEvent, window, cx| {
-                        let workspace_for_remove = workspace_for_remove.clone();
-                        let multi_workspace = this.multi_workspace.clone();
-                        let menu = ContextMenu::build(window, cx, move |menu, _window, _cx| {
-                            menu.entry("삭제", None, {
-                                let workspace_for_remove = workspace_for_remove.clone();
-                                let multi_workspace = multi_workspace.clone();
-                                move |window, cx| {
-                                    if let Some(mw) = multi_workspace.upgrade() {
-                                        let ws = workspace_for_remove.clone();
-                                        mw.update(cx, |multi_workspace, cx| {
-                                            if let Some(index) = multi_workspace
-                                                .workspaces()
-                                                .iter()
-                                                .position(|w| *w == ws)
-                                            {
-                                                // 마지막 1개일 때는 worktree만 모두 제거
-                                                if multi_workspace.workspaces().len() <= 1 {
-                                                    ws.update(cx, |workspace, cx| {
-                                                        let worktree_ids: Vec<_> = workspace
-                                                            .project()
-                                                            .read(cx)
-                                                            .worktrees(cx)
-                                                            .map(|wt| wt.read(cx).id())
-                                                            .collect();
-                                                        for id in worktree_ids {
-                                                            workspace.project().update(
-                                                                cx,
-                                                                |project, cx| {
-                                                                    project
-                                                                        .remove_worktree(id, cx);
-                                                                },
-                                                            );
-                                                        }
-                                                    });
-                                                } else {
-                                                    multi_workspace
-                                                        .remove_workspace(index, window, cx);
-                                                }
-                                            }
-                                        });
-                                    }
-                                }
-                            })
-                        });
-                        window.focus(&menu.focus_handle(cx), cx);
-                        let subscription =
-                            cx.subscribe(&menu, |this, _, _: &DismissEvent, cx| {
-                                this.project_context_menu.take();
-                                cx.notify();
-                            });
-                        this.project_context_menu =
-                            Some((menu, event.position, subscription));
-                        cx.notify();
-                    }
-                }),
-            )
             .into_any_element()
     }
 
@@ -2615,8 +2482,11 @@ impl Sidebar {
             )
     }
 
-    /// 프로젝트 추가 — 폴더 선택 다이얼로그 표시 후 새 워크스페이스로 추가
-    fn add_project_folder(&self, window: &mut Window, cx: &mut Context<Self>) {
+    /// 프로젝트 추가 — 폴더 선택 다이얼로그 표시 후 활성 워크스페이스에 worktree로 추가
+    ///
+    /// 단일 Workspace 구조를 유지하기 위해 항상 `workspace.open_paths`로
+    /// worktree만 추가하며, 새 Workspace 엔티티를 만들지 않는다.
+    fn add_project_folder(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(multi_workspace) = self.multi_workspace.upgrade() else {
             return;
         };
@@ -2641,34 +2511,22 @@ impl Sidebar {
             )
         });
 
-        // 현재 워크스페이스에 worktree가 없으면 기존 워크스페이스에 폴더 추가,
-        // 있으면 새 워크스페이스 생성
-        let has_worktree = workspace.read(cx).project().read(cx).worktrees(cx).next().is_some();
-        cx.spawn_in(window, async move |_this, cx| {
+        cx.spawn_in(window, async move |this, cx| {
             if let Some(paths) = paths_rx.await.ok().flatten() {
-                if has_worktree {
-                    multi_workspace
-                        .update_in(cx, |multi_workspace, window, cx| {
-                            multi_workspace.open_project(paths, window, cx)
-                        })?
-                        .await?;
-                } else {
-                    // 빈 워크스페이스에 폴더 직접 추가 (터미널 탭 유지)
-                    workspace
-                        .update_in(cx, |workspace, window, cx| {
-                            workspace.open_paths(
-                                paths,
-                                workspace::OpenOptions {
-                                    visible: Some(workspace::OpenVisible::All),
-                                    ..Default::default()
-                                },
-                                None,
-                                window,
-                                cx,
-                            )
-                        })?
-                        .await;
-                }
+                // 사용자가 한 번에 여러 폴더를 선택했어도 첫 번째만 활성 프로젝트로
+                // 전환한다. (다이얼로그는 multiple: false이므로 보통 1개)
+                let Some(new_path) = paths.into_iter().next() else {
+                    return anyhow::Ok(());
+                };
+
+                this.update_in(cx, |this, window, cx| {
+                    // 이미 등록된 경로면 중복 추가하지 않는다.
+                    if !this.registered_projects.iter().any(|p| p == &new_path) {
+                        this.registered_projects.push(new_path.clone());
+                        this.persist_registered_projects(cx);
+                    }
+                    this.switch_active_project(workspace.clone(), new_path, window, cx);
+                })?;
             }
             anyhow::Ok(())
         })
@@ -2975,70 +2833,7 @@ impl Render for Sidebar {
                     }),
                 SidebarView::Archive(_) => this, // 아카이브 뷰 제거
             })
-            // 프로젝트 항목 우클릭 컨텍스트 메뉴 오버레이
-            .children(self.project_context_menu.as_ref().map(|(menu, position, _)| {
-                deferred(
-                    anchored()
-                        .position(*position)
-                        .anchor(gpui::Corner::TopLeft)
-                        .child(menu.clone()),
-                )
-                .with_priority(3)
-            }))
             .child(self.render_sidebar_bottom_bar(cx))
     }
 }
 
-fn all_thread_infos_for_workspace(
-    workspace: &Entity<Workspace>,
-    cx: &App,
-) -> impl Iterator<Item = ActiveThreadInfo> {
-    let Some(agent_panel) = workspace.read(cx).panel::<AgentPanel>(cx) else {
-        return None.into_iter().flatten();
-    };
-    let agent_panel = agent_panel.read(cx);
-
-    let threads = agent_panel
-        .parent_threads(cx)
-        .into_iter()
-        .map(|thread_view| {
-            let thread_view_ref = thread_view.read(cx);
-            let thread = thread_view_ref.thread.read(cx);
-
-            let icon = thread_view_ref.agent_icon;
-            let icon_from_external_svg = thread_view_ref.agent_icon_from_external_svg.clone();
-            let title = thread
-                .title()
-                .unwrap_or_else(|| DEFAULT_THREAD_TITLE.into());
-            let is_native = thread_view_ref.as_native_thread(cx).is_some();
-            let is_title_generating = is_native && thread.has_provisional_title();
-            let session_id = thread.session_id().clone();
-            let is_background = agent_panel.is_background_thread(&session_id);
-
-            let status = if thread.is_waiting_for_confirmation() {
-                AgentThreadStatus::WaitingForConfirmation
-            } else if thread.had_error() {
-                AgentThreadStatus::Error
-            } else {
-                match thread.status() {
-                    ThreadStatus::Generating => AgentThreadStatus::Running,
-                    ThreadStatus::Idle => AgentThreadStatus::Completed,
-                }
-            };
-
-            let diff_stats = thread.action_log().read(cx).diff_stats(cx);
-
-            ActiveThreadInfo {
-                session_id,
-                title,
-                status,
-                icon,
-                icon_from_external_svg,
-                is_background,
-                is_title_generating,
-                diff_stats,
-            }
-        });
-
-    Some(threads).into_iter().flatten()
-}

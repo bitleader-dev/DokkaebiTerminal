@@ -2192,7 +2192,24 @@ pub(crate) fn default_working_directory(workspace: &Workspace, cx: &App) -> Opti
     directory.or_else(dirs::home_dir)
 }
 
+/// workspace.active_worktree_override가 가리키는 워크트리의 root 디렉토리를 반환한다.
+/// 다중 worktree 환경에서 사용자가 project_panel 클릭으로 명시적으로 활성화한
+/// 워크트리를 새 터미널 작업 폴더로 사용하기 위함.
+fn active_override_worktree_directory(workspace: &Workspace, cx: &App) -> Option<PathBuf> {
+    let worktree_id = workspace.active_worktree_override()?;
+    let project = workspace.project().read(cx);
+    let worktree = project.worktree_for_id(worktree_id, cx)?;
+    let worktree = worktree.read(cx);
+    if !worktree.root_entry()?.is_dir() {
+        return None;
+    }
+    Some(worktree.abs_path().to_path_buf())
+}
+
 fn current_project_directory(workspace: &Workspace, cx: &App) -> Option<PathBuf> {
+    if let Some(dir) = active_override_worktree_directory(workspace, cx) {
+        return Some(dir);
+    }
     workspace
         .project()
         .read(cx)
@@ -2204,6 +2221,9 @@ fn current_project_directory(workspace: &Workspace, cx: &App) -> Option<PathBuf>
 
 ///Gets the first project's home directory, or the home directory
 fn first_project_directory(workspace: &Workspace, cx: &App) -> Option<PathBuf> {
+    if let Some(dir) = active_override_worktree_directory(workspace, cx) {
+        return Some(dir);
+    }
     let worktree = workspace.worktrees(cx).next()?.read(cx);
     let worktree_path = worktree.abs_path();
     if worktree.root_entry()?.is_dir() {

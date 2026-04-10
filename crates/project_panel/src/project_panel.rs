@@ -161,6 +161,10 @@ pub struct ProjectPanel {
     update_visible_entries_task: UpdateVisibleEntriesTask,
     undo_manager: UndoManager,
     state: State,
+    /// Render::render에서 한 번 계산한 후 render_entry에서 재사용하는 캐시.
+    /// 다중 worktree 환경에서 활성 root 강조 판단에 사용.
+    render_cache_visible_worktrees_count: usize,
+    render_cache_active_worktree_override: Option<WorktreeId>,
 }
 
 struct UpdateVisibleEntriesTask {
@@ -919,6 +923,8 @@ impl ProjectPanel {
                 },
                 update_visible_entries_task: Default::default(),
                 undo_manager: UndoManager::new(workspace.weak_handle()),
+                render_cache_visible_worktrees_count: 0,
+                render_cache_active_worktree_override: None,
             };
             this.update_visible_entries(None, false, false, window, cx);
 
@@ -2100,6 +2106,18 @@ impl ProjectPanel {
         let Some((worktree_id, entry_id)) = self
             .selection
             .map(|entry| (entry.worktree_id, entry.entry_id))
+            .or_else(|| {
+                // selection이 없으면 활성 워크트리 override가 가리키는 워크트리의 root를 사용한다.
+                let workspace = self.workspace.upgrade()?;
+                let active_id = workspace.read(cx).active_worktree_override()?;
+                let worktree = self.project.read(cx).worktree_for_id(active_id, cx)?;
+                let root_entry_id = worktree.read(cx).root_entry()?.id;
+                self.selection = Some(SelectedEntry {
+                    worktree_id: active_id,
+                    entry_id: root_entry_id,
+                });
+                Some((active_id, root_entry_id))
+            })
             .or_else(|| {
                 let entry_id = self.state.last_worktree_root_id?;
                 let worktree_id = self
@@ -5299,6 +5317,17 @@ impl ProjectPanel {
             .selection
             .is_some_and(|selection| selection.entry_id == entry_id);
 
+        // 다중 worktree 환경에서 활성 워크트리의 root entry를 시각적으로 강조한다.
+        let is_root = self
+            .project
+            .read(cx)
+            .worktree_for_id(details.worktree_id, cx)
+            .and_then(|wt| wt.read(cx).root_entry().map(|e| e.id))
+            == Some(entry_id);
+        let is_active_worktree_root = is_root
+            && self.render_cache_visible_worktrees_count > 1
+            && self.render_cache_active_worktree_override == Some(details.worktree_id);
+
         let file_name = details.filename.clone();
 
         let mut icon = details.icon.clone();
@@ -5429,6 +5458,18 @@ impl ProjectPanel {
             .border_r_2()
             .border_color(border_color)
             .hover(|style| style.bg(bg_hover_color).border_color(border_hover_color))
+            .when(is_active_worktree_root, |this| {
+                // 다중 worktree 환경에서 활성 워크트리의 root 행 좌측에 색상 바를 표시한다.
+                this.child(
+                    div()
+                        .absolute()
+                        .left_0()
+                        .top_0()
+                        .bottom_0()
+                        .w(px(2.))
+                        .bg(cx.theme().colors().border_focused),
+                )
+            })
             .when(is_sticky, |this| this.block_mouse_except_scroll())
             .when(!is_sticky, |this| {
                 this.when(
@@ -5706,6 +5747,8 @@ impl ProjectPanel {
                         }
                     } else if kind.is_dir() {
                         project_panel.marked_entries.clear();
+                        // 폴더 클릭 시에도 selection을 갱신해 활성 워크트리가 따라가도록 한다.
+                        project_panel.selection = Some(selection);
                         if is_sticky
                             && let Some((_, _, index)) =
                                 project_panel.index_for_entry(entry_id, worktree_id)
@@ -6518,6 +6561,92 @@ impl ProjectPanel {
             })
             .collect()
     }
+
+    /// 지정한 워크트리를 활성 워크트리로 설정한다.
+    /// workspace.active_worktree_override를 갱신하고, 해당 워크트리 path에 매칭되는
+    /// git repo를 활성화한다.
+    ///
+    /// project.active_entry는 의도적으로 건드리지 않는다 — ActiveEntryChanged →
+    /// reveal_entry 연쇄로 사용자가 클릭한 자식 selection이 root로 튀는 부작용이 있다.
+    /// 터미널 cwd는 terminal_view가 active_worktree_override를 직접 참조한다.
+    fn set_active_worktree(&mut self, worktree_id: WorktreeId, cx: &mut Context<Self>) {
+        if let Some(workspace) = self.workspace.upgrade() {
+            workspace.update(cx, |ws, cx| {
+                if ws.active_worktree_override() != Some(worktree_id) {
+                    ws.set_active_worktree_override(Some(worktree_id), cx);
+                }
+            });
+        }
+
+        let worktree_abs_path = {
+            let project_ref = self.project.read(cx);
+            let Some(worktree) = project_ref.worktree_for_id(worktree_id, cx) else {
+                return;
+            };
+            worktree.read(cx).abs_path()
+        };
+
+        // path → repo lookup의 모호성을 피하기 위해 worktree path와 가장 깊게 매칭되는
+        // repo를 직접 선택한다.
+        let git_store = self.project.read(cx).git_store().clone();
+        let matched_repo = git_store
+            .read(cx)
+            .repositories()
+            .values()
+            .filter(|repo| {
+                let repo_path = &repo.read(cx).work_directory_abs_path;
+                worktree_abs_path == *repo_path
+                    || worktree_abs_path.starts_with(repo_path.as_ref())
+            })
+            .max_by_key(|repo| repo.read(cx).work_directory_abs_path.as_os_str().len())
+            .cloned();
+        if let Some(repo) = matched_repo {
+            repo.update(cx, |repo, cx| {
+                repo.set_as_active_repository(cx);
+            });
+        }
+    }
+
+    /// render 시 selection 기반으로 활성 워크트리를 자동 동기화한다.
+    /// 무한 루프를 방지하기 위해 차이가 있을 때만 갱신하고 cx.notify는 호출하지 않는다.
+    fn sync_active_worktree_from_selection(&mut self, cx: &mut Context<Self>) {
+        let Some(selection) = self.selection else {
+            return;
+        };
+        let current = self
+            .workspace
+            .upgrade()
+            .and_then(|ws| ws.read(cx).active_worktree_override());
+        if current == Some(selection.worktree_id) {
+            return;
+        }
+        self.set_active_worktree(selection.worktree_id, cx);
+    }
+
+    /// 프로젝트 패널 상단에 표시되는 헤더(제목 + 프로젝트 추가 버튼)를 렌더링한다.
+    fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        h_flex()
+            .id("project-panel-header")
+            .w_full()
+            .h(px(28.))
+            .px_2()
+            .gap_1()
+            .items_center()
+            .justify_between()
+            .child(
+                Label::new(t("project_panel.header.title", cx))
+                    .size(LabelSize::Small)
+                    .color(Color::Muted),
+            )
+            .child(
+                IconButton::new("project-panel-add-project", IconName::Plus)
+                    .icon_size(IconSize::Small)
+                    .tooltip(Tooltip::text(t("project_panel.header.add_project", cx)))
+                    .on_click(cx.listener(|_, _, window, cx| {
+                        window.dispatch_action(Box::new(workspace::AddFolderToProject), cx);
+                    })),
+            )
+    }
 }
 
 #[derive(Clone)]
@@ -6544,6 +6673,18 @@ fn item_width_estimate(depth: usize, item_text_chars: usize, is_symlink: bool) -
 impl Render for ProjectPanel {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let has_worktree = !self.state.visible_entries.is_empty();
+        // selection 기반으로 활성 워크트리를 자동 동기화 (다중 worktree 환경에서
+        // 사용자가 다른 프로젝트의 항목을 클릭하면 활성 프로젝트가 그 프로젝트로 이동)
+        self.sync_active_worktree_from_selection(cx);
+        // render 핫패스 캐시: 매 entry마다 재계산되던 값들을 한 번만 계산
+        self.render_cache_visible_worktrees_count =
+            self.project.read(cx).visible_worktrees(cx).count();
+        self.render_cache_active_worktree_override = self
+            .workspace
+            .upgrade()
+            .and_then(|ws| ws.read(cx).active_worktree_override());
+        // 패널 헤더는 다른 immutable borrow가 시작되기 전에 미리 만들어 둔다.
+        let header = self.render_header(cx).into_any_element();
         let project = self.project.read(cx);
         let panel_settings = ProjectPanelSettings::get_global(cx);
         let indent_size = panel_settings.indent_size;
@@ -6716,6 +6857,7 @@ impl Render for ProjectPanel {
                 .track_focus(&self.focus_handle(cx))
                 .child(
                     v_flex()
+                        .child(header)
                         .child(
                             uniform_list("entries", item_count, {
                                 cx.processor(|this, range: Range<usize>, window, cx| {
@@ -7120,40 +7262,46 @@ impl Render for ProjectPanel {
 
             v_flex()
                 .id("empty-project_panel")
-                .p_4()
                 .size_full()
-                .items_center()
-                .justify_center()
-                .gap_1()
                 .track_focus(&self.focus_handle(cx))
-                .when(is_local, |div| {
-                    div.when(panel_settings.drag_and_drop, |div| {
-                        div.drag_over::<ExternalPaths>(|style, _, _, cx| {
-                            style.bg(cx.theme().colors().drop_target_background)
-                        })
-                        .on_drop(cx.listener(
-                            move |this, external_paths: &ExternalPaths, window, cx| {
-                                this.drag_target_entry = None;
-                                this.hover_scroll_task.take();
-                                if let Some(task) = this
-                                    .workspace
-                                    .update(cx, |workspace, cx| {
-                                        workspace.open_workspace_for_paths(
-                                            true,
-                                            external_paths.paths().to_owned(),
-                                            window,
-                                            cx,
-                                        )
-                                    })
-                                    .log_err()
-                                {
-                                    task.detach_and_log_err(cx);
-                                }
-                                cx.stop_propagation();
-                            },
-                        ))
-                    })
-                })
+                .child(header)
+                .child(
+                    v_flex()
+                        .id("empty-project_panel-body")
+                        .flex_1()
+                        .p_4()
+                        .items_center()
+                        .justify_center()
+                        .gap_1()
+                        .when(is_local, |div| {
+                            div.when(panel_settings.drag_and_drop, |div| {
+                                div.drag_over::<ExternalPaths>(|style, _, _, cx| {
+                                    style.bg(cx.theme().colors().drop_target_background)
+                                })
+                                .on_drop(cx.listener(
+                                    move |this, external_paths: &ExternalPaths, window, cx| {
+                                        this.drag_target_entry = None;
+                                        this.hover_scroll_task.take();
+                                        if let Some(task) = this
+                                            .workspace
+                                            .update(cx, |workspace, cx| {
+                                                workspace.open_workspace_for_paths(
+                                                    true,
+                                                    external_paths.paths().to_owned(),
+                                                    window,
+                                                    cx,
+                                                )
+                                            })
+                                            .log_err()
+                                        {
+                                            task.detach_and_log_err(cx);
+                                        }
+                                        cx.stop_propagation();
+                                    },
+                                ))
+                            })
+                        }),
+                )
         }
     }
 }

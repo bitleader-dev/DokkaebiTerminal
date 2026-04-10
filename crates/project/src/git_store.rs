@@ -4244,6 +4244,10 @@ impl Repository {
             else {
                 return;
             };
+            // 이미 활성 repo면 이벤트 emit 생략 (render 핫패스 루프 방지)
+            if git_store.active_repo_id == Some(id) {
+                return;
+            }
             git_store.active_repo_id = Some(id);
             cx.emit(GitStoreEvent::ActiveRepositoryChanged(Some(id)));
         });

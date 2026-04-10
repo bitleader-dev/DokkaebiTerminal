@@ -85,7 +85,7 @@ use ui::{
 use util::{ResultExt as _, debug_panic};
 use workspace::{
     CollaboratorId, DraggedSelection, DraggedTab, OpenResult, PathList, SerializedPathList,
-    ToggleWorkspaceSidebar, ToggleZoom, ToolbarItemView, Workspace, WorkspaceId,
+    ToggleZoom, ToolbarItemView, Workspace, WorkspaceId,
     dock::{DockPosition, Panel, PanelEvent},
 };
 use zed_actions::{
@@ -3483,7 +3483,6 @@ impl AgentPanel {
                             .action(t("agent_panel.menu.profiles", cx), Box::new(ManageProfiles::default()))
                             .action(t("agent_panel.menu.settings", cx), Box::new(OpenSettings))
                             .separator()
-                            .action(t("agent_panel.menu.toggle_threads_sidebar", cx), Box::new(ToggleWorkspaceSidebar))
                             .action(full_screen_label.clone(), Box::new(ToggleZoom));
 
                         if has_auth_methods {

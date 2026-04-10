@@ -30,9 +30,7 @@ mod workspace_settings;
 pub use crate::notifications::NotificationFrame;
 pub use dock::Panel;
 pub use multi_workspace::{
-    CloseWorkspaceSidebar, DraggedSidebar, FocusWorkspaceSidebar, MultiWorkspace,
-    MultiWorkspaceEvent, NextWorkspace, PreviousWorkspace, Sidebar, SidebarHandle,
-    SidebarRenderState, SidebarSide, ToggleWorkspaceSidebar, sidebar_side_context_menu,
+    MultiWorkspace, MultiWorkspaceEvent, NextWorkspace, PreviousWorkspace,
 };
 pub use path_list::{PathList, SerializedPathList};
 pub use toast_layer::{ToastAction, ToastLayer, ToastView};
@@ -1317,7 +1315,6 @@ pub struct Workspace {
     last_open_dock_positions: Vec<DockPosition>,
     removing: bool,
     _panels_task: Option<Task<Result<()>>>,
-    sidebar_focus_handle: Option<FocusHandle>,
     multi_workspace: Option<WeakEntity<MultiWorkspace>>,
     /// 워크스페이스 그룹 목록 (비활성 그룹 상태 저장용)
     workspace_groups: Vec<WorkspaceGroupState>,
@@ -1608,8 +1605,7 @@ impl Workspace {
             .flatten()
             .map(|mw| mw.downgrade());
         let status_bar = cx.new(|cx| {
-            let mut status_bar =
-                StatusBar::new(&center_pane.clone(), multi_workspace.clone(), window, cx);
+            let mut status_bar = StatusBar::new(&center_pane.clone(), window, cx);
             status_bar.add_left_item(left_dock_buttons, window, cx);
             status_bar.add_right_item(right_dock_buttons, window, cx);
             status_bar.add_right_item(bottom_dock_buttons, window, cx);
@@ -1745,7 +1741,6 @@ impl Workspace {
             scheduled_tasks: Vec::new(),
             last_open_dock_positions: Vec::new(),
             removing: false,
-            sidebar_focus_handle: None,
             multi_workspace,
             workspace_groups: vec![default_group],
             active_group_index: 0,
@@ -2337,10 +2332,6 @@ impl Workspace {
         &self.status_bar
     }
 
-    pub fn set_sidebar_focus_handle(&mut self, handle: Option<FocusHandle>) {
-        self.sidebar_focus_handle = handle;
-    }
-
     pub fn status_bar_visible(&self, cx: &App) -> bool {
         StatusBarSettings::get_global(cx).show
     }
@@ -2352,11 +2343,8 @@ impl Workspace {
     pub fn set_multi_workspace(
         &mut self,
         multi_workspace: WeakEntity<MultiWorkspace>,
-        cx: &mut App,
+        _cx: &mut App,
     ) {
-        self.status_bar.update(cx, |status_bar, cx| {
-            status_bar.set_multi_workspace(multi_workspace.clone(), cx);
-        });
         self.multi_workspace = Some(multi_workspace);
     }
 
@@ -4760,35 +4748,26 @@ impl Workspace {
     ) {
         use ActivateInDirectionTarget as Target;
         enum Origin {
-            Sidebar,
             LeftDock,
             RightDock,
             BottomDock,
             Center,
         }
 
-        let origin: Origin = if self
-            .sidebar_focus_handle
-            .as_ref()
-            .is_some_and(|h| h.contains_focused(window, cx))
-        {
-            Origin::Sidebar
-        } else {
-            [
-                (&self.left_dock, Origin::LeftDock),
-                (&self.right_dock, Origin::RightDock),
-                (&self.bottom_dock, Origin::BottomDock),
-            ]
-            .into_iter()
-            .find_map(|(dock, origin)| {
-                if dock.focus_handle(cx).contains_focused(window, cx) && dock.read(cx).is_open() {
-                    Some(origin)
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(Origin::Center)
-        };
+        let origin: Origin = [
+            (&self.left_dock, Origin::LeftDock),
+            (&self.right_dock, Origin::RightDock),
+            (&self.bottom_dock, Origin::BottomDock),
+        ]
+        .into_iter()
+        .find_map(|(dock, origin)| {
+            if dock.focus_handle(cx).contains_focused(window, cx) && dock.read(cx).is_open() {
+                Some(origin)
+            } else {
+                None
+            }
+        })
+        .unwrap_or(Origin::Center);
 
         let get_last_active_pane = || {
             let pane = self
@@ -4807,20 +4786,7 @@ impl Workspace {
         let try_dock =
             |dock: &Entity<Dock>| dock.read(cx).is_open().then(|| Target::Dock(dock.clone()));
 
-        let sidebar_target = self
-            .sidebar_focus_handle
-            .as_ref()
-            .map(|h| Target::Sidebar(h.clone()));
-
         let target = match (origin, direction) {
-            // From the sidebar, only Right navigates into the workspace.
-            (Origin::Sidebar, SplitDirection::Right) => try_dock(&self.left_dock)
-                .or_else(|| get_last_active_pane().map(Target::Pane))
-                .or_else(|| try_dock(&self.bottom_dock))
-                .or_else(|| try_dock(&self.right_dock)),
-
-            (Origin::Sidebar, _) => None,
-
             // We're in the center, so we first try to go to a different pane,
             // otherwise try to go to a dock.
             (Origin::Center, direction) => {
@@ -4830,7 +4796,7 @@ impl Workspace {
                     match direction {
                         SplitDirection::Up => None,
                         SplitDirection::Down => try_dock(&self.bottom_dock),
-                        SplitDirection::Left => try_dock(&self.left_dock).or(sidebar_target),
+                        SplitDirection::Left => try_dock(&self.left_dock),
                         SplitDirection::Right => try_dock(&self.right_dock),
                     }
                 }
@@ -4844,24 +4810,18 @@ impl Workspace {
                 }
             }
 
-            (Origin::LeftDock, SplitDirection::Left) => sidebar_target,
-
             (Origin::LeftDock, SplitDirection::Down)
             | (Origin::RightDock, SplitDirection::Down) => try_dock(&self.bottom_dock),
 
             (Origin::BottomDock, SplitDirection::Up) => get_last_active_pane().map(Target::Pane),
-            (Origin::BottomDock, SplitDirection::Left) => {
-                try_dock(&self.left_dock).or(sidebar_target)
-            }
+            (Origin::BottomDock, SplitDirection::Left) => try_dock(&self.left_dock),
             (Origin::BottomDock, SplitDirection::Right) => try_dock(&self.right_dock),
 
             (Origin::RightDock, SplitDirection::Left) => {
                 if let Some(last_active_pane) = get_last_active_pane() {
                     Some(Target::Pane(last_active_pane))
                 } else {
-                    try_dock(&self.bottom_dock)
-                        .or_else(|| try_dock(&self.left_dock))
-                        .or(sidebar_target)
+                    try_dock(&self.bottom_dock).or_else(|| try_dock(&self.left_dock))
                 }
             }
 
@@ -4889,9 +4849,6 @@ impl Workspace {
                         log::error!("Could not find a focus target when in switching focus in {direction} direction for a {:?} dock", dock.position());
                     }
                 })
-            }
-            Some(ActivateInDirectionTarget::Sidebar(focus_handle)) => {
-                focus_handle.focus(window, cx);
             }
             None => {}
         }
@@ -5067,7 +5024,7 @@ impl Workspace {
         cx: &mut Context<Self>,
     ) {
         self.active_pane = pane.clone();
-        self.active_item_path_changed(true, window, cx);
+        self.active_item_path_changed(window, cx);
         self.last_active_center_pane = Some(pane.downgrade());
     }
 
@@ -5127,7 +5084,7 @@ impl Workspace {
                 }
                 serialize_workspace = *focus_changed || pane != self.active_pane();
                 if pane == self.active_pane() {
-                    self.active_item_path_changed(*focus_changed, window, cx);
+                    self.active_item_path_changed(window, cx);
                     self.update_active_view_for_followers(window, cx);
                 } else if *local {
                     self.set_active_pane(pane, window, cx);
@@ -5143,7 +5100,7 @@ impl Workspace {
             }
             pane::Event::ChangeItemTitle => {
                 if *pane == self.active_pane {
-                    self.active_item_path_changed(false, window, cx);
+                    self.active_item_path_changed(window, cx);
                 }
                 serialize_workspace = false;
             }
@@ -5337,7 +5294,7 @@ impl Workspace {
                 cx.notify();
             }
             Ok(false) => {
-                self.active_item_path_changed(true, window, cx);
+                self.active_item_path_changed(window, cx);
             }
             Err(_) => {
                 // Pane이 이미 center에서 제거됨 — 중복 Remove 이벤트 무시
@@ -5899,19 +5856,16 @@ impl Workspace {
         self.follower_states.contains_key(&id.into())
     }
 
-    fn active_item_path_changed(
-        &mut self,
-        focus_changed: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn active_item_path_changed(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         cx.emit(Event::ActiveItemChanged);
         let active_entry = self.active_project_path(cx);
         self.project.update(cx, |project, cx| {
             project.set_active_path(active_entry.clone(), cx)
         });
 
-        if focus_changed && let Some(project_path) = &active_entry {
+        // 다중 worktree 환경에서 활성 항목이 바뀌면(포커스 변경 여부와 관계없이)
+        // git_store의 active repo도 함께 동기화한다.
+        if let Some(project_path) = &active_entry {
             let git_store_entity = self.project.read(cx).git_store().clone();
             git_store_entity.update(cx, |git_store, cx| {
                 git_store.set_active_repo_for_path(project_path, cx);
@@ -8408,7 +8362,6 @@ fn open_items(
 enum ActivateInDirectionTarget {
     Pane(Entity<Pane>),
     Dock(Entity<Dock>),
-    Sidebar(FocusHandle),
 }
 
 fn notify_if_database_failed(window: WindowHandle<MultiWorkspace>, cx: &mut AsyncApp) {
@@ -9255,13 +9208,8 @@ pub async fn restore_multiworkspace(
             .ok();
     }
 
-    if state.sidebar_open {
-        window_handle
-            .update(cx, |multi_workspace, _, cx| {
-                multi_workspace.open_sidebar(cx);
-            })
-            .ok();
-    }
+    // 사이드바 패널이 제거되었으므로 state.sidebar_open 값은 무시한다.
+    let _ = state.sidebar_open;
 
     window_handle
         .update(cx, |_, window, _cx| {

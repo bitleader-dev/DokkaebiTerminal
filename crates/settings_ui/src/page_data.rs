@@ -3949,27 +3949,9 @@ fn window_and_layout_page() -> SettingsPage {
 }
 
 fn panels_page() -> SettingsPage {
-    fn project_panel_section() -> [SettingsPageItem; 25] {
+    fn project_panel_section() -> [SettingsPageItem; 24] {
         [
             SettingsPageItem::SectionHeader("Project Panel"),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "Thread Panel Dock",
-                description: "Where to dock the thread panel sidebar.",
-                field: Box::new(SettingField {
-                    json_path: Some("agent.sidebar_side"),
-                    pick: |settings_content| {
-                        settings_content.agent.as_ref()?.sidebar_side.as_ref()
-                    },
-                    write: |settings_content, value| {
-                        settings_content
-                            .agent
-                            .get_or_insert_default()
-                            .sidebar_side = value;
-                    },
-                }),
-                metadata: None,
-                files: USER,
-            }),
             SettingsPageItem::SettingItem(SettingItem {
                 title: "Project Panel Dock",
                 description: "Where to dock the project panel.",

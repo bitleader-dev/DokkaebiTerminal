@@ -364,8 +364,8 @@ impl Focusable for Onboarding {
 impl Item for Onboarding {
     type Event = ItemEvent;
 
-    fn tab_content_text(&self, _detail: usize, _cx: &App) -> SharedString {
-        "Onboarding".into()
+    fn tab_content_text(&self, _detail: usize, cx: &App) -> SharedString {
+        t("onboarding.tab_title", cx)
     }
 
     fn telemetry_event_text(&self) -> Option<&'static str> {

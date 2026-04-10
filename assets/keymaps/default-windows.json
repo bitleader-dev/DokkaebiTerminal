@@ -576,6 +576,7 @@
       "shift-alt-b": "branches::OpenRecent",
       "shift-alt-enter": "toast::RunAction",
       "ctrl-shift-`": "workspace::NewTerminal",
+      "ctrl-`": "workspace::NewCenterTerminal",
       "ctrl-s": "workspace::Save",
       "ctrl-k ctrl-shift-s": "workspace::SaveWithoutFormat",
       "ctrl-shift-s": "workspace::SaveAs",

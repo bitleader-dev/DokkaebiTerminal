@@ -1,6 +1,8 @@
 use crate::{
-    NewFile, Open, PathList, SerializedWorkspaceLocation, Workspace, WorkspaceId,
+    NewCenterTerminal, NewFile, Open, PathList, Pane, SerializedWorkspaceLocation, Workspace,
+    WorkspaceId,
     item::{Item, ItemEvent},
+    pane,
     persistence::WorkspaceDb,
 };
 use i18n::t;
@@ -9,16 +11,15 @@ use git::Clone as GitClone;
 use gpui::WeakEntity;
 use gpui::{
     Action, App, Context, Entity, EventEmitter, FocusHandle, Focusable, InteractiveElement,
-    ParentElement, Render, Styled, Task, Window, actions,
+    ParentElement, PathPromptOptions, Render, Styled, Subscription, Task, Window, actions, img,
 };
 use menu::{SelectNext, SelectPrevious};
-use project::DisableAiSettings;
+use project::DirectoryLister;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use settings::Settings;
-use ui::{ButtonLike, Divider, DividerColor, KeyBinding, Vector, VectorName, prelude::*};
+use ui::{ButtonLike, Divider, DividerColor, KeyBinding, prelude::*};
 use util::ResultExt;
-use zed_actions::{Extensions, OpenOnboarding, OpenSettings, agent, command_palette};
+use zed_actions::{OpenOnboarding, OpenSettings};
 
 #[derive(PartialEq, Clone, Debug, Deserialize, Serialize, JsonSchema, Action)]
 #[action(namespace = welcome)]
@@ -71,6 +72,7 @@ struct SectionButton {
     action: Box<dyn Action>,
     tab_index: usize,
     focus_handle: FocusHandle,
+    disabled: bool,
 }
 
 impl SectionButton {
@@ -87,7 +89,13 @@ impl SectionButton {
             action: action.boxed_clone(),
             tab_index,
             focus_handle,
+            disabled: false,
         }
+    }
+
+    fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
     }
 }
 
@@ -100,6 +108,7 @@ impl RenderOnce for SectionButton {
             .tab_index(self.tab_index as isize)
             .full_width()
             .size(ButtonSize::Medium)
+            .disabled(self.disabled)
             .child(
                 h_flex()
                     .w_full()
@@ -127,14 +136,12 @@ impl RenderOnce for SectionButton {
 
 enum SectionVisibility {
     Always,
-    Conditional(fn(&App) -> bool),
 }
 
 impl SectionVisibility {
-    fn is_visible(&self, cx: &App) -> bool {
+    fn is_visible(&self, _cx: &App) -> bool {
         match self {
             SectionVisibility::Always => true,
-            SectionVisibility::Conditional(f) => f(cx),
         }
     }
 }
@@ -151,6 +158,7 @@ impl SectionEntry {
         &self,
         button_index: usize,
         focus: &FocusHandle,
+        disabled: bool,
         cx: &App,
     ) -> Option<impl IntoElement> {
         self.visibility_guard.is_visible(cx).then(|| {
@@ -161,14 +169,21 @@ impl SectionEntry {
                 button_index,
                 focus.clone(),
             )
+            .disabled(disabled)
         })
     }
 }
 
-const CONTENT: (Section<4>, Section<3>) = (
+const CONTENT: (Section<4>, Section<1>) = (
     Section {
         title: "welcome.section.get_started",
         entries: [
+            SectionEntry {
+                icon: IconName::Terminal,
+                title: "welcome.action.new_terminal",
+                action: &NewCenterTerminal { local: false },
+                visibility_guard: SectionVisibility::Always,
+            },
             SectionEntry {
                 icon: IconName::Plus,
                 title: "welcome.action.new_file",
@@ -187,12 +202,6 @@ const CONTENT: (Section<4>, Section<3>) = (
                 action: &GitClone,
                 visibility_guard: SectionVisibility::Always,
             },
-            SectionEntry {
-                icon: IconName::ListCollapse,
-                title: "welcome.action.open_command_palette",
-                action: &command_palette::Toggle,
-                visibility_guard: SectionVisibility::Always,
-            },
         ],
     },
     Section {
@@ -202,23 +211,6 @@ const CONTENT: (Section<4>, Section<3>) = (
                 icon: IconName::Settings,
                 title: "welcome.action.open_settings",
                 action: &OpenSettings,
-                visibility_guard: SectionVisibility::Always,
-            },
-            SectionEntry {
-                icon: IconName::ZedAssistant,
-                title: "welcome.action.view_ai_settings",
-                action: &agent::OpenSettings,
-                visibility_guard: SectionVisibility::Conditional(|cx| {
-                    !DisableAiSettings::get_global(cx).disable_ai
-                }),
-            },
-            SectionEntry {
-                icon: IconName::Blocks,
-                title: "welcome.action.explore_extensions",
-                action: &Extensions {
-                    category_filter: None,
-                    id: None,
-                },
                 visibility_guard: SectionVisibility::Always,
             },
         ],
@@ -231,16 +223,19 @@ struct Section<const COLS: usize> {
 }
 
 impl<const COLS: usize> Section<COLS> {
-    fn render(self, index_offset: usize, focus: &FocusHandle, cx: &App) -> impl IntoElement {
+    fn render(
+        self,
+        index_offset: usize,
+        focus: &FocusHandle,
+        disabled: bool,
+        cx: &App,
+    ) -> impl IntoElement {
         v_flex()
             .min_w_full()
             .child(SectionHeader::new(t(self.title, cx)))
-            .children(
-                self.entries
-                    .iter()
-                    .enumerate()
-                    .filter_map(|(index, entry)| entry.render(index_offset + index, focus, cx)),
-            )
+            .children(self.entries.iter().enumerate().filter_map(|(index, entry)| {
+                entry.render(index_offset + index, focus, disabled, cx)
+            }))
     }
 }
 
@@ -256,6 +251,12 @@ pub struct WelcomePage {
             DateTime<Utc>,
         )>,
     >,
+    /// 새 터미널 생성 진행 여부 (중복 클릭 방지)
+    creating_terminal: bool,
+    /// 새 파일 생성 진행 여부 (중복 클릭 방지)
+    creating_file: bool,
+    /// 활성 pane의 AddItem 이벤트 구독 핸들
+    pane_subscription: Option<Subscription>,
 }
 
 impl WelcomePage {
@@ -296,6 +297,9 @@ impl WelcomePage {
             focus_handle,
             fallback_to_recent_projects,
             recent_workspaces: None,
+            creating_terminal: false,
+            creating_file: false,
+            pane_subscription: None,
         }
     }
 
@@ -307,6 +311,110 @@ impl WelcomePage {
     fn select_previous(&mut self, _: &SelectPrevious, window: &mut Window, cx: &mut Context<Self>) {
         window.focus_prev(cx);
         cx.notify();
+    }
+
+    /// 활성 pane에 새 항목이 추가되면 환영 탭을 닫고 비지 상태를 해제
+    fn watch_active_pane_for_close(&mut self, cx: &mut Context<Self>) {
+        let Some(workspace) = self.workspace.upgrade() else {
+            return;
+        };
+        let active_pane = workspace.read(cx).active_pane().clone();
+        let subscription = cx.subscribe(
+            &active_pane,
+            |this, _pane: Entity<Pane>, event: &pane::Event, cx| {
+                if let pane::Event::AddItem { .. } = event {
+                    this.creating_terminal = false;
+                    this.creating_file = false;
+                    this.pane_subscription = None;
+                    cx.emit(ItemEvent::CloseItem);
+                }
+            },
+        );
+        self.pane_subscription = Some(subscription);
+    }
+
+    /// 새 파일 액션 처리: 중복 클릭 방지 + 항목 추가 후 환영 탭 닫기
+    fn on_new_file(&mut self, _: &NewFile, _window: &mut Window, cx: &mut Context<Self>) {
+        if self.creating_terminal || self.creating_file {
+            // 비지 상태이므로 여기서 액션을 차단 (propagate 호출하지 않음)
+            return;
+        }
+        self.creating_file = true;
+        self.watch_active_pane_for_close(cx);
+        cx.notify();
+        // 워크스페이스의 NewFile 핸들러로 액션이 전달되도록 propagate
+        cx.propagate();
+    }
+
+    /// 새 터미널 액션 처리: 중복 클릭 방지 + 항목 추가 후 환영 탭 닫기
+    fn on_new_center_terminal(
+        &mut self,
+        _: &NewCenterTerminal,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.creating_terminal || self.creating_file {
+            // 비지 상태이므로 여기서 액션을 차단 (propagate 호출하지 않음)
+            return;
+        }
+        self.creating_terminal = true;
+        self.watch_active_pane_for_close(cx);
+        cx.notify();
+        // 워크스페이스의 NewCenterTerminal 핸들러로 액션이 전달되도록 propagate
+        cx.propagate();
+    }
+
+    /// 프로젝트 열기 액션 인터셉트: 프로젝트 열기 + 센터 터미널 추가
+    fn on_open_project(&mut self, _: &Open, window: &mut Window, cx: &mut Context<Self>) {
+        cx.stop_propagation();
+        cx.emit(ItemEvent::CloseItem);
+
+        let workspace = self.workspace.clone();
+        let Some(ws) = workspace.upgrade() else {
+            return;
+        };
+        let app_state = ws.read(cx).app_state().clone();
+
+        let paths_task = ws.update(cx, |ws, cx| {
+            let project = ws.project().clone();
+            let fs = app_state.fs.clone();
+            ws.prompt_for_open_path(
+                PathPromptOptions {
+                    files: true,
+                    directories: true,
+                    multiple: true,
+                    prompt: None,
+                },
+                DirectoryLister::Local(project, fs),
+                window,
+                cx,
+            )
+        });
+
+        cx.spawn_in(window, async move |_this, cx| {
+            let Some(paths) = paths_task.await.log_err().flatten() else {
+                return;
+            };
+
+            // 프로젝트 열기
+            let open_result = workspace.update_in(cx, |ws, window, cx| {
+                ws.open_workspace_for_paths(false, paths, window, cx)
+            });
+
+            if let Ok(task) = open_result {
+                if let Some(_new_ws) = task.await.log_err() {
+                    // 새 워크스페이스에 센터 터미널 추가
+                    cx.update(|window, cx| {
+                        window.dispatch_action(
+                            NewCenterTerminal { local: false }.boxed_clone(),
+                            cx,
+                        );
+                    })
+                    .ok();
+                }
+            }
+        })
+        .detach();
     }
 
     fn open_recent_project(
@@ -402,12 +510,15 @@ impl Render for WelcomePage {
             })
             .collect::<Vec<_>>();
 
+        // 새 파일/터미널 생성 중일 때는 시작하기 섹션 버튼을 모두 비활성화
+        let first_section_disabled = self.creating_terminal || self.creating_file;
+
         let second_section = if self.fallback_to_recent_projects && !recent_projects.is_empty() {
             self.render_recent_project_section(recent_projects, cx)
                 .into_any_element()
         } else {
             second_section
-                .render(first_section_entries, &self.focus_handle, cx)
+                .render(first_section_entries, &self.focus_handle, false, cx)
                 .into_any_element()
         };
 
@@ -424,6 +535,9 @@ impl Render for WelcomePage {
             .on_action(cx.listener(Self::select_previous))
             .on_action(cx.listener(Self::select_next))
             .on_action(cx.listener(Self::open_recent_project))
+            .on_action(cx.listener(Self::on_new_file))
+            .on_action(cx.listener(Self::on_new_center_terminal))
+            .on_action(cx.listener(Self::on_open_project))
             .size_full()
             .justify_center()
             .overflow_hidden()
@@ -448,7 +562,12 @@ impl Render for WelcomePage {
                                     .justify_center()
                                     .mb_4()
                                     .gap_4()
-                                    .child(Vector::square(VectorName::ZedLogo, rems_from_px(45.)))
+                                    .child(
+                                        img("icons/icon.png")
+                                            .w(rems_from_px(45.))
+                                            .h(rems_from_px(45.))
+                                            .flex_none(),
+                                    )
                                     .child(
                                         v_flex().child(Headline::new(welcome_label)).child(
                                             Label::new(t("welcome.tagline", cx))
@@ -458,7 +577,12 @@ impl Render for WelcomePage {
                                         ),
                                     ),
                             )
-                            .child(first_section.render(Default::default(), &self.focus_handle, cx))
+                            .child(first_section.render(
+                                Default::default(),
+                                &self.focus_handle,
+                                first_section_disabled,
+                                cx,
+                            ))
                             .child(second_section)
                             .when(!self.fallback_to_recent_projects, |this| {
                                 this.child(

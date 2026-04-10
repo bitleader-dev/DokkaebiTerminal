@@ -666,14 +666,15 @@ impl TerminalPanel {
         window: &mut Window,
         cx: &mut Context<Workspace>,
     ) {
-        let center_pane = workspace.active_pane();
-        let center_pane_has_focus = center_pane.focus_handle(cx).contains_focused(window, cx);
-        let active_center_item_is_terminal = center_pane
-            .read(cx)
-            .active_item()
-            .is_some_and(|item| item.downcast::<TerminalView>().is_some());
+        // 하단 터미널 패널에 포커스가 있을 때만 하단 패널에 추가하고,
+        // 그 외(중앙 pane / 사이드바 / 포커스 없음 등)는 중앙 pane에 새 터미널 탭 추가.
+        let terminal_panel = workspace.panel::<Self>(cx);
+        let panel_has_focus = terminal_panel
+            .as_ref()
+            .map(|panel| panel.focus_handle(cx).contains_focused(window, cx))
+            .unwrap_or(false);
 
-        if center_pane_has_focus && active_center_item_is_terminal {
+        if !panel_has_focus {
             let working_directory = default_working_directory(workspace, cx);
             let local = action.local;
             Self::add_center_terminal(workspace, window, cx, move |project, cx| {
@@ -687,7 +688,7 @@ impl TerminalPanel {
             return;
         }
 
-        let Some(terminal_panel) = workspace.panel::<Self>(cx) else {
+        let Some(terminal_panel) = terminal_panel else {
             return;
         };
 
@@ -778,6 +779,9 @@ impl TerminalPanel {
             )));
         }
         let project = workspace.project().downgrade();
+        // 비동기 spawn 전에 target pane을 캡처하여 race condition 방지
+        // (빠른 연속 추가 시 active_pane이 마지막 워크스페이스로 변경되는 문제)
+        let target_pane = workspace.active_pane().clone();
         cx.spawn_in(window, async move |workspace, cx| {
             let terminal = project.update(cx, create_terminal)?.await?;
 
@@ -792,7 +796,8 @@ impl TerminalPanel {
                         cx,
                     )
                 });
-                workspace.add_item_to_active_pane(Box::new(terminal_view), None, true, window, cx);
+                // 캡처된 pane에 직접 추가 (포커스는 add_workspace_group이 처리)
+                workspace.add_item(target_pane, Box::new(terminal_view), None, false, false, window, cx);
             })?;
             Ok(terminal.downgrade())
         })
@@ -1950,7 +1955,9 @@ mod tests {
     }
 
     #[gpui::test]
-    async fn test_new_terminal_opens_in_panel_by_default(cx: &mut TestAppContext) {
+    async fn test_new_terminal_opens_in_center_by_default(cx: &mut TestAppContext) {
+        // 기본 상태(터미널 패널에 명시적 포커스가 없는 경우)에서는
+        // 새 터미널이 중앙 pane에 추가되어야 한다.
         cx.executor().allow_parking();
         init_test(cx);
 
@@ -1998,13 +2005,13 @@ mod tests {
             .expect("Failed to read center pane items");
 
         assert_eq!(
-            panel_items_after,
-            panel_items_before + 1,
-            "Terminal should be added to the panel when no center terminal is focused"
+            center_items_after,
+            center_items_before + 1,
+            "New terminal should be added to the center pane by default"
         );
         assert_eq!(
-            center_items_after, center_items_before,
-            "Center pane should not gain a new terminal"
+            panel_items_after, panel_items_before,
+            "Terminal panel should not gain a new terminal by default"
         );
     }
 
@@ -2371,6 +2378,8 @@ mod tests {
             let store = SettingsStore::test(cx);
             cx.set_global(store);
             theme_settings::init(theme::LoadThemes::JustBase, cx);
+            // i18n 글로벌이 없으면 패널 빌드 중 t() 호출에서 panic 하므로 테스트에서도 초기화
+            i18n::init(cx);
             editor::init(cx);
             crate::init(cx);
         });

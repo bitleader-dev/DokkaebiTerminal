@@ -102,11 +102,11 @@ impl NotepadPanel {
             } else {
                 editor.set_soft_wrap_mode(SoftWrap::EditorWidth, cx);
             }
-            // 메모장은 overscroll 불필요 → 내용이 화면 내일 때 스크롤바 미표시
+            // 에디터 설정의 scroll_beyond_last_line에 따라 overscroll 적용
             editor.set_mode(EditorMode::Full {
                 scale_ui_elements_with_buffer_font_size: true,
                 show_active_line_background: true,
-                sizing_behavior: SizingBehavior::ExcludeOverscrollMargin,
+                sizing_behavior: SizingBehavior::Default,
             });
             // 복원 설정이 켜져 있을 때만 기존 내용 로드
             let restore = NotepadPanelSettings::get_global(cx).restore;

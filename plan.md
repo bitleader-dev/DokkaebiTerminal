@@ -1,26 +1,52 @@
-# 터미널 패널 탭 CWD 복원 실패 수정 — delete_unloaded_items 문제
+# 시작 섹션 "새 터미널" 단축키 추가
 
-## 근본 원인
-`load_workspace`에서 `item_ids_by_kind`를 빌드할 때 워크스페이스 CENTER 패인의 아이템만 수집한다.
-터미널 패널 아이템은 CENTER가 아니므로 포함되지 않는다.
-workspace center cleanup과 terminal panel cleanup이 동일한 DB 테이블(`terminals`)을 공유하면서 서로의 아이템을 삭제하는 문제가 발생한다.
+## 목표
+환영(Welcome) 페이지의 시작하기 섹션에 있는 "새 터미널"(`workspace::NewCenterTerminal`) 항목에 단축키를 매핑하여, 시작 섹션 버튼 우측에 단축키 표시가 자동으로 나타나도록 한다.
 
-- `TerminalView`의 `SerializableItem::cleanup`이 workspace center에서 호출되면 패널 아이템이 alive_items에 포함되지 않아 삭제됨
-- 터미널 패널 자체 cleanup(terminal_panel.rs:310-328)이 이미 존재하며 패널 아이템을 올바르게 처리함
+## 현재 상태
+- 시작 섹션의 "새 터미널" 액션: `workspace::NewCenterTerminal { local: false }` (`crates/workspace/src/welcome.rs:184`)
+- 액션 정의: `crates/workspace/src/workspace.rs:449` 부근
+- 키맵 매핑: **없음** → 시작 섹션 우측 단축키 라벨 미표시
+- 상단 + 메뉴의 "새 터미널"(`workspace::NewTerminal`)은 `Ctrl-Shift-\`` (default-windows.json:578)로 이미 매핑되어 있음 — 별개 액션
 
-## 해결 방안
-1. `TerminalView`의 `SerializableItem::cleanup` 구현을 no-op으로 변경 — workspace center에서 터미널 패널 DB 항목을 삭제하지 않도록 함
-2. 터미널 패널의 자체 cleanup(terminal_panel.rs:310-328)이 모든 터미널 cleanup을 담당
-3. 진단 로그 제거
+## 충돌 조사 (Windows 키맵)
+
+| 후보 | 충돌 | 결과 |
+|---|---|---|
+| `ctrl-\`` | 없음 (macOS/Linux는 `terminal_panel::Toggle`) | **채택** |
+| `ctrl-shift-\`` | `workspace::NewTerminal` | 불가 |
+| `ctrl-shift-t` | `pane::ReopenClosedItem` | 불가 |
+| `ctrl-alt-t` | `agent::NewThread` | 불가 |
+
+## 변경 후 동작
+- `Ctrl-\``를 누르면 어디에 포커스가 있든 `NewCenterTerminal` 액션이 디스패치되어 중앙 pane에 새 터미널 탭이 열린다.
+- 환영 페이지의 시작하기 섹션 "새 터미널" 우측에 단축키 라벨 `Ctrl-\``가 자동으로 표시된다 (`SectionEntry`가 액션의 첫 번째 키 바인딩을 자동 조회).
 
 ## 범위
-- `crates/terminal_view/src/terminal_view.rs`: `SerializableItem::cleanup` no-op으로 변경, 진단 로그 제거
-- `crates/terminal_view/src/persistence.rs`: `dump_all_terminals` 진단 메서드 제거
-- `crates/workspace/src/persistence.rs`: `delete_unloaded_items` 진단 로그 제거
+- `assets/keymaps/default-windows.json` — 한 줄 추가
+- (확장 옵션) macOS/Linux 키맵에 동일 키를 추가할지 검토. macOS/Linux는 `Ctrl-\``가 이미 `terminal_panel::Toggle`로 점유 중 → **이번 작업에서는 Windows만 추가**.
+
+## 수정 내용
+`assets/keymaps/default-windows.json`의 Workspace 컨텍스트 내, `ctrl-shift-\`` 라인 근처에 한 줄 추가:
+```json
+"ctrl-`": "workspace::NewCenterTerminal",
+```
+
+## 검증
+1. `cargo build -p workspace` (혹은 `cargo build`)
+2. `assets/keymaps/default-windows.json`이 keymap parser에 의해 정상 로드되는지 확인 (cargo test 또는 실행 시 에러 없음)
+3. 수동 검증(빌드 후 실행 권장): 환영 페이지에서 "새 터미널" 우측에 `Ctrl-\`` 표시 확인 + 단축키로 동작 확인
+
+## 문서 갱신
+- `notes.md`에 변경 항목 추가
 
 ## 작업 단계
+- [x] 1. 승인 대기
+- [x] 2. `default-windows.json`에 `ctrl-\`` → `workspace::NewCenterTerminal` 매핑 추가
+- [x] 3. 빌드 검증 (`cargo build -p workspace` 통과, JSONC 파싱 검증 통과)
+- [x] 4. notes.md 갱신
+- [x] 5. 완료 보고
 
-### [x] 1. TerminalView::cleanup을 no-op으로 변경
-### [x] 2. 진단 로그 제거 (terminal_view.rs, persistence.rs, workspace/persistence.rs)
-### [x] 3. 빌드 검증
-### [x] 4. 문서 갱신
+## 승인 필요 항목
+- 단축키 선택: `Ctrl-\`` (변경 원하면 알려주세요)
+- 적용 OS: Windows 키맵에만. macOS/Linux는 기존 `terminal_panel::Toggle`과 충돌하므로 제외

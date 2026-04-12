@@ -1209,7 +1209,8 @@ impl Window {
             move |request_frame_options| {
                 let thermal_state = handle
                     .update(&mut cx, |_, _, cx| cx.thermal_state())
-                    .log_err();
+                    .inspect_err(|e| log::trace!("window update failed (thermal_state): {e}"))
+                    .ok();
 
                 if thermal_state == Some(ThermalState::Serious)
                     || thermal_state == Some(ThermalState::Critical)
@@ -1250,19 +1251,22 @@ impl Window {
                                 window.present();
                                 arena_clear_needed.clear();
                             })
-                            .log_err();
+                            .inspect_err(|e| log::trace!("window update failed (draw): {e}"))
+                            .ok();
                     })
                 } else if needs_present {
                     handle
                         .update(&mut cx, |_, window, _| window.present())
-                        .log_err();
+                        .inspect_err(|e| log::trace!("window update failed (present): {e}"))
+                        .ok();
                 }
 
                 handle
                     .update(&mut cx, |_, window, _| {
                         window.complete_frame();
                     })
-                    .log_err();
+                    .inspect_err(|e| log::trace!("window update failed (complete_frame): {e}"))
+                    .ok();
             }
         }));
         platform_window.on_resize(Box::new({
@@ -1270,7 +1274,8 @@ impl Window {
             move |_, _| {
                 handle
                     .update(&mut cx, |_, window, cx| window.bounds_changed(cx))
-                    .log_err();
+                    .inspect_err(|e| log::trace!("window update failed (on_resize): {e}"))
+                    .ok();
             }
         }));
         platform_window.on_moved(Box::new({
@@ -1278,7 +1283,8 @@ impl Window {
             move || {
                 handle
                     .update(&mut cx, |_, window, cx| window.bounds_changed(cx))
-                    .log_err();
+                    .inspect_err(|e| log::trace!("window update failed (on_moved): {e}"))
+                    .ok();
             }
         }));
         platform_window.on_appearance_changed(Box::new({
@@ -1326,7 +1332,8 @@ impl Window {
                         window.hovered.set(active);
                         window.refresh();
                     })
-                    .log_err();
+                    .inspect_err(|e| log::trace!("window update failed (on_hover): {e}"))
+                    .ok();
             }
         }));
         platform_window.on_input({
@@ -1334,7 +1341,8 @@ impl Window {
             Box::new(move |event| {
                 handle
                     .update(&mut cx, |_, window, cx| window.dispatch_event(event, cx))
-                    .log_err()
+                    .inspect_err(|e| log::trace!("window update failed (dispatch_event): {e}"))
+                    .ok()
                     .unwrap_or(DispatchEventResult::default())
             })
         });
@@ -1350,7 +1358,8 @@ impl Window {
                         }
                         None
                     })
-                    .log_err()
+                    .inspect_err(|e| log::trace!("window update failed (hit_test): {e}"))
+                    .ok()
                     .unwrap_or(None)
             })
         });

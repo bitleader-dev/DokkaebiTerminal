@@ -55,6 +55,7 @@ use std::{
     collections::HashSet,
     ops::Range,
     path::{Path, PathBuf},
+    rc::Rc,
     sync::Arc,
     time::Duration,
 };
@@ -63,7 +64,7 @@ use ui::{
     Color, ContextMenu, ContextMenuEntry, DecoratedIcon, Divider, Icon, IconDecoration,
     IconDecorationKind, IndentGuideColors, IndentGuideLayout, Indicator, KeyBinding, Label,
     LabelSize, ListItem, ListItemSpacing, ScrollAxes, ScrollableHandle, Scrollbars,
-    StickyCandidate, Tooltip, WithScrollbar, prelude::*, v_flex,
+    StickyCandidate, Tab, Tooltip, WithScrollbar, prelude::*, v_flex,
 };
 use util::{
     ResultExt, TakeUntilExt, TryFutureExt, maybe,
@@ -161,10 +162,17 @@ pub struct ProjectPanel {
     update_visible_entries_task: UpdateVisibleEntriesTask,
     undo_manager: UndoManager,
     state: State,
-    /// Render::render에서 한 번 계산한 후 render_entry에서 재사용하는 캐시.
-    /// 다중 worktree 환경에서 활성 root 강조 판단에 사용.
-    render_cache_visible_worktrees_count: usize,
-    render_cache_active_worktree_override: Option<WorktreeId>,
+}
+
+/// Render::render에서 한 번 계산해 하위 render 함수에 전달되는 렌더 전용 값들의 묶음.
+/// ProjectPanel 필드로 캐싱하면 render 외부에서 stale 상태로 읽힐 위험이 있어
+/// 렌더 범위의 로컬로 보관하고 Rc로 두 개의 virtualized list 클로저에 공유한다.
+/// `worktree_root_ids`는 `Project::entry_is_worktree_root`와 기능 동치이나,
+/// 매 entry마다 worktree_for_id 조회를 피하기 위해 render 핫패스용 O(1) 맵으로 보관한다.
+struct RenderCache {
+    visible_worktrees_count: usize,
+    active_worktree_override: Option<WorktreeId>,
+    worktree_root_ids: HashMap<WorktreeId, ProjectEntryId>,
 }
 
 struct UpdateVisibleEntriesTask {
@@ -923,8 +931,6 @@ impl ProjectPanel {
                 },
                 update_visible_entries_task: Default::default(),
                 undo_manager: UndoManager::new(workspace.weak_handle()),
-                render_cache_visible_worktrees_count: 0,
-                render_cache_active_worktree_override: None,
             };
             this.update_visible_entries(None, false, false, window, cx);
 
@@ -5296,6 +5302,7 @@ impl ProjectPanel {
         &self,
         entry_id: ProjectEntryId,
         details: EntryDetails,
+        render_cache: &RenderCache,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
@@ -5317,16 +5324,14 @@ impl ProjectPanel {
             .selection
             .is_some_and(|selection| selection.entry_id == entry_id);
 
-        // 다중 worktree 환경에서 활성 워크트리의 root entry를 시각적으로 강조한다.
-        let is_root = self
-            .project
-            .read(cx)
-            .worktree_for_id(details.worktree_id, cx)
-            .and_then(|wt| wt.read(cx).root_entry().map(|e| e.id))
+        let is_root = render_cache
+            .worktree_root_ids
+            .get(&details.worktree_id)
+            .copied()
             == Some(entry_id);
         let is_active_worktree_root = is_root
-            && self.render_cache_visible_worktrees_count > 1
-            && self.render_cache_active_worktree_override == Some(details.worktree_id);
+            && render_cache.visible_worktrees_count > 1
+            && render_cache.active_worktree_override == Some(details.worktree_id);
 
         let file_name = details.filename.clone();
 
@@ -5459,7 +5464,6 @@ impl ProjectPanel {
             .border_color(border_color)
             .hover(|style| style.bg(bg_hover_color).border_color(border_hover_color))
             .when(is_active_worktree_root, |this| {
-                // 다중 worktree 환경에서 활성 워크트리의 root 행 좌측에 색상 바를 표시한다.
                 this.child(
                     div()
                         .absolute()
@@ -6452,6 +6456,7 @@ impl ProjectPanel {
     fn render_sticky_entries(
         &self,
         child: StickyProjectPanelCandidate,
+        render_cache: &RenderCache,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> SmallVec<[AnyElement; 8]> {
@@ -6540,7 +6545,7 @@ impl ProjectPanel {
                     window,
                     cx,
                 );
-                self.render_entry(entry.id, details, window, cx)
+                self.render_entry(entry.id, details, render_cache, window, cx)
                     .when(index == last_item_index, |this| {
                         let shadow_color_top = hsla(0.0, 0.0, 0.0, 0.1);
                         let shadow_color_bottom = hsla(0.0, 0.0, 0.0, 0.);
@@ -6578,37 +6583,23 @@ impl ProjectPanel {
             });
         }
 
-        let worktree_abs_path = {
-            let project_ref = self.project.read(cx);
-            let Some(worktree) = project_ref.worktree_for_id(worktree_id, cx) else {
-                return;
-            };
-            worktree.read(cx).abs_path()
-        };
-
-        // path → repo lookup의 모호성을 피하기 위해 worktree path와 가장 깊게 매칭되는
-        // repo를 직접 선택한다.
+        // GitStore::set_active_repo_for_path이 worktree root 경로에서 deepest match repo를
+        // 선택하고 same-id 가드까지 처리한다.
         let git_store = self.project.read(cx).git_store().clone();
-        let matched_repo = git_store
-            .read(cx)
-            .repositories()
-            .values()
-            .filter(|repo| {
-                let repo_path = &repo.read(cx).work_directory_abs_path;
-                worktree_abs_path == *repo_path
-                    || worktree_abs_path.starts_with(repo_path.as_ref())
-            })
-            .max_by_key(|repo| repo.read(cx).work_directory_abs_path.as_os_str().len())
-            .cloned();
-        if let Some(repo) = matched_repo {
-            repo.update(cx, |repo, cx| {
-                repo.set_as_active_repository(cx);
-            });
-        }
+        git_store.update(cx, |git_store, cx| {
+            git_store.set_active_repo_for_path(
+                &ProjectPath {
+                    worktree_id,
+                    path: RelPath::empty().into(),
+                },
+                cx,
+            );
+        });
     }
 
     /// render 시 selection 기반으로 활성 워크트리를 자동 동기화한다.
-    /// 무한 루프를 방지하기 위해 차이가 있을 때만 갱신하고 cx.notify는 호출하지 않는다.
+    /// set_active_worktree_override가 cx.notify를 발생시키지만, current == selection
+    /// 조기 반환과 git_store::set_as_active_repository의 same-id 가드로 루프가 차단된다.
     fn sync_active_worktree_from_selection(&mut self, cx: &mut Context<Self>) {
         let Some(selection) = self.selection else {
             return;
@@ -6623,12 +6614,11 @@ impl ProjectPanel {
         self.set_active_worktree(selection.worktree_id, cx);
     }
 
-    /// 프로젝트 패널 상단에 표시되는 헤더(제목 + 프로젝트 추가 버튼)를 렌더링한다.
     fn render_header(&self, cx: &mut Context<Self>) -> impl IntoElement {
         h_flex()
             .id("project-panel-header")
             .w_full()
-            .h(px(28.))
+            .h(Tab::container_height(cx))
             .px_2()
             .gap_1()
             .items_center()
@@ -6676,13 +6666,24 @@ impl Render for ProjectPanel {
         // selection 기반으로 활성 워크트리를 자동 동기화 (다중 worktree 환경에서
         // 사용자가 다른 프로젝트의 항목을 클릭하면 활성 프로젝트가 그 프로젝트로 이동)
         self.sync_active_worktree_from_selection(cx);
-        // render 핫패스 캐시: 매 entry마다 재계산되던 값들을 한 번만 계산
-        self.render_cache_visible_worktrees_count =
-            self.project.read(cx).visible_worktrees(cx).count();
-        self.render_cache_active_worktree_override = self
-            .workspace
-            .upgrade()
-            .and_then(|ws| ws.read(cx).active_worktree_override());
+        // visible_worktrees를 한 번만 순회하여 root id 맵을 만든 뒤 그 길이로 count를 도출한다.
+        let worktree_root_ids: HashMap<WorktreeId, ProjectEntryId> = self
+            .project
+            .read(cx)
+            .visible_worktrees(cx)
+            .filter_map(|wt| {
+                let wt = wt.read(cx);
+                wt.root_entry().map(|e| (wt.id(), e.id))
+            })
+            .collect();
+        let render_cache = Rc::new(RenderCache {
+            visible_worktrees_count: worktree_root_ids.len(),
+            active_worktree_override: self
+                .workspace
+                .upgrade()
+                .and_then(|ws| ws.read(cx).active_worktree_override()),
+            worktree_root_ids,
+        });
         // 패널 헤더는 다른 immutable borrow가 시작되기 전에 미리 만들어 둔다.
         let header = self.render_header(cx).into_any_element();
         let project = self.project.read(cx);
@@ -6860,7 +6861,8 @@ impl Render for ProjectPanel {
                         .child(header)
                         .child(
                             uniform_list("entries", item_count, {
-                                cx.processor(|this, range: Range<usize>, window, cx| {
+                                let render_cache = render_cache.clone();
+                                cx.processor(move |this, range: Range<usize>, window, cx| {
                                     this.rendered_entries_len = range.end - range.start;
                                     let mut items = Vec::with_capacity(this.rendered_entries_len);
                                     this.for_each_visible_entry(
@@ -6868,7 +6870,13 @@ impl Render for ProjectPanel {
                                         window,
                                         cx,
                                         &mut |id, details, window, cx| {
-                                            items.push(this.render_entry(id, details, window, cx));
+                                            items.push(this.render_entry(
+                                                id,
+                                                details,
+                                                &render_cache,
+                                                window,
+                                                cx,
+                                            ));
                                         },
                                     );
                                     items
@@ -6993,6 +7001,7 @@ impl Render for ProjectPanel {
                                 )
                             })
                             .when(show_sticky_entries, |list| {
+                                let render_cache = render_cache.clone();
                                 let sticky_items = ui::sticky_items(
                                     cx.entity(),
                                     |this, range, window, cx| {
@@ -7014,9 +7023,13 @@ impl Render for ProjectPanel {
                                         );
                                         items
                                     },
-                                    |this, marker_entry, window, cx| {
-                                        let sticky_entries =
-                                            this.render_sticky_entries(marker_entry, window, cx);
+                                    move |this, marker_entry, window, cx| {
+                                        let sticky_entries = this.render_sticky_entries(
+                                            marker_entry,
+                                            &render_cache,
+                                            window,
+                                            cx,
+                                        );
                                         this.sticky_items_count = sticky_entries.len();
                                         sticky_entries
                                     },

@@ -264,8 +264,10 @@ fn main() {
     match util::get_zed_cli_path() {
         Ok(path) => askpass::set_askpass_program(path),
         Err(err) => {
-            eprintln!("Error: {}", err);
+            // 번들 빌드(bin/dokkaebi.exe가 설치된 경우)에서만 치명적.
+            // 개발 빌드에서는 cli.exe가 별도 빌드 대상이라 없는 게 정상이므로 조용히 넘긴다.
             if std::option_env!("ZED_BUNDLE").is_some() {
+                eprintln!("Error: {}", err);
                 process::exit(1);
             }
         }

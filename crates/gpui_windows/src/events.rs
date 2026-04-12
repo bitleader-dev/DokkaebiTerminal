@@ -630,19 +630,16 @@ impl WindowsWindowInner {
         }
         self.state.ime_enabled.set(ime_enabled);
         unsafe {
+            // BOOL FALSE + ERROR_SUCCESS는 "상태가 이미 원하는 값이라 변경 없음"이라는 benign
+            // 반환이지만 windows-rs `.ok()`가 이를 HRESULT(0x00000000) Err로 변환해 로그를
+            // 오염시킨다. IME 상태 토글은 실패해도 복구할 여지가 없으므로 결과를 그대로 버린다.
             if ime_enabled {
-                ImmAssociateContextEx(handle, HIMC::default(), IACE_DEFAULT)
-                    .ok()
-                    .log_err();
+                let _ = ImmAssociateContextEx(handle, HIMC::default(), IACE_DEFAULT).ok();
             } else {
                 if let Some(ctx) = ImeContext::get(handle) {
-                    ImmNotifyIME(*ctx, NI_COMPOSITIONSTR, CPS_COMPLETE, 0)
-                        .ok()
-                        .log_err();
+                    let _ = ImmNotifyIME(*ctx, NI_COMPOSITIONSTR, CPS_COMPLETE, 0).ok();
                 }
-                ImmAssociateContextEx(handle, HIMC::default(), 0)
-                    .ok()
-                    .log_err();
+                let _ = ImmAssociateContextEx(handle, HIMC::default(), 0).ok();
             }
         }
     }

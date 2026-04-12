@@ -264,26 +264,12 @@ impl TitleBar {
                 cx.notify()
             }),
         );
-        subscriptions.push(
-            cx.subscribe(&project, |this, _, event: &project::Event, cx| {
-                if let project::Event::BufferEdited = event {
-                    // Clear override when user types in any editor,
-                    // so the title bar reflects the project they're actually working in
-                    this.clear_active_worktree_override(cx);
-                    cx.notify();
-                }
-            }),
-        );
-
         subscriptions.push(cx.observe_window_activation(window, Self::window_activation_changed));
         subscriptions.push(
-            cx.subscribe(&git_store, move |this, _, event, cx| match event {
-                GitStoreEvent::ActiveRepositoryChanged(_) => {
-                    // Clear override when focus-derived active repo changes
-                    // (meaning the user focused a file from a different project)
-                    this.clear_active_worktree_override(cx);
-                    cx.notify();
-                }
+            // 활성 프로젝트 전환은 project_panel 클릭만 근원으로 삼는다.
+            // 에디터 포커스 기반의 ActiveRepositoryChanged에 반응해서 override를
+            // clear하면 사용자가 명시적으로 선택한 프로젝트가 포커스 이동에 밀려난다.
+            cx.subscribe(&git_store, move |_, _, event, cx| match event {
                 GitStoreEvent::RepositoryUpdated(_, _, true) => {
                     cx.notify();
                 }
@@ -558,15 +544,6 @@ impl TitleBar {
         if let Some(workspace) = self.workspace.upgrade() {
             workspace.update(cx, |workspace, cx| {
                 workspace.set_active_worktree_override(Some(worktree_id), cx);
-            });
-        }
-        cx.notify();
-    }
-
-    fn clear_active_worktree_override(&mut self, cx: &mut Context<Self>) {
-        if let Some(workspace) = self.workspace.upgrade() {
-            workspace.update(cx, |workspace, cx| {
-                workspace.clear_active_worktree_override(cx);
             });
         }
         cx.notify();

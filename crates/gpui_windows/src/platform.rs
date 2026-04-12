@@ -272,9 +272,15 @@ impl WindowsPlatform {
             .collect::<Vec<_>>();
         let recent_workspaces = jump_list.recent_workspaces.clone();
         self.background_executor.spawn(async move {
-            update_jump_list(&recent_workspaces, &dock_menus)
-                .log_err()
-                .unwrap_or_default()
+            match update_jump_list(&recent_workspaces, &dock_menus) {
+                Ok(result) => result,
+                Err(err) => {
+                    // Windows Jump List 업데이트는 권한/환경에 따라 거부될 수 있으나
+                    // 기능 자체가 non-critical이므로 에러가 아닌 debug 로그로만 남긴다.
+                    log::debug!("Failed to update jump list: {err:#}");
+                    Default::default()
+                }
+            }
         })
     }
 
@@ -1107,10 +1113,10 @@ fn open_target_in_explorer(target: &Path) -> Result<()> {
 
     let highlight = [file_item as *const _];
     unsafe { SHOpenFolderAndSelectItems(dir_item as _, Some(&highlight), 0) }.or_else(|err| {
-        if err.code().0 == ERROR_FILE_NOT_FOUND.0 as i32 {
-            // On some systems, the above call mysteriously fails with "file not
-            // found" even though the file is there.  In these cases, ShellExecute()
-            // seems to work as a fallback (although it won't select the file).
+        // ERROR_FILE_NOT_FOUND: 일부 시스템에서 파일이 있는데도 not found로 실패한다.
+        // E_ABORT: Explorer가 다른 상태(다이얼로그 열림 등)로 작업을 중단한다.
+        // 두 케이스 모두 부모 폴더를 여는 fallback이 합리적.
+        if err.code().0 == ERROR_FILE_NOT_FOUND.0 as i32 || err.code() == E_ABORT {
             open_target(dir).context("Opening target parent folder")
         } else {
             Err(anyhow::anyhow!("Can not open target path: {}", err))

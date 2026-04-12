@@ -5863,9 +5863,12 @@ impl Workspace {
             project.set_active_path(active_entry.clone(), cx)
         });
 
-        // 다중 worktree 환경에서 활성 항목이 바뀌면(포커스 변경 여부와 관계없이)
-        // git_store의 active repo도 함께 동기화한다.
-        if let Some(project_path) = &active_entry {
+        // 다중 worktree 환경에서 활성 프로젝트 전환은 project_panel 클릭만 근원으로
+        // 삼는다. active_worktree_override가 설정된 경우엔 에디터 포커스가 바뀌어도
+        // git_store.active_repo_id를 덮어쓰지 않는다.
+        if let Some(project_path) = &active_entry
+            && self.active_worktree_override.is_none()
+        {
             let git_store_entity = self.project.read(cx).git_store().clone();
             git_store_entity.update(cx, |git_store, cx| {
                 git_store.set_active_repo_for_path(project_path, cx);

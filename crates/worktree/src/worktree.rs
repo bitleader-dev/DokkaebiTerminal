@@ -4560,6 +4560,16 @@ impl BackgroundScanner {
                 continue;
             };
 
+            // Windows 예약 장치명은 fs.metadata 호출 시 ERROR_INVALID_FUNCTION으로 실패하므로
+            // 스캔 대상에서 제외한다.
+            #[cfg(target_os = "windows")]
+            if let Some(name_str) = child_name.to_str()
+                && is_windows_reserved_device_name(name_str)
+            {
+                log::debug!("skipping Windows reserved device name {child_path:?}");
+                continue;
+            }
+
             if child_name == DOT_GIT {
                 let mut state = self.state.lock().await;
                 state
@@ -5490,6 +5500,18 @@ fn swap_to_front(child_paths: &mut Vec<PathBuf>, file: &str) {
         let temp = child_paths.remove(position);
         child_paths.insert(0, temp);
     }
+}
+
+/// Windows 예약 장치명(CON/PRN/AUX/NUL/COM1-9/LPT1-9)인지 판정한다.
+/// 확장자 유무와 무관하게 OS가 장치로 리디렉트하므로 stem만 비교한다.
+#[cfg(target_os = "windows")]
+fn is_windows_reserved_device_name(name: &str) -> bool {
+    const RESERVED: &[&str] = &[
+        "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7",
+        "COM8", "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+    ];
+    let stem = name.split('.').next().unwrap_or(name);
+    RESERVED.iter().any(|r| stem.eq_ignore_ascii_case(r))
 }
 
 fn char_bag_for_path(root_char_bag: CharBag, path: &RelPath) -> CharBag {

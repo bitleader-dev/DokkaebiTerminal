@@ -1,4 +1,3 @@
-use anyhow::bail;
 use collections::HashMap;
 use serde::Deserialize;
 use util::ResultExt;
@@ -102,7 +101,13 @@ impl VsCodeTaskDefinition {
         // E.g. if the command is missing due to `dependsOn` presence, we can check other_attributes first before doing this (and provide nice error message)
         // catch-all if on value.command presence.
         let Some(command) = self.command else {
-            bail!("Missing `type` field in task");
+            // `type` 필드가 없는 task는 Zed에서 실행 대상이 아니므로 조용히 skip한다.
+            // 기존 `bail!`은 상위에서 log_err로 에러 로그를 남기지만 기능 영향이 없는 정상 케이스라 노이즈였음.
+            log::debug!(
+                "Skipping VSCode task `{}` without `type` field",
+                self.label
+            );
+            return Ok(None);
         };
 
         let (command, args) = match command {

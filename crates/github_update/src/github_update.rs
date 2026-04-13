@@ -17,6 +17,10 @@ use util::command::new_command;
 const GITHUB_REPO: &str = "bitleader-dev/DokkaebiTerminal";
 /// 앱 실행 후 최초 체크까지 기다리는 시간.
 const INITIAL_CHECK_DELAY: Duration = Duration::from_secs(10);
+/// GitHub API 체크 요청 타임아웃.
+const CHECK_TIMEOUT: Duration = Duration::from_secs(30);
+/// 설치 파일 다운로드 타임아웃.
+const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// 릴리즈 자산 파일명 접두사.
 const ASSET_NAME_PREFIX: &str = "Dokkaebi-Setup-v";
 /// 릴리즈 자산 파일명 확장자.
@@ -97,10 +101,20 @@ impl GithubUpdater {
         }
         let http_client = self.http_client.clone();
         let current_version = self.current_version.clone();
+        let bg = cx.background_executor().clone();
 
         // 실제 HTTP 요청과 JSON 파싱은 백그라운드 스레드에서 처리한다.
+        // 네트워크가 hang되어 Task가 leak되지 않도록 CHECK_TIMEOUT 으로 상한을 둔다.
         let fetch_task = cx.background_executor().spawn(async move {
-            fetch_latest_release_info(http_client, &current_version).await
+            let timeout_bg = bg.clone();
+            smol::future::or(
+                fetch_latest_release_info(http_client, &current_version),
+                async move {
+                    timeout_bg.timer(CHECK_TIMEOUT).await;
+                    anyhow::bail!("GitHub API 요청 시간 초과 ({CHECK_TIMEOUT:?})")
+                },
+            )
+            .await
         });
 
         // 결과를 받아 엔티티 상태를 갱신하는 래퍼만 메인 스레드에서 실행한다.
@@ -149,10 +163,20 @@ impl GithubUpdater {
         let http_client = self.http_client.clone();
         let bg_version = version.clone();
         let bg_asset_url = asset_url.clone();
+        let bg = cx.background_executor().clone();
 
         // 다운로드·디스크 쓰기·설치 파일 spawn 까지 모두 백그라운드에서 수행한다.
+        // 대용량 파일 전송을 감안해 DOWNLOAD_TIMEOUT 으로 상한을 둔다.
         let download_task = cx.background_executor().spawn(async move {
-            download_and_launch_installer(http_client, &bg_version, &bg_asset_url).await
+            let timeout_bg = bg.clone();
+            smol::future::or(
+                download_and_launch_installer(http_client, &bg_version, &bg_asset_url),
+                async move {
+                    timeout_bg.timer(DOWNLOAD_TIMEOUT).await;
+                    anyhow::bail!("다운로드 시간 초과 ({DOWNLOAD_TIMEOUT:?})")
+                },
+            )
+            .await
         });
 
         // 완료 처리(앱 종료 또는 오류 UI 전환)만 메인 스레드에서 처리한다.

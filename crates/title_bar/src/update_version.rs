@@ -1,144 +1,87 @@
-use std::sync::Arc;
+// 타이틀바 오른쪽에 표시되는 Dokkaebi 업데이트 아이콘.
+// GithubUpdater 상태를 관찰해 "업데이트 가능 / 다운로드 중" 상태만 노출한다.
+// - UpdateAvailable: 사용자가 클릭하면 설치 파일 다운로드 + 설치 실행 + 앱 종료를 시작한다.
+// - Downloading: 다운로드 중임을 시각적으로 표시.
+// - 그 외(Idle/Errored): 아이콘 숨김.
 
-use anyhow::anyhow;
-use auto_update::{AutoUpdateStatus, AutoUpdater, UpdateCheckType, VersionCheckType};
+use github_update::{GithubUpdateStatus, GithubUpdater};
 use gpui::{Empty, Render};
-use semver::Version;
+use i18n::t;
 use ui::{UpdateButton, prelude::*};
 
 pub struct UpdateVersion {
-    status: AutoUpdateStatus,
-    update_check_type: UpdateCheckType,
-    dismissed: bool,
+    status: GithubUpdateStatus,
 }
 
 impl UpdateVersion {
     pub fn new(cx: &mut Context<Self>) -> Self {
-        if let Some(auto_updater) = AutoUpdater::get(cx) {
-            cx.observe(&auto_updater, |this, auto_update, cx| {
-                this.status = auto_update.read(cx).status();
-                this.update_check_type = auto_update.read(cx).update_check_type();
-                if this.status.is_updated() {
-                    this.dismissed = false;
-                }
+        // 업데이터가 아직 등록되지 않았거나 이후에 등록될 수도 있으므로 현재 상태로 초기화 후 observe.
+        if let Some(updater) = GithubUpdater::get(cx) {
+            cx.observe(&updater, |this, updater, cx| {
+                this.status = updater.read(cx).status();
+                cx.notify();
             })
             .detach();
             Self {
-                status: auto_updater.read(cx).status(),
-                update_check_type: UpdateCheckType::Automatic,
-                dismissed: false,
+                status: updater.read(cx).status(),
             }
         } else {
             Self {
-                status: AutoUpdateStatus::Idle,
-                update_check_type: UpdateCheckType::Automatic,
-                dismissed: false,
+                status: GithubUpdateStatus::Idle,
             }
         }
     }
 
+    /// 타이틀바 디버그 액션(`SimulateUpdateAvailable`)에서 호출해 업데이트 UI 전환을 테스트한다.
     pub fn update_simulation(&mut self, cx: &mut Context<Self>) {
-        let next_state = match self.status {
-            AutoUpdateStatus::Idle => AutoUpdateStatus::Checking,
-            AutoUpdateStatus::Checking => AutoUpdateStatus::Downloading {
-                version: VersionCheckType::Semantic(Version::new(1, 99, 0)),
-            },
-            AutoUpdateStatus::Downloading { .. } => AutoUpdateStatus::Installing {
-                version: VersionCheckType::Semantic(Version::new(1, 99, 0)),
-            },
-            AutoUpdateStatus::Installing { .. } => AutoUpdateStatus::Updated {
-                version: VersionCheckType::Semantic(Version::new(1, 99, 0)),
-            },
-            AutoUpdateStatus::Updated { .. } => AutoUpdateStatus::Errored {
-                error: Arc::new(anyhow!("Network timeout")),
-            },
-            AutoUpdateStatus::Errored { .. } => AutoUpdateStatus::Idle,
-        };
-
-        self.status = next_state;
-        self.update_check_type = UpdateCheckType::Manual;
-        self.dismissed = false;
-        cx.notify()
-    }
-
-    fn version_tooltip_message(version: &VersionCheckType) -> String {
-        format!("Version: {}", {
-            match version {
-                VersionCheckType::Sha(sha) => format!("{}…", sha.short()),
-                VersionCheckType::Semantic(semantic_version) => semantic_version.to_string(),
-            }
-        })
+        if let Some(updater) = GithubUpdater::get(cx) {
+            updater.update(cx, |updater, cx| updater.update_simulation(cx));
+        }
     }
 }
 
 impl Render for UpdateVersion {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.dismissed {
-            return Empty.into_any_element();
-        }
         match &self.status {
-            AutoUpdateStatus::Checking if self.update_check_type.is_manual() => {
-                UpdateButton::checking().into_any_element()
-            }
-            AutoUpdateStatus::Downloading { version } if self.update_check_type.is_manual() => {
-                let tooltip = Self::version_tooltip_message(&version);
-                UpdateButton::downloading(tooltip).into_any_element()
-            }
-            AutoUpdateStatus::Installing { version } if self.update_check_type.is_manual() => {
-                let tooltip = Self::version_tooltip_message(&version);
-                UpdateButton::installing(tooltip).into_any_element()
-            }
-            AutoUpdateStatus::Updated { version } => {
-                let tooltip = Self::version_tooltip_message(&version);
-                UpdateButton::updated(tooltip)
-                    .on_click(|_, _, cx| {
-                        workspace::reload(cx);
-                    })
-                    .on_dismiss(cx.listener(|this, _, _window, cx| {
-                        this.dismissed = true;
-                        cx.notify()
+            GithubUpdateStatus::UpdateAvailable { version, .. } => {
+                // 메시지: "업데이트 가능"
+                let message: SharedString = t("update.available", cx).into();
+                let tooltip: SharedString =
+                    format!("{}: v{}", t("update.click_to_install", cx), version).into();
+                UpdateButton::new(ui::IconName::Download, message)
+                    .tooltip(tooltip)
+                    .on_click(cx.listener(|_this, _event, _window, cx| {
+                        if let Some(updater) = GithubUpdater::get(cx) {
+                            updater.update(cx, |updater, cx| {
+                                updater.start_update(cx);
+                            });
+                        }
                     }))
                     .into_any_element()
             }
-            AutoUpdateStatus::Errored { error } => {
-                let error_str = error.to_string();
-                UpdateButton::errored(error_str)
-                    .on_click(|_, window, cx| {
-                        window.dispatch_action(Box::new(workspace::OpenLog), cx);
-                    })
-                    .on_dismiss(cx.listener(|this, _, _window, cx| {
-                        this.dismissed = true;
-                        cx.notify()
+            GithubUpdateStatus::Downloading { version } => {
+                let message: SharedString = t("update.downloading", cx).into();
+                let tooltip: SharedString = format!("v{}", version).into();
+                UpdateButton::new(ui::IconName::ArrowCircle, message)
+                    .icon_animate(true)
+                    .tooltip(tooltip)
+                    .into_any_element()
+            }
+            GithubUpdateStatus::Errored => {
+                let message: SharedString = t("update.failed", cx).into();
+                let tooltip: SharedString = t("update.failed.tooltip", cx).into();
+                UpdateButton::new(ui::IconName::Warning, message)
+                    .icon_color(Color::Warning)
+                    .tooltip(tooltip)
+                    .with_dismiss()
+                    .on_dismiss(cx.listener(|_this, _event, _window, cx| {
+                        if let Some(updater) = GithubUpdater::get(cx) {
+                            updater.update(cx, |updater, cx| updater.dismiss_error(cx));
+                        }
                     }))
                     .into_any_element()
             }
-            AutoUpdateStatus::Idle
-            | AutoUpdateStatus::Checking { .. }
-            | AutoUpdateStatus::Downloading { .. }
-            | AutoUpdateStatus::Installing { .. } => Empty.into_any_element(),
+            GithubUpdateStatus::Idle => Empty.into_any_element(),
         }
-    }
-}
-#[cfg(test)]
-mod tests {
-    use auto_update::VersionCheckType;
-    use release_channel::AppCommitSha;
-    use semver::Version;
-
-    use super::*;
-
-    #[test]
-    fn test_version_tooltip_message() {
-        let message = UpdateVersion::version_tooltip_message(&VersionCheckType::Semantic(
-            Version::new(1, 0, 0),
-        ));
-
-        assert_eq!(message, "Version: 1.0.0");
-
-        let message = UpdateVersion::version_tooltip_message(&VersionCheckType::Sha(
-            AppCommitSha::new("14d9a4189f058d8736339b06ff2340101eaea5af".to_string()),
-        ));
-
-        assert_eq!(message, "Version: 14d9a41…");
     }
 }

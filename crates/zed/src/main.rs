@@ -655,8 +655,8 @@ fn main() {
         });
         AppState::set_global(app_state.clone(), cx);
 
-        // auto_update::init(client.clone(), cx); // 포크 환경에서 공식 Zed 바이너리로 덮어쓰는 위험 방지
-        // auto_update_ui::init(cx); // auto_update 비활성화
+        // Dokkaebi GitHub 릴리즈 기반 업데이터 — 30초 지연 후 1회 체크
+        github_update::GithubUpdater::init(client.http_client(), cx);
         reliability::init(client.clone(), cx);
         extension_host::init(
             extension_host_proxy.clone(),

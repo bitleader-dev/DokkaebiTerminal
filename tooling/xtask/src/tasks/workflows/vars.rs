@@ -40,7 +40,6 @@ secret!(MACOS_CERTIFICATE_PASSWORD);
 secret!(SENTRY_AUTH_TOKEN);
 secret!(ZED_CLIENT_CHECKSUM_SEED);
 secret!(ZED_CLOUD_PROVIDER_ADDITIONAL_MODELS_JSON);
-secret!(ZED_SENTRY_MINIDUMP_ENDPOINT);
 secret!(SLACK_APP_ZED_UNIT_EVALS_BOT_TOKEN);
 secret!(ZED_ZIPPY_APP_ID);
 secret!(ZED_ZIPPY_APP_PRIVATE_KEY);
@@ -60,8 +59,7 @@ var!(AZURE_SIGNING_ENDPOINT);
 pub fn bundle_envs(platform: Platform) -> Env {
     let env = Env::default()
         .add("CARGO_INCREMENTAL", 0)
-        .add("ZED_CLIENT_CHECKSUM_SEED", ZED_CLIENT_CHECKSUM_SEED)
-        .add("ZED_MINIDUMP_ENDPOINT", ZED_SENTRY_MINIDUMP_ENDPOINT);
+        .add("ZED_CLIENT_CHECKSUM_SEED", ZED_CLIENT_CHECKSUM_SEED);
 
     match platform {
         Platform::Linux => env,

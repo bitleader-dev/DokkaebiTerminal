@@ -2,7 +2,6 @@ use std::{path::PathBuf, sync::Arc};
 
 use anyhow::Result;
 use askpass::EncryptedPassword;
-use auto_update::AutoUpdater;
 use futures::{FutureExt as _, channel::oneshot, select};
 use gpui::{
     AnyWindowHandle, App, AsyncApp, DismissEvent, Entity, EventEmitter, Focusable, FontFeatures,
@@ -472,55 +471,30 @@ impl remote::RemoteClientDelegate for RemoteClientDelegate {
         self.update_status(status, cx)
     }
 
+    // SSH 원격 서버 자동 다운로드는 Dokkaebi 포크에서 지원하지 않는다.
+    // 사용자가 원격 서버 바이너리를 수동으로 설치해야 한다.
     fn download_server_binary_locally(
         &self,
-        platform: RemotePlatform,
-        release_channel: ReleaseChannel,
-        version: Option<Version>,
+        _platform: RemotePlatform,
+        _release_channel: ReleaseChannel,
+        _version: Option<Version>,
         cx: &mut AsyncApp,
     ) -> Task<anyhow::Result<PathBuf>> {
-        let this = self.clone();
-        cx.spawn(async move |cx| {
-            AutoUpdater::download_remote_server_release(
-                release_channel,
-                version.clone(),
-                platform.os.as_str(),
-                platform.arch.as_str(),
-                move |status, cx| this.set_status(Some(status), cx),
-                cx,
+        cx.spawn(async move |_cx| {
+            anyhow::bail!(
+                "SSH 원격 서버 자동 다운로드는 Dokkaebi에서 지원하지 않습니다"
             )
-            .await
-            .with_context(|| {
-                format!(
-                    "Downloading remote server binary (version: {}, os: {}, arch: {})",
-                    version
-                        .as_ref()
-                        .map(|v| format!("{}", v))
-                        .unwrap_or("unknown".to_string()),
-                    platform.os,
-                    platform.arch,
-                )
-            })
         })
     }
 
     fn get_download_url(
         &self,
-        platform: RemotePlatform,
-        release_channel: ReleaseChannel,
-        version: Option<Version>,
+        _platform: RemotePlatform,
+        _release_channel: ReleaseChannel,
+        _version: Option<Version>,
         cx: &mut AsyncApp,
     ) -> Task<Result<Option<String>>> {
-        cx.spawn(async move |cx| {
-            AutoUpdater::get_remote_server_release_url(
-                release_channel,
-                version,
-                platform.os.as_str(),
-                platform.arch.as_str(),
-                cx,
-            )
-            .await
-        })
+        cx.spawn(async move |_cx| Ok(None))
     }
 }
 
@@ -571,5 +545,3 @@ pub fn connect(
             .await
     })
 }
-
-use anyhow::Context as _;

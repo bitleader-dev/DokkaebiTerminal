@@ -1,4 +1,3 @@
-use auto_update::DismissMessage;
 use editor::Editor;
 use extension_host::{ExtensionOperation, ExtensionStore};
 use futures::StreamExt;
@@ -35,7 +34,9 @@ actions!(
     activity_indicator,
     [
         /// Displays error messages from language servers in the status bar.
-        ShowErrorMessage
+        ShowErrorMessage,
+        /// 상태바의 메시지를 닫습니다.
+        DismissMessage
     ]
 );
 

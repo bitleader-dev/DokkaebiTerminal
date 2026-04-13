@@ -125,18 +125,19 @@ pub enum GithubUpdateStatus {
    - (D) SSH 원격 시도 → 스텁 에러 메시지 표시 (승인된 경우)
 
 ## 작업 단계
-- [ ] 1. `crates/auto_update/`, `crates/auto_update_helper/`, `crates/auto_update_ui/` 전체 삭제
-- [ ] 2. `Cargo.toml` workspace 멤버/의존성 정리
-- [ ] 3. `crates/github_update/` 신규 크레이트 생성 + 구현
-- [ ] 4. `title_bar/src/update_version.rs` 재작성 (GithubUpdater 연동)
-- [ ] 5. `activity_indicator/src/activity_indicator.rs` DismissMessage 로컬 재정의
-- [ ] 6. `remote_connection/src/remote_connection.rs` 두 메서드 스텁화 (승인 시)
-- [ ] 7. `zed/src/zed/app_menus.rs` Check 메뉴 항목 제거
-- [ ] 8. `zed/src/main.rs` init 호출 라인 정리 및 github_update init 추가
-- [ ] 9. i18n 리소스 추가
-- [ ] 10. `cargo build` 전체 검증
-- [ ] 11. notes.md 갱신
-- [ ] 12. 앱 실행 테스트 (사용자 확인)
+- [x] 1. `crates/auto_update/`, `crates/auto_update_helper/`, `crates/auto_update_ui/` 전체 삭제
+- [x] 2. `Cargo.toml` workspace 멤버/의존성 정리
+- [x] 3. `crates/github_update/` 신규 크레이트 생성 + 구현
+- [x] 4. `title_bar/src/update_version.rs` 재작성 (GithubUpdater 연동)
+- [x] 5. `activity_indicator/src/activity_indicator.rs` DismissMessage 로컬 재정의
+- [x] 6. `remote_connection/src/remote_connection.rs` 두 메서드 스텁화 (A안 적용)
+- [x] 7. `zed/src/zed/app_menus.rs` Check 메뉴 항목 제거
+- [x] 8. `zed/src/main.rs` init 호출 라인 정리 및 github_update init 추가
+- [x] 9. i18n 리소스 추가
+- [x] 10. `cargo build --workspace` 전체 검증 완료 (경고만, 에러 없음)
+- [x] 11. notes.md 갱신
+- [ ] 12. 앱 실행 테스트 (사용자 확인 필요)
+- [ ] 13. 후속: `script/bundle-windows.ps1`의 `auto_update_helper` 참조 제거 (배포 스크립트, 별도 승인)
 
 ## 승인 필요 항목 (진행 전 모두 승인 요청)
 1. ✅ **크레이트 삭제**: `auto_update`, `auto_update_helper`, `auto_update_ui` 3개 전체 삭제
@@ -144,7 +145,7 @@ pub enum GithubUpdateStatus {
 3. ✅ **신규 크레이트 생성**: `crates/github_update/` (의존성 모두 기존 워크스페이스 의존성)
 4. ✅ **title_bar 재작성**: `update_version.rs`의 AutoUpdater 관련 코드 전부 교체
 5. ✅ **activity_indicator 수정**: `DismissMessage` 액션 로컬 재정의 (Zed Cloud 무관화)
-6. ⚠ **remote_connection 처리 방안 선택 (A/B/C 중 택1)** — **권장: (A) 스텁화**
+6. ✅ **remote_connection 처리 방안: (A) 스텁화 확정**
 7. ✅ **앱 메뉴 수정**: "Check for Updates" 메뉴 항목 삭제
 8. ✅ **main.rs init 호출 정리**
 9. ✅ **i18n 키 3개 추가**

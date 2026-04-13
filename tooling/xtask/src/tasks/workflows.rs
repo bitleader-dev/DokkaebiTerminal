@@ -11,7 +11,6 @@ mod autofix_pr;
 mod bump_patch_version;
 mod cherry_pick;
 mod compare_perf;
-mod danger;
 mod deploy_collab;
 mod extension_auto_bump;
 mod extension_bump;
@@ -197,7 +196,6 @@ pub fn run_workflows(args: GenerateWorkflowArgs) -> Result<()> {
         WorkflowFile::zed(bump_patch_version::bump_patch_version),
         WorkflowFile::zed(cherry_pick::cherry_pick),
         WorkflowFile::zed(compare_perf::compare_perf),
-        WorkflowFile::zed(danger::danger),
         WorkflowFile::zed(deploy_collab::deploy_collab),
         WorkflowFile::zed(extension_bump::extension_bump),
         WorkflowFile::zed(extension_auto_bump::extension_auto_bump),

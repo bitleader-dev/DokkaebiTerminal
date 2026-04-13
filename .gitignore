@@ -53,3 +53,7 @@ crates/docs_preprocessor/actions.json
 # Local documentation audit files
 /december-2025-releases.md
 /docs/december-2025-documentation-gaps.md
+
+# Dokkaebi 빌드 산출물 및 로컬 스크립트
+/setup/
+/render_test.sh

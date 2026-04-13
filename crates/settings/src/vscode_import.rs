@@ -201,6 +201,7 @@ impl VsCodeSettings {
             notification: None,
             notification_panel: None,
             notepad_panel: None,
+            workspace_group_panel: None,
             outline_panel: self.outline_panel_settings_content(),
             preview_tabs: self.preview_tabs_settings_content(),
             project: self.project_settings_content(),

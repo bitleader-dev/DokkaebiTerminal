@@ -25,6 +25,7 @@ mod toolbar;
 pub mod welcome;
 pub mod workspace_group;
 pub mod workspace_group_panel;
+pub mod workspace_group_panel_settings;
 mod workspace_settings;
 
 pub use crate::notifications::NotificationFrame;
@@ -4125,23 +4126,35 @@ impl Workspace {
 
     /// Open the panel of the given type
     pub fn open_panel<T: Panel>(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let mut changed = false;
         for dock in self.all_docks() {
             if let Some(panel_index) = dock.read(cx).panel_index_for_type::<T>() {
                 dock.update(cx, |dock, cx| {
                     dock.activate_panel(panel_index, window, cx);
                     dock.set_open(true, window, cx);
                 });
+                changed = true;
             }
+        }
+        // 타이틀바 등 외부 호출에서 dock 상태 변경 시 즉시 직렬화
+        if changed {
+            self.serialize_workspace(window, cx);
         }
     }
 
-    pub fn close_panel<T: Panel>(&self, window: &mut Window, cx: &mut Context<Self>) {
+    pub fn close_panel<T: Panel>(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let mut changed = false;
         for dock in self.all_docks().iter() {
             dock.update(cx, |dock, cx| {
                 if dock.panel::<T>().is_some() {
-                    dock.set_open(false, window, cx)
+                    dock.set_open(false, window, cx);
+                    changed = true;
                 }
             })
+        }
+        // 타이틀바 등 외부 호출에서 dock 상태 변경 시 즉시 직렬화
+        if changed {
+            self.serialize_workspace(window, cx);
         }
     }
 

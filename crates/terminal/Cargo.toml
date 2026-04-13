@@ -21,6 +21,7 @@ doctest = false
 
 [dependencies]
 alacritty_terminal.workspace = true
+portable-pty.workspace = true
 anyhow.workspace = true
 collections.workspace = true
 futures.workspace = true

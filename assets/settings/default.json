@@ -918,6 +918,16 @@
     // Default: true
     "diff_stats": true,
   },
+  "workspace_group_panel": {
+    // Whether to show the workspace group panel button in the status bar.
+    "button": true,
+    // Where to dock the workspace group panel. Can be 'left' or 'right'.
+    "dock": "left",
+    // Default width of the workspace group panel.
+    "default_width": 240,
+    // Whether the workspace group panel should open on startup.
+    "starts_open": false,
+  },
   "message_editor": {
     // Whether to automatically replace emoji shortcodes with emoji characters.
     // For example: typing `:wave:` gets replaced with `👋`.

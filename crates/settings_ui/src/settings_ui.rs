@@ -8,10 +8,10 @@ use futures::{StreamExt, channel::mpsc};
 use fuzzy::StringMatchCandidate;
 use i18n::t;
 use gpui::{
-    Action, App, AsyncApp, ClipboardItem, DEFAULT_ADDITIONAL_WINDOW_SIZE, Div, Entity, FocusHandle,
-    Focusable, Global, KeyContext, ListState, ReadGlobal as _, ScrollHandle, Stateful,
-    Subscription, Task, Tiling, TitlebarOptions, UniformListScrollHandle, WeakEntity, Window,
-    WindowBounds, WindowHandle, WindowOptions, actions, div, list, point, prelude::*, px,
+    Action, App, AsyncApp, Bounds, ClipboardItem, DEFAULT_ADDITIONAL_WINDOW_SIZE, DisplayId, Div,
+    Entity, FocusHandle, Focusable, Global, KeyContext, ListState, ReadGlobal as _, ScrollHandle,
+    Stateful, Subscription, Task, Tiling, TitlebarOptions, UniformListScrollHandle, WeakEntity,
+    Window, WindowBounds, WindowHandle, WindowOptions, actions, div, list, point, prelude::*, px,
     uniform_list,
 };
 
@@ -663,6 +663,17 @@ pub fn open_settings_editor(
             _ => gpui::WindowDecorations::Client,
         };
 
+        // 메인 창과 같은 모니터에 설정 창을 띄우기 위해 호출자 창의 display_id를 조회한다.
+        // 조회에 실패하거나 호출자 창이 없으면 None을 유지하여 주 디스플레이 중앙에 떠오르게 한다.
+        let target_display_id: Option<DisplayId> = workspace_handle.and_then(|handle| {
+            handle
+                .update(cx, |_, window, cx| {
+                    window.display(cx).map(|display| display.id())
+                })
+                .ok()
+                .flatten()
+        });
+
         cx.open_window(
             WindowOptions {
                 titlebar: Some(TitlebarOptions {
@@ -684,7 +695,12 @@ pub fn open_settings_editor(
                     width: px(900.0),
                     height: px(240.0),
                 }),
-                window_bounds: Some(WindowBounds::centered(scaled_bounds, cx)),
+                display_id: target_display_id,
+                window_bounds: Some(WindowBounds::Windowed(Bounds::centered(
+                    target_display_id,
+                    scaled_bounds,
+                    cx,
+                ))),
                 ..Default::default()
             },
             |window, cx| {

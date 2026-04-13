@@ -24,8 +24,10 @@ use project_diff::ProjectDiff;
 use ui::prelude::*;
 use workspace::{ModalView, Workspace, notifications::DetachAndPromptErr};
 use zed_actions;
+use settings::Settings;
 
 use crate::{git_panel::GitPanel, text_diff_view::TextDiffView};
+use git_panel_settings::GitPanelSettings;
 
 mod askpass_modal;
 pub mod branch_picker;
@@ -48,6 +50,9 @@ pub mod text_diff_view;
 pub mod worktree_picker;
 
 pub fn init(cx: &mut App) {
+    // Git Panel 설정 등록
+    GitPanelSettings::register(cx);
+
     editor::set_blame_renderer(blame_ui::GitBlameRenderer, cx);
     commit_view::init(cx);
 

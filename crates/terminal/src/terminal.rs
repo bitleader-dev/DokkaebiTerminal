@@ -1,4 +1,5 @@
 pub mod mappings;
+pub mod pty_adapter;
 
 pub use alacritty_terminal;
 
@@ -8,8 +9,7 @@ pub mod terminal_settings;
 
 use alacritty_terminal::{
     Term,
-    event::{Event as AlacTermEvent, EventListener, Notify, WindowSize},
-    event_loop::{EventLoop, Msg, Notifier},
+    event::{Event as AlacTermEvent, EventListener, WindowSize},
     grid::{Dimensions, Grid, Row, Scroll as AlacScroll},
     index::{Boundary, Column, Direction as AlacDirection, Line, Point as AlacPoint},
     selection::{Selection, SelectionRange, SelectionType},
@@ -19,13 +19,14 @@ use alacritty_terminal::{
         cell::{Cell, Flags},
         search::{Match, RegexIter, RegexSearch},
     },
-    tty::{self},
     vi_mode::{ViModeCursor, ViMotion},
     vte::ansi::{
         ClearMode, CursorStyle as AlacCursorStyle, Handler, NamedPrivateMode, PrivateMode,
     },
 };
-use anyhow::{Context as _, Result, bail};
+
+use pty_adapter::{PtyHandle, PtySpawnParams};
+use anyhow::{Result, bail};
 use log::trace;
 
 use futures::{
@@ -118,6 +119,26 @@ const DEBUG_TERMINAL_HEIGHT: Pixels = px(30.);
 const DEBUG_CELL_WIDTH: Pixels = px(5.);
 const DEBUG_LINE_HEIGHT: Pixels = px(5.);
 
+/// 환경 변수 상수
+mod env_vars {
+    pub const ZED_TERM: &str = "ZED_TERM";
+    pub const TERM_PROGRAM: &str = "TERM_PROGRAM";
+    pub const TERM: &str = "TERM";
+    pub const COLORTERM: &str = "COLORTERM";
+    pub const TERM_PROGRAM_VERSION: &str = "TERM_PROGRAM_VERSION";
+    pub const DOKKAEBI_TERMINAL_ID: &str = "DOKKAEBI_TERMINAL_ID";
+
+    pub const DEFAULT_TERM_VALUE: &str = "xterm-256color";
+    pub const DEFAULT_COLORTERM_VALUE: &str = "truecolor";
+    pub const TERM_PROGRAM_VALUE: &str = "zed";
+    pub const ZED_TERM_VALUE: &str = "true";
+}
+
+/// PowerShell 프롬프트 관련 상수
+mod prompt_patterns {
+    pub const POWERSHELL_PROMPT_PREFIX: &str = "PS ";
+}
+
 /// 터미널별 고유 ID 생성용 전역 카운터
 static TERMINAL_ID_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -128,11 +149,11 @@ pub fn insert_zed_terminal_env(
     env: &mut HashMap<String, String>,
     version: &impl std::fmt::Display,
 ) -> String {
-    env.insert("ZED_TERM".to_string(), "true".to_string());
-    env.insert("TERM_PROGRAM".to_string(), "zed".to_string());
-    env.insert("TERM".to_string(), "xterm-256color".to_string());
-    env.insert("COLORTERM".to_string(), "truecolor".to_string());
-    env.insert("TERM_PROGRAM_VERSION".to_string(), version.to_string());
+    env.insert(env_vars::ZED_TERM.to_string(), env_vars::ZED_TERM_VALUE.to_string());
+    env.insert(env_vars::TERM_PROGRAM.to_string(), env_vars::TERM_PROGRAM_VALUE.to_string());
+    env.insert(env_vars::TERM.to_string(), env_vars::DEFAULT_TERM_VALUE.to_string());
+    env.insert(env_vars::COLORTERM.to_string(), env_vars::DEFAULT_COLORTERM_VALUE.to_string());
+    env.insert(env_vars::TERM_PROGRAM_VERSION.to_string(), version.to_string());
 
     // Claude Code Stop 훅에서 터미널 식별에 사용하는 고유 ID
     let terminal_id = format!(
@@ -141,7 +162,7 @@ pub fn insert_zed_terminal_env(
         TERMINAL_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
     );
     env.insert(
-        "DOKKAEBI_TERMINAL_ID".to_string(),
+        env_vars::DOKKAEBI_TERMINAL_ID.to_string(),
         terminal_id.clone(),
     );
     terminal_id
@@ -549,23 +570,20 @@ impl TerminalBuilder {
             // supported remoting into windows.
             let shell_kind = shell.shell_kind(cfg!(windows));
 
-            let pty_options = {
-                let alac_shell = shell_params.as_ref().map(|params| {
-                    alacritty_terminal::tty::Shell::new(
-                        params.program.clone(),
-                        params.args.clone().unwrap_or_default(),
-                    )
-                });
-
-                alacritty_terminal::tty::Options {
-                    shell: alac_shell,
-                    working_directory: working_directory.clone(),
-                    drain_on_exit: true,
-                    env: env.clone().into_iter().collect(),
+            // portable-pty로 PTY 생성에 사용할 프로그램/인자 결정
+            let pty_program = shell_params
+                .as_ref()
+                .map(|p| p.program.clone())
+                .unwrap_or_else(|| {
                     #[cfg(windows)]
-                    escape_args: shell_kind.tty_escape_args(),
-                }
-            };
+                    { "powershell".to_string() }
+                    #[cfg(not(windows))]
+                    { std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string()) }
+                });
+            let pty_args = shell_params
+                .as_ref()
+                .and_then(|p| p.args.clone())
+                .unwrap_or_default();
 
             let default_cursor_style = AlacCursorStyle::from(cursor_shape);
             let scrolling_history = if task.is_some() {
@@ -584,57 +602,57 @@ impl TerminalBuilder {
                 ..Config::default()
             };
 
-            //Setup the pty...
-            let pty = match tty::new(&pty_options, TerminalBounds::default().into(), window_id) {
-                Ok(pty) => pty,
+            // portable-pty로 PTY 생성
+            let spawn_params = PtySpawnParams {
+                program: pty_program,
+                args: pty_args,
+                working_directory: working_directory.clone(),
+                env: env.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
+                rows: 24,
+                cols: 80,
+            };
+            let (pty_handle, pty_reader) = match pty_adapter::spawn_pty(spawn_params) {
+                Ok(result) => result,
                 Err(error) => {
                     bail!(TerminalError {
                         directory: working_directory,
                         program: shell_params.as_ref().map(|params| params.program.clone()),
                         args: shell_params.as_ref().and_then(|params| params.args.clone()),
                         title_override: terminal_title_override,
-                        source: error,
+                        source: std::io::Error::new(std::io::ErrorKind::Other, error.to_string()),
                     });
                 }
             };
+            let pty_handle = Arc::new(pty_handle);
 
-            //Spawn a task so the Alacritty EventLoop can communicate with us
-            //TODO: Remove with a bounded sender which can be dispatched on &self
+            // GPUI 이벤트 채널 (alacritty EventLoop → subscribe() 경로 유지)
             let (events_tx, events_rx) = unbounded();
-            //Set up the terminal...
             let mut term = Term::new(
                 config.clone(),
                 &TerminalBounds::default(),
                 ZedListener(events_tx.clone()),
             );
 
-            //Alacritty defaults to alternate scrolling being on, so we just need to turn it off.
             if let AlternateScroll::Off = alternate_scroll {
                 term.unset_private_mode(PrivateMode::Named(NamedPrivateMode::AlternateScroll));
             }
 
             let term = Arc::new(FairMutex::new(term));
 
-            let pty_info = PtyProcessInfo::new(&pty);
+            let pty_info = PtyProcessInfo::new_from_portable_pty(&pty_handle);
 
-            //And connect them together
-            let event_loop = EventLoop::new(
+            // PTY 읽기 스레드 시작 (alacritty EventLoop 대체)
+            let _io_thread = pty_adapter::spawn_pty_reader(
+                pty_reader,
                 term.clone(),
                 ZedListener(events_tx),
-                pty,
-                pty_options.drain_on_exit,
-                false,
-            )
-            .context("failed to create event loop")?;
-
-            let pty_tx = event_loop.channel();
-            let _io_thread = event_loop.spawn(); // DANGER
+            );
 
             let no_task = task.is_none();
             let terminal = Terminal {
                 task,
                 terminal_type: TerminalType::Pty {
-                    pty_tx: Notifier(pty_tx),
+                    pty_handle: pty_handle.clone(),
                     info: Arc::new(pty_info),
                 },
                 terminal_id,
@@ -874,7 +892,7 @@ pub enum SelectionPhase {
 
 enum TerminalType {
     Pty {
-        pty_tx: Notifier,
+        pty_handle: Arc<PtyHandle>,
         info: Arc<PtyProcessInfo>,
     },
     DisplayOnly,
@@ -1160,8 +1178,8 @@ impl Terminal {
     /// 기본 프롬프트 형식: "PS C:\Users\jongc>"
     #[cfg(windows)]
     fn extract_cwd_candidate_from_prompt(line: &str) -> Option<PathBuf> {
-        let idx = line.find("PS ")?;
-        let after_ps = &line[idx + 3..];
+        let idx = line.find(prompt_patterns::POWERSHELL_PROMPT_PREFIX)?;
+        let after_ps = &line[idx + prompt_patterns::POWERSHELL_PROMPT_PREFIX.len()..];
         if after_ps.len() < 3 {
             return None;
         }
@@ -1198,8 +1216,14 @@ impl Terminal {
 
                 self.last_content.terminal_bounds = new_bounds;
 
-                if let TerminalType::Pty { pty_tx, .. } = &self.terminal_type {
-                    pty_tx.0.send(Msg::Resize(new_bounds.into())).ok();
+                if let TerminalType::Pty { pty_handle, .. } = &self.terminal_type {
+                    let window_size: WindowSize = new_bounds.into();
+                    pty_handle.resize(portable_pty::PtySize {
+                        rows: window_size.num_lines,
+                        cols: window_size.num_cols,
+                        pixel_width: window_size.cell_width * window_size.num_cols,
+                        pixel_height: window_size.cell_height * window_size.num_lines,
+                    }).ok();
                 }
 
                 term.resize(new_bounds);
@@ -1615,10 +1639,9 @@ impl Terminal {
         }
     }
 
-    /// Write the Input payload to the PTY, if applicable.
-    /// (This is a no-op for display-only terminals.)
+    /// PTY에 데이터를 쓴다 (DisplayOnly 터미널에서는 no-op).
     fn write_to_pty(&self, input: impl Into<Cow<'static, [u8]>>) {
-        if let TerminalType::Pty { pty_tx, .. } = &self.terminal_type {
+        if let TerminalType::Pty { pty_handle, .. } = &self.terminal_type {
             let input = input.into();
             if log::log_enabled!(log::Level::Debug) {
                 if let Ok(str) = str::from_utf8(&input) {
@@ -1627,7 +1650,7 @@ impl Terminal {
                     log::debug!("Writing to PTY: {:?}", input);
                 }
             }
-            pty_tx.notify(input);
+            pty_handle.write_bytes(&input);
         }
     }
 
@@ -2632,16 +2655,16 @@ unsafe fn append_text_to_term(term: &mut Term<ZedListener>, text_lines: &[&str])
 
 impl Drop for Terminal {
     fn drop(&mut self) {
-        if let TerminalType::Pty { pty_tx, info } =
+        if let TerminalType::Pty { pty_handle, info } =
             std::mem::replace(&mut self.terminal_type, TerminalType::DisplayOnly)
         {
-            pty_tx.0.send(Msg::Shutdown).ok();
-
+            // 자식 프로세스를 종료한다. PTY handle의 drop으로 reader EOF가 발생한다.
             let timer = self.background_executor.timer(Duration::from_millis(100));
             self.background_executor
                 .spawn(async move {
                     timer.await;
-                    info.kill_child_process();
+                    pty_handle.kill();
+                    drop(info);
                 })
                 .detach();
         }

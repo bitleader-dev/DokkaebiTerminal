@@ -4802,7 +4802,7 @@ fn panels_page() -> SettingsPage {
         ]
     }
 
-    fn git_panel_section() -> [SettingsPageItem; 14] {
+    fn git_panel_section() -> [SettingsPageItem; 15] {
         [
             SettingsPageItem::SectionHeader("Git Panel"),
             SettingsPageItem::SettingItem(SettingItem {
@@ -5048,6 +5048,24 @@ fn panels_page() -> SettingsPage {
                 metadata: None,
                 files: USER,
             }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "시작 시 열기",
+                description: "Git 패널이 앱 시작 시 열려야 하는지 여부입니다.",
+                field: Box::new(SettingField {
+                    json_path: Some("git_panel.starts_open"),
+                    pick: |settings_content| {
+                        settings_content.git_panel.as_ref()?.starts_open.as_ref()
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .git_panel
+                            .get_or_insert_default()
+                            .starts_open = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
         ]
     }
 
@@ -5211,6 +5229,56 @@ fn panels_page() -> SettingsPage {
         ]
     }
 
+    fn workspace_group_panel_section() -> [SettingsPageItem; 3] {
+        [
+            SettingsPageItem::SectionHeader("workspace_panel.title"),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "workspace_panel.default_width",
+                description: "workspace_panel.default_width.description",
+                field: Box::new(SettingField {
+                    json_path: Some("workspace_group_panel.default_width"),
+                    pick: |settings_content| {
+                        settings_content
+                            .workspace_group_panel
+                            .as_ref()?
+                            .default_width
+                            .as_ref()
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .workspace_group_panel
+                            .get_or_insert_default()
+                            .default_width = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "workspace_panel.starts_open",
+                description: "workspace_panel.starts_open.description",
+                field: Box::new(SettingField {
+                    json_path: Some("workspace_group_panel.starts_open"),
+                    pick: |settings_content| {
+                        settings_content
+                            .workspace_group_panel
+                            .as_ref()?
+                            .starts_open
+                            .as_ref()
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .workspace_group_panel
+                            .get_or_insert_default()
+                            .starts_open = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+        ]
+    }
+
     SettingsPage {
         title: "Panels",
         items: concat_sections![
@@ -5221,6 +5289,7 @@ fn panels_page() -> SettingsPage {
             git_panel_section(),
             agent_panel_section(),
             notepad_panel_section(),
+            workspace_group_panel_section(),
         ],
     }
 }

@@ -15532,6 +15532,7 @@ dependencies = [
  "libc",
  "log",
  "parking_lot",
+ "portable-pty",
  "rand 0.9.2",
  "regex",
  "release_channel",

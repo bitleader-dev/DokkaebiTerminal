@@ -1,11 +1,11 @@
 [package]
 description = "The fast, collaborative code editor."
 edition.workspace = true
-name = "zed"
-version = "0.1.0"
+name = "Dokkaebi"
+version = "0.0.1"
 publish.workspace = true
 license = "GPL-3.0-or-later"
-authors = ["Zed Team <hi@zed.dev>"]
+authors = ["Dokkaebi Team"]
 default-run = "dokkaebi"
 
 [lints]
@@ -290,7 +290,7 @@ osx_info_plist_exts = ["resources/info/*"]
 osx_url_schemes = ["zed"]
 
 [package.metadata.dokkaebi]
-upstream_version = "0.231.1"
+upstream_version = "0.231.2"
 
 [package.metadata.cargo-machete]
 ignored = ["profiling", "zstd", "tracing"]

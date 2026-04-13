@@ -19,14 +19,14 @@ static CUSTOM_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 /// This is set once and cached for subsequent calls.
 /// On macOS, this is `~/Library/Application Support/Dokkaebi`.
 /// On Linux/FreeBSD, this is `$XDG_DATA_HOME/dokkaebi`.
-/// On Windows, this is `%LOCALAPPDATA%\Dokkaebi`.
+/// On Windows, this is `%LOCALAPPDATA%\Programs\Dokkaebi`.
 static CURRENT_DATA_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 /// The resolved config directory, combining custom override or platform defaults.
 /// This is set once and cached for subsequent calls.
 /// On macOS, this is `~/.config/dokkaebi`.
 /// On Linux/FreeBSD, this is `$XDG_CONFIG_HOME/dokkaebi`.
-/// On Windows, this is `%APPDATA%\Dokkaebi`.
+/// On Windows, this is `%LOCALAPPDATA%\Programs\Dokkaebi\config`.
 static CONFIG_DIR: OnceLock<PathBuf> = OnceLock::new();
 
 /// Returns the relative path to the zed_server directory on the ssh host.
@@ -82,9 +82,10 @@ pub fn config_dir() -> &'static PathBuf {
         if let Some(custom_dir) = CUSTOM_DATA_DIR.get() {
             custom_dir.join("config")
         } else if cfg!(target_os = "windows") {
-            dirs::config_dir()
-                .expect("failed to determine RoamingAppData directory")
-                .join("Dokkaebi")
+            // Windows: 설치 폴더의 config 서브디렉토리
+            dirs::data_local_dir()
+                .expect("failed to determine LocalAppData directory")
+                .join("Programs/Dokkaebi/config")
         } else if cfg!(any(target_os = "linux", target_os = "freebsd")) {
             if let Ok(flatpak_xdg_config) = std::env::var("FLATPAK_XDG_CONFIG_HOME") {
                 flatpak_xdg_config.into()
@@ -113,9 +114,10 @@ pub fn data_dir() -> &'static PathBuf {
             }
             .join("dokkaebi")
         } else if cfg!(target_os = "windows") {
+            // Windows: 설치 폴더
             dirs::data_local_dir()
                 .expect("failed to determine LocalAppData directory")
-                .join("Dokkaebi")
+                .join("Programs/Dokkaebi")
         } else {
             config_dir().clone() // Fallback
         }
@@ -137,10 +139,10 @@ pub fn state_dir() -> &'static PathBuf {
             }
             .join("dokkaebi");
         } else {
-            // Windows
+            // Windows: 설치 폴더의 state 서브디렉토리
             return dirs::data_local_dir()
                 .expect("failed to determine LocalAppData directory")
-                .join("Dokkaebi");
+                .join("Programs/Dokkaebi/state");
         }
     })
 }
@@ -156,9 +158,10 @@ pub fn temp_dir() -> &'static PathBuf {
         }
 
         if cfg!(target_os = "windows") {
-            return dirs::cache_dir()
+            // Windows: 설치 폴더의 temp 서브디렉토리
+            return dirs::data_local_dir()
                 .expect("failed to determine LocalAppData directory")
-                .join("Dokkaebi");
+                .join("Programs/Dokkaebi/temp");
         }
 
         if cfg!(any(target_os = "linux", target_os = "freebsd")) {
@@ -326,12 +329,15 @@ fn text_threads_dir_fallback() -> &'static PathBuf {
 ///
 /// This is where the saved contexts from the Assistant are stored.
 pub fn text_threads_dir() -> &'static PathBuf {
-    let fallback_dir = text_threads_dir_fallback();
-    if fallback_dir.exists() {
-        return fallback_dir;
-    }
-    static CONTEXTS_DIR: OnceLock<PathBuf> = OnceLock::new();
-    CONTEXTS_DIR.get_or_init(|| state_dir().join("conversations"))
+    static TEXT_THREADS_DIR: OnceLock<PathBuf> = OnceLock::new();
+    TEXT_THREADS_DIR.get_or_init(|| {
+        let fallback_dir = text_threads_dir_fallback();
+        if fallback_dir.exists() {
+            fallback_dir.to_path_buf()
+        } else {
+            state_dir().join("conversations")
+        }
+    })
 }
 
 /// Returns the path to the contexts directory.

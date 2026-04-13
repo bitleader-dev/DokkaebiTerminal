@@ -9,9 +9,16 @@
 {
   "ui_font_size": 16,
   "buffer_font_size": 15,
+  "system_monitoring": true,
   "theme": {
     "mode": "system",
     "light": "One Light",
-    "dark": "One Dark",
+    "dark": "One Dark"
   },
+  "workspace_group_panel": {
+    "button": true,
+    "dock": "left",
+    "default_width": 240,
+    "starts_open": false
+  }
 }

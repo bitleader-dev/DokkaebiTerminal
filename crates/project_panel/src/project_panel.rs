@@ -7404,16 +7404,10 @@ impl Panel for ProjectPanel {
     }
 
     fn starts_open(&self, _: &Window, cx: &App) -> bool {
-        if !ProjectPanelSettings::get_global(cx).starts_open {
-            return false;
-        }
-
-        let project = &self.project.read(cx);
-        project.visible_worktrees(cx).any(|tree| {
-            tree.read(cx)
-                .root_entry()
-                .is_some_and(|entry| entry.is_dir())
-        })
+        // 설정값만 반환 (worktree 체크 제거).
+        // worktree 로드는 비동기라 restore_state 시점에 없을 수 있어 타이밍 문제 발생.
+        // 빈 workspace 자동 오픈은 default_docks 경로에서 처리됨.
+        ProjectPanelSettings::get_global(cx).starts_open
     }
 
     fn activation_priority(&self) -> u32 {

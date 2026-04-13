@@ -1,10 +1,7 @@
-use alacritty_terminal::tty::Pty;
 use gpui::{Context, Task};
+
+use crate::pty_adapter::PtyHandle;
 use parking_lot::{MappedRwLockReadGuard, Mutex, RwLock, RwLockReadGuard};
-#[cfg(target_os = "windows")]
-use std::num::NonZeroU32;
-#[cfg(unix)]
-use std::os::fd::AsRawFd;
 use std::{path::PathBuf, sync::Arc};
 
 #[cfg(target_os = "windows")]
@@ -252,20 +249,23 @@ impl ProcessIdGetter {
 
 #[cfg(unix)]
 impl ProcessIdGetter {
-    fn new(pty: &Pty) -> ProcessIdGetter {
+    /// portable-pty 기반 생성자
+    fn new_from_portable_pty(pty_handle: &PtyHandle) -> ProcessIdGetter {
+        let pid = pty_handle.process_id().unwrap_or(0);
         ProcessIdGetter {
-            handle: pty.file().as_raw_fd() as isize,
-            fallback_pid: pty.child().id(),
+            handle: 0, // portable-pty는 raw fd를 직접 노출하지 않음
+            fallback_pid: pid,
         }
     }
 
     fn pid(&self) -> Option<Pid> {
-        // Negative pid means error.
-        // Zero pid means no foreground process group is set on the PTY yet.
-        // Avoid killing the current process by returning a zero pid.
-        let pid = unsafe { libc::tcgetpgrp(self.handle as i32) };
-        if pid > 0 {
-            return Some(Pid::from_u32(pid as u32));
+        // Unix에서 tcgetpgrp는 raw fd가 필요하지만 portable-pty는 fd를 노출하지 않으므로
+        // fallback PID를 사용한다.
+        if self.handle != 0 {
+            let pid = unsafe { libc::tcgetpgrp(self.handle as i32) };
+            if pid > 0 {
+                return Some(Pid::from_u32(pid as u32));
+            }
         }
 
         if self.fallback_pid > 0 {
@@ -278,31 +278,29 @@ impl ProcessIdGetter {
 
 #[cfg(windows)]
 impl ProcessIdGetter {
-    fn new(pty: &Pty) -> ProcessIdGetter {
-        let child = pty.child_watcher();
-        let handle = child.raw_handle();
-        let fallback_pid = child.pid().unwrap_or_else(|| unsafe {
-            NonZeroU32::new_unchecked(GetProcessId(HANDLE(handle as *mut std::ffi::c_void)))
-        });
+    /// portable-pty 기반 생성자
+    fn new_from_portable_pty(pty_handle: &PtyHandle) -> ProcessIdGetter {
+        let pid = pty_handle.process_id().unwrap_or(0);
+        let handle = pty_handle.child_process_handle().unwrap_or(0);
 
         ProcessIdGetter {
-            handle: handle as isize,
-            fallback_pid: u32::from(fallback_pid),
+            handle,
+            fallback_pid: pid,
         }
     }
 
     fn pid(&self) -> Option<Pid> {
-        // Windows ConPTY에서는 handle이 중간 호스트 프로세스를 가리키고,
-        // fallback_pid(child.pid())가 실제 셸 프로세스의 PID이다.
-        // 실제 셸의 CWD를 추적하려면 fallback_pid를 우선 사용해야 한다.
+        // Windows ConPTY에서는 fallback_pid가 실제 셸 프로세스의 PID이다.
         if self.fallback_pid != 0 {
             return Some(Pid::from_u32(self.fallback_pid));
         }
-        let pid = unsafe { GetProcessId(HANDLE(self.handle as *mut std::ffi::c_void)) };
-        if pid == 0 {
-            return None;
+        if self.handle != 0 {
+            let pid = unsafe { GetProcessId(HANDLE(self.handle as *mut std::ffi::c_void)) };
+            if pid != 0 {
+                return Some(Pid::from_u32(pid));
+            }
         }
-        Some(Pid::from_u32(pid))
+        None
     }
 }
 
@@ -327,7 +325,8 @@ pub struct PtyProcessInfo {
 }
 
 impl PtyProcessInfo {
-    pub fn new(pty: &Pty) -> PtyProcessInfo {
+    /// portable-pty 기반 생성자
+    pub fn new_from_portable_pty(pty_handle: &PtyHandle) -> PtyProcessInfo {
         let process_refresh_kind = ProcessRefreshKind::nothing()
             .with_cmd(UpdateKind::Always)
             .with_cwd(UpdateKind::Always)
@@ -338,7 +337,7 @@ impl PtyProcessInfo {
         PtyProcessInfo {
             system: RwLock::new(system),
             refresh_kind: process_refresh_kind,
-            pid_getter: ProcessIdGetter::new(pty),
+            pid_getter: ProcessIdGetter::new_from_portable_pty(pty_handle),
             current: RwLock::new(None),
             task: Mutex::new(None),
             #[cfg(target_os = "windows")]
@@ -386,6 +385,17 @@ impl PtyProcessInfo {
         self.get_child().is_some_and(|process| process.kill())
     }
 
+    /// Windows에서 PID 또는 핸들을 통해 PEB에서 CWD를 읽는다
+    #[cfg(target_os = "windows")]
+    fn read_cwd_from_pid_or_handle(&self) -> Option<PathBuf> {
+        let shell_pid = self.pid_getter.fallback_pid;
+        if shell_pid != 0 {
+            win_peb_cwd::read_process_cwd_by_pid(shell_pid)
+        } else {
+            win_peb_cwd::read_process_cwd(self.pid_getter.handle())
+        }
+    }
+
     /// 프로세스 정보를 조회하여 반환한다. `self.current`는 갱신하지 않는다.
     fn load(&self) -> Option<ProcessInfo> {
         let pid = self.pid_getter.pid();
@@ -395,13 +405,7 @@ impl PtyProcessInfo {
             // Windows: sysinfo refresh 실패 시에도 실제 셸 PID로 PEB에서 cwd를 읽는다
             #[cfg(target_os = "windows")]
             {
-                let shell_pid = self.pid_getter.fallback_pid;
-                let peb_cwd = if shell_pid != 0 {
-                    win_peb_cwd::read_process_cwd_by_pid(shell_pid)
-                } else {
-                    win_peb_cwd::read_process_cwd(self.pid_getter.handle())
-                };
-                if let Some(cwd) = peb_cwd {
+                if let Some(cwd) = self.read_cwd_from_pid_or_handle() {
                     return Some(ProcessInfo {
                         name: String::new(),
                         cwd,
@@ -418,13 +422,7 @@ impl PtyProcessInfo {
         #[cfg(target_os = "windows")]
         let cwd = {
             // 실제 셸 PID로 PEB에서 CWD를 읽는다 (sysinfo는 CWD 갱신이 안 됨)
-            let shell_pid = self.pid_getter.fallback_pid;
-            let peb_cwd = if shell_pid != 0 {
-                win_peb_cwd::read_process_cwd_by_pid(shell_pid)
-            } else {
-                win_peb_cwd::read_process_cwd(self.pid_getter.handle())
-            };
-            peb_cwd.unwrap_or_else(|| {
+            self.read_cwd_from_pid_or_handle().unwrap_or_else(|| {
                 let raw_cwd = process.cwd();
                 raw_cwd.map_or(PathBuf::new(), |p| p.to_owned())
             })

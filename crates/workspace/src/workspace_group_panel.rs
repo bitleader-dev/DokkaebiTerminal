@@ -16,9 +16,11 @@ use ui::{
 use i18n::t;
 use unicode_segmentation::UnicodeSegmentation;
 
+use settings::Settings;
 use crate::{
     Workspace,
     dock::{DockPosition, Panel, PanelEvent},
+    workspace_group_panel_settings::WorkspaceGroupPanelSettings,
 };
 
 use gpui::AsyncWindowContext;
@@ -33,9 +35,10 @@ actions!(
     ]
 );
 
-/// 워크스페이스 그룹 패널을 Workspace에 등록 (현재 미사용 — action은 new()에서 직접 등록)
-pub fn init(_cx: &mut App) {
-    // action 등록은 new()에서 수행
+/// 워크스페이스 그룹 패널을 Workspace에 등록
+pub fn init(cx: &mut App) {
+    // WorkspaceGroupPanelSettings 등록
+    WorkspaceGroupPanelSettings::register(cx);
 }
 
 // ── 인라인 이름 편집기 ──────────────────────────────────────────────
@@ -838,8 +841,8 @@ impl Panel for WorkspaceGroupPanel {
         // 고정 위치 — 항상 왼쪽
     }
 
-    fn default_size(&self, _window: &Window, _cx: &App) -> gpui::Pixels {
-        px(200.)
+    fn default_size(&self, _window: &Window, cx: &App) -> gpui::Pixels {
+        WorkspaceGroupPanelSettings::get_global(cx).default_width
     }
 
     fn icon(&self, _window: &Window, _cx: &App) -> Option<IconName> {
@@ -863,8 +866,8 @@ impl Panel for WorkspaceGroupPanel {
         WORKSPACE_GROUP_PANEL_KEY
     }
 
-    fn starts_open(&self, _window: &Window, _cx: &App) -> bool {
-        false
+    fn starts_open(&self, _window: &Window, cx: &App) -> bool {
+        WorkspaceGroupPanelSettings::get_global(cx).starts_open
     }
 
     fn activation_priority(&self) -> u32 {

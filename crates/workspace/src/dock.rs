@@ -95,6 +95,7 @@ pub trait PanelHandle: Send + Sync {
     fn icon_tooltip(&self, window: &Window, cx: &App) -> Option<&'static str>;
     fn toggle_action(&self, window: &Window, cx: &App) -> Box<dyn Action>;
     fn icon_label(&self, window: &Window, cx: &App) -> Option<String>;
+    fn starts_open(&self, window: &Window, cx: &App) -> bool;
     fn panel_focus_handle(&self, cx: &App) -> FocusHandle;
     fn to_any(&self) -> AnyView;
     fn activation_priority(&self, cx: &App) -> u32;
@@ -215,6 +216,10 @@ where
 
     fn is_agent_panel(&self, cx: &App) -> bool {
         self.read(cx).is_agent_panel()
+    }
+
+    fn starts_open(&self, window: &Window, cx: &App) -> bool {
+        self.read(cx).starts_open(window, cx)
     }
 }
 
@@ -664,10 +669,8 @@ impl Dock {
 
         self.restore_state(window, cx);
 
-        if panel.read(cx).starts_open(window, cx) {
-            self.activate_panel(index, window, cx);
-            self.set_open(true, window, cx);
-        }
+        // 각 패널의 starts_open은 restore_state에서 active_panel 기준으로 독립 판단.
+        // 여기서 강제로 열면 다른 패널의 설정과 충돌하므로 별도 처리 없음.
 
         cx.notify();
         index
@@ -675,7 +678,7 @@ impl Dock {
 
     pub fn restore_state(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         if let Some(serialized) = self.serialized_dock.clone() {
-            if let Some(active_panel) = serialized.active_panel.filter(|_| serialized.visible)
+            if let Some(active_panel) = serialized.active_panel.clone().filter(|_| serialized.visible)
                 && let Some(idx) = self.panel_index_for_persistent_name(active_panel.as_str(), cx)
             {
                 self.activate_panel(idx, window, cx);
@@ -686,7 +689,24 @@ impl Dock {
             {
                 panel.set_zoomed(true, window, cx)
             }
-            self.set_open(serialized.visible, window, cx);
+
+            // "시작 시 열기" 설정은 각 패널별로 독립 판단
+            // dock이 열리는 조건: serialized.visible == true
+            //                 AND serialized.active_panel.starts_open == true
+            // 각 패널의 설정을 독립적으로 존중하여 다른 패널 설정의 영향을 받지 않도록 함
+            let should_open = if !serialized.visible {
+                false
+            } else if let Some(active_name) = serialized.active_panel.as_deref() {
+                self.panel_entries
+                    .iter()
+                    .find(|entry| entry.panel.persistent_name() == active_name)
+                    .map(|entry| entry.panel.starts_open(window, cx))
+                    .unwrap_or(false)
+            } else {
+                false
+            };
+
+            self.set_open(should_open, window, cx);
             return true;
         }
         false

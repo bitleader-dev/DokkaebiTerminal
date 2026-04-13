@@ -185,6 +185,9 @@ pub struct SettingsContent {
     /// Configuration for the Notepad Panel
     pub notepad_panel: Option<NotepadPanelSettingsContent>,
 
+    /// Configuration for the Workspace Group Panel
+    pub workspace_group_panel: Option<WorkspacePanelSettingsContent>,
+
     pub proxy: Option<String>,
 
     /// The URL of the Zed server to connect to.
@@ -606,6 +609,28 @@ pub struct NotepadPanelSettingsContent {
     ///
     /// Default: false
     pub horizontal_scroll: Option<bool>,
+}
+
+#[with_fallible_options]
+#[derive(Clone, Default, Serialize, Deserialize, JsonSchema, MergeFrom, Debug, PartialEq)]
+pub struct WorkspacePanelSettingsContent {
+    /// Whether to show the workspace group panel button in the status bar.
+    ///
+    /// Default: true
+    pub button: Option<bool>,
+    /// Where to dock the workspace group panel.
+    ///
+    /// Default: left
+    pub dock: Option<DockPosition>,
+    /// Default width of the workspace group panel in pixels.
+    ///
+    /// Default: 240
+    #[serde(serialize_with = "crate::serialize_optional_f32_with_two_decimal_places")]
+    pub default_width: Option<f32>,
+    /// Whether the workspace group panel should open on startup.
+    ///
+    /// Default: false
+    pub starts_open: Option<bool>,
 }
 
 #[with_fallible_options]

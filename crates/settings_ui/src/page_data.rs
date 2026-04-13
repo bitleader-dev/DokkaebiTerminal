@@ -227,7 +227,7 @@ fn general_page() -> SettingsPage {
             SettingsPageItem::SectionHeader("Auto Update"),
             SettingsPageItem::SettingItem(SettingItem {
                 title: "Auto Update",
-                description: "Whether or not to automatically check for updates.",
+                description: "Checks for the latest updates when the app starts.",
                 field: Box::new(SettingField {
                     json_path: Some("auto_update"),
                     pick: |settings_content| settings_content.auto_update.as_ref(),

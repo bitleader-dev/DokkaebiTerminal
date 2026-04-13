@@ -428,7 +428,7 @@
   "Telemetry Metrics": "Telemetry Metrics",
   "Send anonymized usage data like what languages you're using Zed with.": "Send anonymized usage data like what languages you're using Dokkaebi with.",
   "Auto Update": "Auto Update",
-  "Whether or not to automatically check for updates.": "Whether or not to automatically check for updates.",
+  "Checks for the latest updates when the app starts.": "Checks for the latest updates when the app starts.",
   "Theme": "Theme",
   "Theme Mode": "Theme Mode",
   "Theme Name": "Theme Name",

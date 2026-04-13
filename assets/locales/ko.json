@@ -863,7 +863,7 @@
   "Whether clicking the stop button on a running terminal tool should also cancel the agent's generation. Note that this only applies to the stop button, not to ctrl+c inside the terminal.": "실행 중인 터미널 도구의 중지 버튼 클릭 시 에이전트 생성도 취소할지 여부입니다. 이는 중지 버튼에만 적용되며, 터미널 내의 Ctrl+C에는 적용되지 않습니다.",
   "Whether edit predictions are enabled when editing text threads in the agent panel.": "에이전트 패널에서 텍스트 스레드를 편집할 때 편집 예측을 활성화할지 여부입니다.",
   "Whether indentation of pasted content should be adjusted based on the context.": "붙여넣은 내용의 들여쓰기를 컨텍스트에 맞게 조정할지 여부입니다.",
-  "Whether or not to automatically check for updates.": "업데이트를 자동으로 확인할지 여부입니다.",
+  "Checks for the latest updates when the app starts.": "앱 실행 시 최신 업데이트가 있는지 확인합니다.",
   "Whether or not to debounce inlay hints updates after buffer edits (set to 0 to disable debouncing).": "버퍼 편집 후 인레이 힌트 업데이트를 디바운스할지 여부입니다(0으로 설정하면 비활성화).",
   "Whether or not to debounce inlay hints updates after buffer scrolls (set to 0 to disable debouncing).": "버퍼 스크롤 후 인레이 힌트 업데이트를 디바운스할지 여부입니다(0으로 설정하면 비활성화).",
   "Whether or not to ensure there's a single newline at the end of a buffer when saving it.": "저장 시 버퍼 끝에 단일 줄바꿈이 있는지 보장할지 여부입니다.",

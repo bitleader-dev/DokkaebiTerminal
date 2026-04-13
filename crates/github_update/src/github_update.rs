@@ -10,8 +10,25 @@ use http_client::HttpClient;
 use http_client::github::latest_github_release;
 use release_channel::AppVersion;
 use semver::Version;
+use settings::{Settings, SettingsContent};
 use smol::io::AsyncWriteExt;
 use util::command::new_command;
+
+/// 앱 실행 시 GitHub 릴리즈 자동 체크 여부를 담는 설정.
+/// 설정 키는 최상위 `auto_update` (기본값 true).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AutoUpdateSetting {
+    pub enabled: bool,
+}
+
+impl Settings for AutoUpdateSetting {
+    fn from_settings(content: &SettingsContent) -> Self {
+        // SettingsContent 병합 후 기본값이 주입되므로 unwrap_or(true)로 안전하게 처리.
+        Self {
+            enabled: content.auto_update.unwrap_or(true),
+        }
+    }
+}
 
 /// 업데이트를 확인할 대상 GitHub 저장소 (owner/repo).
 const GITHUB_REPO: &str = "bitleader-dev/DokkaebiTerminal";
@@ -61,8 +78,12 @@ impl GithubUpdater {
             .and_then(|g| g.0.clone())
     }
 
-    /// 업데이터를 생성하고 `INITIAL_CHECK_DELAY` 뒤 1회 자동 체크를 예약한다.
+    /// 업데이터를 생성하고 설정이 활성화된 경우에 한해 `INITIAL_CHECK_DELAY` 뒤 1회 자동 체크를 예약한다.
     pub fn init(http_client: Arc<dyn HttpClient>, cx: &mut App) {
+        // 설정이 다른 경로에서 이미 register 되어 있을 수 있으므로 register 후 즉시 읽는다.
+        AutoUpdateSetting::register(cx);
+        let auto_update_enabled = AutoUpdateSetting::get_global(cx).enabled;
+
         let current_version = AppVersion::global(cx);
         let entity = cx.new(|_cx| Self {
             status: GithubUpdateStatus::Idle,
@@ -71,6 +92,13 @@ impl GithubUpdater {
             pending: None,
         });
         cx.set_global(GlobalGithubUpdater(Some(entity.clone())));
+
+        // 자동 업데이트가 꺼져 있으면 체크 예약을 건너뛴다. 엔티티 자체는 등록하여
+        // 타이틀바 observe와 수동 체크 동작을 유지한다.
+        if !auto_update_enabled {
+            log::info!("github_update: 자동 업데이트 설정이 꺼져 있어 시작 시 체크를 건너뜁니다");
+            return;
+        }
 
         // INITIAL_CHECK_DELAY 지연 후 1회만 체크. 프리징 없이 백그라운드 타이머 사용.
         cx.spawn(async move |cx| {

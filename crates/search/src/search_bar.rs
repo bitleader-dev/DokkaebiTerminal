@@ -1,5 +1,6 @@
 use editor::{Editor, EditorElement, EditorStyle, MultiBufferOffset, ToOffset};
 use gpui::{Action, App, Entity, FocusHandle, Hsla, IntoElement, TextStyle};
+use i18n::t;
 use settings::Settings;
 use theme_settings::ThemeSettings;
 use ui::{IconButton, IconButtonShape};
@@ -90,7 +91,7 @@ pub(crate) fn filter_search_results_input(
             .border_r_1()
             .border_color(cx.theme().colors().border)
             .bg(cx.theme().colors().text_accent.opacity(0.05))
-            .child(Label::new("Find in Results").color(Color::Muted)),
+            .child(Label::new(t("search.bar.label.find_in_results", cx)).color(Color::Muted)),
     )
 }
 

@@ -1,162 +1,347 @@
-# 라이선스 준수 및 상류 Zed 잔재 최종 정리 (진행 중)
+# 설정 UI SectionHeader 일괄 i18n 키 전환
 
-## 현재 상태 체크포인트 (2026-04-13 저장)
-전체 범위는 `전체 진행` 승인됨. 조사 후 추가 결정 필요한 3개 항목에서 대기 중.
+## 목표
+`crates/settings_ui/src/page_data.rs`의 80개 raw 영문 SectionHeader를 i18n 키로 일괄 전환하여 한국어 UI에서도 섹션 제목이 번역되도록 한다.
 
-## 완료 작업
+## 배경
+- `settings_ui.rs:968`이 `t(header, cx)` 호출로 SectionHeader를 i18n 처리함
+- 현재 81개 SectionHeader 중 1개(`workspace_panel.title`)만 i18n 키 적용, 나머지 80개는 raw 영문 → 한국어 모드에서도 영문 출력
+- 사용자 옵션 B 승인 (2026-04-14)
 
-### 1. ✅ NOTICE 파일 생성 (GPL §5(a) 변경 고지)
-- 파일: `NOTICE` (루트)
-- 내용: 원본 Zed 저작권 + Dokkaebi 수정 범위 7개 카테고리 요약 + Third-Party Attribution + Trademark Notice
+## 키 네이밍 컨벤션
+`settings_page.section.<snake_case>` — 기존 `settings_page.language.semantic_tokens.description` 패턴과 정합
 
-### 2. ✅ `crates/zed/Cargo.toml:2` description 교체
-- 변경 전: `"The fast, collaborative code editor."`
-- 변경 후: `"Dokkaebi - a Windows-focused terminal workspace for AI coding agents, based on Zed."`
+## 작업 단계
 
-### 3. ✅ `.cloudflare/` 삭제
-- `.cloudflare/docs-proxy/` (Worker + wrangler.toml)
-- `.cloudflare/open-source-website-assets/` (Worker + wrangler.toml)
-- `.cloudflare/README.md`
+### 1단계: 범위 확인
+- [x] 코드 조사 완료 (page_data.rs 81개 SectionHeader, 78개 unique 문자열)
+- [x] 사용자 승인 — 옵션 B 선택
 
-### 4. ✅ `tooling/xtask` workflow 생성 코드 제거
-- `tooling/xtask/src/tasks/workflows/` 디렉토리 전체 (19개 파일)
-- `tooling/xtask/src/tasks/workflow_checks.rs`
-- `main.rs`에서 `Workflows`·`CheckWorkflows` enum/match arm 제거
-- `tasks.rs`에서 `pub mod workflows;`, `pub mod workflow_checks;` 제거
+### 2단계: 수정
+- [x] `assets/locales/en.json` — 82개 i18n 키 추가 (영문 = 기존 raw 문자열 그대로)
+- [x] `assets/locales/ko.json` — 82개 i18n 키 한글 번역 추가
+- [x] `crates/settings_ui/src/page_data.rs` — 84개 SectionHeader 위치 raw 문자열 → i18n 키 교체 (82 unique, Toolbar/Scrollbar 각 2회 중복 포함)
 
-### 5. ✅ `crates/explorer_command_injector/` 삭제
-- 크레이트 전체 디렉토리 제거 (Appx 매니페스트 3개 포함)
-- `Cargo.toml` workspace members에서 라인 제거
-- 참조 크레이트 없음을 사전 Grep으로 확인
+### 3단계: 검증
+- [x] `cargo build -p settings_ui` 성공 확인 (14.41s, exit 0, 경고 8건 기존 잔재)
 
-### 6. ✅ `assets/licenses.md` 생성 (2026-04-14)
-- `cargo install cargo-about@0.8.2` (release 3m 33s) → `C:\Users\jongc\.cargo\bin\cargo-about.exe`
-- `pwsh -NoProfile -ExecutionPolicy Bypass -File script/generate-licenses.ps1` 실행
-- 결과: 28,526줄 / 1.5MB, 13개 라이선스 · 약 1,369개 크레이트 attribution
-- `OpenLicenses` 액션(`crates/zed/src/zed.rs:184-195`)의 `asset_str::<Assets>("licenses.md")` 경로 정상 로드 가능
-- 설정 팝업 메뉴에 "오픈소스 라이선스" 항목 추가 + `Quit` 앞 separator (`app_menus.rs`, `ko/en.json`)
+### 4단계: 문서 갱신
+- [x] `notes.md` 항목 추가
+- [x] `README.md` 수정 안 함 (프로젝트 규칙)
 
-### 7. ✅ dead script 8개 + docs/ 생태계 삭제 (2026-04-14, B 항목 확장)
-- 스크립트 8개: `docs-strip-preview-callouts`, `docs-suggest`, `docs-suggest-publish`, `test-docs-suggest-batch`, `update_top_ranking_issues/`, `zed-local`, `squawk`, `generate-action-metadata`
-- `docs/` 디렉토리 전체 (57 md, 2.0MB) — Zed 공식 mdBook 문서, Dokkaebi 빌드·배포와 무관
-- `crates/docs_preprocessor/` 크레이트 — docs 빌드 전용, 연쇄 dead
-- 메타 정리: `Cargo.toml` workspace members, `typos.toml` 스펠체크 제외 규칙, `.gitignore` actions.json 규칙
+### 5단계: 완료 보고
 
-### 8. ✅ C 항목 옵션 3 — 사용자 노출 Zed URL 제거 (2026-04-14)
-- `crates/zed/src/zed.rs`: Linux inotify / Windows ReadDirectoryChangesW 파일 감시 실패 프롬프트, GPU emulation 경고에서 `zed.dev/docs/linux|windows` URL 전부 제거. 프롬프트 버튼 라벨도 단순화 (`Troubleshoot and Quit` → `Quit`). About 크레딧 `ZED_REPO_URL`(github.com/zed-industries/zed)은 유지
-- `crates/zed/src/main.rs`: `fail_to_open_window` stderr/ashpd notification body URL 제거, `Args` doc 코멘트 `<https://zed.dev>` 참조 제거. stderr 브랜드명도 Zed → Dokkaebi로 교체
+## 후속 작업 (옵션 A + B-3) 완료 (2026-04-14)
 
-### 9. ✅ D 항목 옵션 a — ZED_REPL_DOCUMENTATION 빈 문자열화 (2026-04-14)
-- `crates/zed/src/zed/quick_action_bar/repl_menu.rs:18` 상수값 `""`로 교체, 사용처 `format!` 제거
-- Jupyter 커널 안내 버튼 UI는 유지, 클릭 시 no-op
+### 옵션 A — `workspace_panel.title` → 신규 컨벤션 통일
+- [x] page_data.rs:5256 `workspace_panel.title` → `settings_page.section.workspace_panel`
+- [x] ko/en에 `settings_page.section.workspace_panel` 키 추가 + 기존 `workspace_panel.title` 키 삭제
+- [x] 빌드 검증 성공 (7.95s)
 
-### 10. ✅ 키맵 편집기 정리 ①②③ (2026-04-14)
-- ①`zed_actions/src/lib.rs` deprecated_aliases 속성 5줄 제거 (OpenSettings/OpenSettingsFile/OpenProjectSettings/OpenKeymapFile/OpenKeymap)
-- ②`OpenDocs` 액션 전체 제거: zed_actions 정의 + `zed.rs` import·handler · `onboarding::DOCS_URL` 상수 · `vim::command.rs`의 `:h`/`:help` 매핑
-- ③`KERNEL_DOCS_URL` 값 `""`로 교체 (D 옵션 a 패턴)
-- 빌드 중 vim 크레이트에서 `OpenDocs` import 발견 → 같은 커밋에 정리
+### 옵션 B-3 — SettingItem title 375개 i18n 키 일괄 전환
+- [x] `script/i18n_titles.py` 작성: 329 unique title → 한글 매핑 + snake_case key 자동화
+- [x] 키 충돌 검증 (0건)
+- [x] en.json/ko.json에 329개 신규 키 일괄 추가 (`settings_page.item.<snake>` 컨벤션)
+- [x] page_data.rs의 375개 title 위치 raw 영문 → i18n 키 일괄 교체 (replace 자동화)
+- [x] 빌드 검증 성공 (12.19s)
+- [x] 잔여 raw title 0건 확인
 
-### 16. ✅ 액션 네임스페이스 zed → dokkaebi 이관 (방안 A) (2026-04-14)
-- Rust: `zed_actions/lib.rs`(13건 + actions! 호출), `onboarding.rs`(2건), `component_preview.rs`(1건) namespace 속성 변경
-- 하드코딩 문자열: `keymap_editor.rs:4078`, `vim/command.rs:1794` 수정
-- 키맵 JSON 7개 파일 `"zed::"` → `"dokkaebi::"` 총 68건 일괄 치환 (사전에 NoAction/Unbind 없음 확인)
-- i18n en/ko 각 47개 `action.zed::*` 키 → `action.dokkaebi::*`, NoAction/Unbind 키·값은 예약어 보존 위해 원복
-- 예약어 보존: `zed::NoAction`, `zed::Unbind`, `zed::main`은 GPUI 프레임워크 레벨 하드코딩이라 유지
-- 결과: 키맵 편집기에서 모든 액션이 `dokkaebi:` 네임스페이스로 표시
+## 진행 중 — SettingItem `description` i18n 전환 (W4 워크플로우)
 
-### 15. ✅ About 다이얼로그 크레딧 문구 정비 (2026-04-14)
-- i18n(`ko/en.json`) 크레딧 문구 교체: 독립 프로젝트 + Zed Industries 비제휴 고지로 재작성
-- `ZED_REPO_URL`(`github.com/zed-industries/zed`) → `ZED_PROJECT_URL`(`https://zed.dev/`)로 링크 교체·상수 이름 변경
-- 업스트림 버전 `(v0.231.2)` 표시 제거: `AboutDialog.upstream_version` 필드 + `env!("DOKKAEBI_UPSTREAM_VERSION")` + `build.rs` 파싱 로직 + `Cargo.toml [package.metadata.dokkaebi]` 연쇄 삭제
+### 워크플로우
+카테고리(페이지 함수) 분할 + 각 단계마다 자가 검증 + 모호 항목 질문 → 답변 반영 → 적용 → 다음 카테고리
 
-### 14. ✅ 라이선스/브랜드 마감 3단계 — Zed 상표 최종 정리 (2026-04-14)
-- **1단계 에러 메시지 브랜드 교체**: `main.rs` "Zed failed to launch" × 2 / "Zed System Specs" → "Dokkaebi"; `zed.rs` GPU 경고 "Zed uses..." → "Dokkaebi uses..."
-- **2단계 Zed cloud 로그인 차단**: `default.json` `server_url: ""` 기본값 + `authenticate()` no-op → 앱 시작 자동 재로그인 차단, HTTP 요청 단계에서 실패
-- **3단계 SaaS UI 브랜드 일반화 (방안 B)**: `ai_onboarding`·`edit_prediction_button`·`end_trial_upsell`·`thread_view`·`language_models/cloud`·`settings_content/language`에서 "Zed AI/Pro/Business/Student/Trial" 약 18건 → "AI/Pro/Business/Student/Trial" 브랜드 중립; `billing-support@zed.dev` 이메일 제거
-- **범위 밖 스킵**: test-only 문자열, About 크레딧 `ZED_REPO_URL`(공정 사용), `zed://` 내부 스킴 파서
-- 결과: 사용자 노출 경로에서 Zed 상표는 About 크레딧 1곳만 남음
-
-### 13. ✅ zed_urls 남은 2개 함수 no-op + server_url/관련 import 제거 (2026-04-14)
-- `edit_prediction_docs`·`acp_registry_blog` → `String::new()` 반환, doc 코멘트 Dokkaebi 컨텍스트
-- 5개 함수 모두 no-op으로 `server_url` helper가 dead → 함수·settings/ClientSettings import 제거
-- 사용처 3곳(extensions_ui, edit_prediction_button, agent_registry_ui)은 UI 구조 유지, 클릭 시 no-op
-- 모듈 최종: `shared_agent_thread_url`(zed:// 내부 스킴)만 실제 기능, 나머지 5개 no-op
-
-### 12. ✅ REPL/Jupyter 커널 안내 버튼 제거 (2026-04-14)
-- `repl_menu.rs` `ZED_REPL_DOCUMENTATION` + IconButton 체이닝 제거, `render_repl_setup`은 kernel_selector만 노출
-- `kernel_options.rs` `use KERNEL_DOCS_URL` + `render_footer` 전체 제거 (Picker trait default `None` 반환으로 fallback)
-- `repl.rs` `KERNEL_DOCS_URL` 상수 완전 삭제
-- D 옵션 a/③에서 no-op 상태였던 두 버튼을 "버튼 자체 제거(②)"로 전환. Jupyter는 외부 공식 문서에 위임
-
-### 11. ✅ E 라운드 — OpenAccountSettings 연쇄 + zed_urls 계정 함수 no-op (2026-04-14)
-- `zed_actions::OpenAccountSettings` 액션 정의 삭제 + `zed.rs` import·handler 제거
-- `zed.rs`의 `use client::zed_urls;` import도 연쇄 제거 (OpenAccountSettings가 유일한 사용처였음)
-- `client::zed_urls`의 `account_url`·`start_trial_url`·`upgrade_to_zed_pro_url` 3개 함수를 `String::new()` 반환으로 교체 (D 옵션 a + ③ 패턴 일관)
-- UI 호출처 9곳은 UI 구조 유지, 클릭 시 no-op (SaaS UsageLimit/구독 상태 전제라 Dokkaebi에서 실제 노출 가능성 낮음)
-- 범위 외 후속 검토 대상: `zed_urls`의 `edit_prediction_docs`·`acp_registry_blog` (zed.dev/docs·/blog 리다이렉트)
+### 카테고리별 description 분포 (총 355개, 354 unique) — 전체 완료
+| # | 페이지 함수 | description 수 | 상태 |
+|---|---|---|---|
+| 1 | keymap_page | 3 | [x] |
+| 2 | general_page | 9 | [x] |
+| 3 | languages_and_tools_page | 10 | [x] |
+| 4 | version_control_page | 14 | [x] |
+| 5 | ai_page | 15 | [x] |
+| 6 | search_and_files_page | 16 | [x] |
+| 7 | terminal_page | 28 | [x] |
+| 8 | window_and_layout_page | 35 | [x] |
+| 9 | appearance_page | 36 | [x] |
+| 10 | panels_page | 57 (+1 누락 추가) | [x] |
+| 11 | editor_page | 60 | [x] |
+| 12 | wallpaper_page | 72 (+3 wallpaper 섹션 추가) | [x] |
+| - | notification_page | 0 (스킵) | [x] |
+| - | git_panel.starts_open (한글 raw) | 1 (추가 수정) | [x] |
 
 ### 빌드 검증
-- `cargo build -p Dokkaebi -p xtask` 성공 (5m 32s, 2026-04-13)
-- `cargo build -p Dokkaebi` 성공 (2m 12s, 2026-04-14 A 항목 후)
-- `cargo build -p Dokkaebi` 성공 (2.22s, 2026-04-14 B + docs 삭제 후)
-- `cargo build -p Dokkaebi` 성공 (1m 49s, 2026-04-14 C 항목 옵션 3 후)
-- `cargo build -p Dokkaebi` 성공 (1m 19s, 2026-04-14 D 항목 옵션 a 후)
-- `cargo build -p Dokkaebi` 성공 (2m 04s, 2026-04-14 ①②③ 라운드 후)
-- `cargo build -p Dokkaebi` 성공 (1m 23s, 2026-04-14 E 라운드 후)
-- `cargo build -p Dokkaebi` 성공 (1m 41s, 2026-04-14 REPL 커널 안내 버튼 제거 후)
-- `cargo build -p Dokkaebi` 성공 (2m 42s, 2026-04-14 zed_urls 5개 함수 no-op 완성 후)
-- `cargo build -p Dokkaebi` 성공 (각 단계별 1m 14s / 1m 16s / 1m 42s / 2m 54s, 2026-04-14 3단계 마감 작업)
-- `cargo build -p Dokkaebi` 성공 (1m 39s, 2026-04-14 About 크레딧 정비 후)
-- 경고 6건은 기존 unused import로 이번 작업과 무관
+- `cargo build -p settings_ui` 성공 (6.62s, exit 0)
+- 경고 8건 기존 잔재
+
+### 키 충돌 처리
+- `environment.program` × 2: 같은 한글 통합 (의미 동일)
+- `theme.mode` × 2: 두 번째는 `icon_theme.mode`로 분리
+- `toolbar.breadcrumbs` (terminal vs editor): terminal은 `terminal_toolbar`로 분리
+- `scrollbar` (terminal vs editor): terminal은 `terminal_scrollbar`로 분리
+
+### 컨벤션
+`settings_page.desc.<section>.<item>` (D2 채택)
+
+### 자가 검증 항목
+- 번역체 (예: "~을/를 지정합니다" 남발)
+- 모호함 (영문 자체가 애매)
+- markdown/특수문자 처리
+- 도메인 용어 일관성 (vim, lsp, git, multibuffer 등)
+- 톤 일관성 (명사형 vs "~합니다" 종결)
+
+### 자동화 스크립트 보관 결정 (2026-04-14)
+- `script/i18n_titles.py` (title 329 unique 매핑)
+- `script/i18n_descriptions.py` (description 355 ENTRIES + Z3 EN_OVERRIDE)
+- **보관 이유**: 향후 번역 수정/개선 작업, 신규 항목 추가 시 재활용 가능
+- **재활용 방법**:
+  - verify 모드: 키 충돌 / 중복 영문 확인
+  - apply 모드: ko/en/page_data.rs 일괄 변경
+  - ENTRIES/EN_OVERRIDE에 항목 추가 후 apply 실행
+
+## 후속 정리 완료 (2026-04-14)
+
+### A. ActionLink/SubPageLink description (4건)
+- [x] `description: Some("...")` 4건 raw 영문 → i18n 키 전환
+- [x] 신규 키: `settings_page.desc.keybindings.edit_keybindings`, `.wallpaper.image_path`, `.agent_configuration.tool_permissions`, `.edit_predictions.configure_providers` (Z3 Zed 제거)
+
+### B. button_text raw 영문 (2건)
+- [x] "Open Keymap"/"Browse" → `settings_page.button.open_keymap`/`.browse`
+
+### C. workspace_panel 구 컨벤션 통일 (4곳)
+- [x] `workspace_panel.default_width`/`.starts_open` + description → `settings_page.item.*`/`settings_page.desc.workspace_panel.*`
+
+### D. 로케일 키 불일치 정리
+- [x] ko.json: 138개 미사용 영문 description 레거시 키 제거
+- [x] en.json: 25개 미사용 키 제거 (Collaboration/Debugger/Notification Panel 파생/DAP/menu.run/Breakpoints 등)
+- [x] 번역 누락 5개 보정: ko에 "Notification Panel"/"None"/terminal_history.* 2건, en에 "Semantic Tokens", + cleanup 오류로 제거됐던 `None`/terminal_history.* 3개 복원
+- [x] 최종: ko/en 키 차이 0건
+- [x] `script/i18n_cleanup.py` 신규 (미사용 키 분석 도구, 보관)
+
+### 빌드 검증
+- 각 단계별 `cargo build -p settings_ui` 성공
+
+## 다른 Crate i18n 전환 — P2 워크플로우 완료 (2026-04-14)
+
+### P2 (cx 접근 가능한 것만 처리) 누적
+| Crate | 완료 | 인프라 추가 |
+|---|---|---|
+| title_bar | 1/2 | - |
+| onboarding (multibuffer_hint) | 3 | - |
+| command_palette | 2 | - |
+| keymap_editor | 1 | - |
+| outline_panel | 2 | Cargo.toml i18n 추가 |
+| file_finder | 2 | Cargo.toml i18n 추가 |
+| diagnostics | 1/2 | Cargo.toml i18n 추가 (1건 롤백) |
+| extensions_ui | 4/6 | - |
+| workspace | 1/7 | - |
+| **search** | **24건 (21 unique)** | **Cargo.toml i18n 추가** |
+| **editor** | **20건 (20 unique)** | - |
+| **language_tools** | **22건 (22 unique)** | **Cargo.toml i18n 추가** |
+| **누적** | **83건** | **5 crate** |
+
+### 2차분 상세
+
+#### search (Cargo.toml i18n 추가)
+- buffer_search.rs: 3건 (Search/Replace with placeholder, Toggle Search Selection tooltip)
+- project_search.rs: 18건 (heading 3, label 2, placeholder 4, button 5, tooltip 3, 중복 1)
+- search_bar.rs: 1건 (Find in Results)
+- search_status_button.rs: 2건 (Project Search × 2)
+- **스킵**: render_action_button 시그니처 `&'static str` 제약으로 11건 스킵 (nav 버튼들)
+
+#### editor
+- editor.rs: 15건 (Toggle Code Actions, Diff Review 관련, Missing Keybinding Tooltip 5건, Stage/Unstage/Restore/Next/Previous Hunk 5건)
+- element.rs: 3건 (Show Symbol Outline, Right-Click to Copy Path, Open File)
+- signature_help.rs: 2건 (Previous/Next Signature)
+- **스킵**: pending_completion_container/render_relative_row_jump/render_comment_row (cx 없음) 5건
+
+### P2 스킵 (리팩터 필요, 차후 별도 작업)
+- title_bar/application_menu.rs:171 "Open Application Menu" Tooltip — PopoverMenu closure 외부 cx 불가
+- extensions_ui/extension_version_selector.rs:237 "Incompatible" — 함수 context 미확인
+- extensions_ui/components/extension_card.rs:56 "Overridden by dev extension." — 함수 context 미확인
+- diagnostics/diagnostics.rs:757 "No problems" — 함수 시그니처에 cx 없음
+- search/search_bar.rs render_action_button 11건 — 시그니처 `tooltip: &'static str` 제약 (editor nav/stage/replace 버튼들)
+- editor/editor.rs:9724,9844 "Hold"/"Preview" — pending_completion_container(icon) cx 없음
+- editor/editor.rs:9927 "Jump to Edit" — render_relative_row_jump cx 없음
+- editor/editor.rs:22024,22041 "Cancel"/"Confirm" — render_comment_row cx 없음
+
+## 범위 외 (이번 작업에서 하지 않음)
+- 다른 모듈의 i18n 미적용 문자열 (다른 crate들)
+- P2 스킵 항목의 리팩터 (상위 함수 시그니처 수정 필요)
 
 ---
 
-## 대기 중 — 결정 요청
+## 🔁 P2 2차분 완료 (2026-04-14)
 
-### A. ✅ 완료 — 상단 "완료 작업 §6" 참조
+### 처리 결과
+- search: 24건 (21 unique), Cargo.toml i18n 추가
+- editor: 20건 (20 unique)
+- language_tools: 22건 (22 unique), Cargo.toml i18n 추가
+- **합계**: 66건 추가 (누적 83건, 5 crate에 Cargo.toml 인프라 추가)
 
-### B. ✅ 완료 — 상단 "완료 작업 §7" 참조 (docs/·docs_preprocessor 연쇄 포함)
+### 빌드 검증
+- `cargo build -p search -p editor -p language_tools` 성공 (7.22s)
 
-**유지 권장 (향후 Dokkaebi에서도 쓸 수 있음)**:
-- `generate-licenses`, `generate-licenses.ps1`, `generate-licenses-csv`, `licenses/` (템플릿)
-- `clippy`, `clippy.ps1`
-- `bootstrap`, `bootstrap.ps1`
-- `clear-target-dir-if-larger-than`, `clear-target-dir-if-larger-than.ps1`
-- `check-links`, `check-keymaps`, `check-todos`
-- `lib/`, `prettier`, `shellcheck-scripts`
-- `cargo`, `cargo-timing-info.js`
-- `new-crate`, `crate-dep-graph`
-- `update-json-schemas`, `import-themes`
-- `get-crate-version`, `get-crate-version.ps1`
-- `download-wasi-sdk`
-- `histogram`, `analyze_highlights.py` — Zed 개발 도구, 영향 평가 보류
-- `install-rustup.ps1` — 개발 환경 셋업
-- `prompts/` — Zed prompts 데이터
+### 키 컨벤션
+`<crate>.<feature>` 또는 `<crate>.<feature>.<purpose>` (snake_case)
+- 예시: `onboarding.multibuffer_hint.message`, `extensions.view_registry`, `workspace.open_in_default_app`
 
-**결정 필요**: dead 8개 일괄 삭제 진행할지?
+### P2 워크플로우 규칙 (반드시 준수)
+1. **cx 접근 가능**한 문자열만 처리 (Render trait 내부 + render 함수의 `cx: &mut Context<Self>`/`&mut App`)
+2. **cx 접근 불가** (closure 외부, 시그니처에 cx 없음 등)는 **스킵** — `plan.md`의 "P2 스킵" 목록에 추가
+3. **Cargo.toml 수정 시** `gpui.workspace = true` 다음 줄에 `i18n.workspace = true` 삽입 (알파벳순 유지)
+4. **import 추가 시** 파일 상단 첫 `use ...` 다음에 `use i18n::t;` 삽입
+5. **문자열 교체**: `"Some String"` → `t("crate.purpose", cx)` (`.into()` 불필요)
+6. **ko/en JSON 추가 위치**:
+   - en.json: `"Keymap Editor": "Keymap Editor",` 라인 직전
+   - ko.json: `"sidebar.open_project": "프로젝트 열기",` 라인 직전
+7. **각 crate 완료 후** `cargo build -p <crate>`로 빌드 검증 — 실패 시 즉시 롤백
 
-### C. ✅ 완료 (옵션 3) — 상단 "완료 작업 §8" 참조
+### 빠른 조사 커맨드
+```bash
+# crate 내 raw 영문 UI 문자열 스캔
+python3 -c "
+import re
+from pathlib import Path
+for rs in Path('crates/<CRATE>').rglob('*.rs'):
+    text = rs.read_text(encoding='utf-8')
+    for pat, name in [
+        (r'Label::new\(\s*\"([A-Z][^\"]{3,})\"\s*\)', 'Label'),
+        (r'Tooltip::text\(\s*\"([A-Z][^\"]{3,})\"', 'Tooltip'),
+        (r'Button::new\([^,]+,\s*\"([A-Z][^\"]{3,})\"', 'Button'),
+        (r'IconButton::new\([^,]+,\s*\"([A-Z][^\"]{3,})\"', 'IconButton'),
+    ]:
+        for m in re.finditer(pat, text, re.DOTALL):
+            ln = text[:m.start()].count(chr(10)) + 1
+            print(f'{rs.name}:{ln} [{name}] {m.group(1)[:70]}')
+"
+```
 
-### D. ✅ 완료 (옵션 a) — 상단 "완료 작업 §9" 참조
+### JSON 일괄 추가 헬퍼 (ko/en)
+```bash
+python3 -c "
+import json; from pathlib import Path
+ADD = [('crate.key1', 'English Text', '한글 번역'), ...]
+for p, idx, marker in [
+    ('assets/locales/en.json', 1, '  \"Keymap Editor\": \"Keymap Editor\",' + chr(10)),
+    ('assets/locales/ko.json', 2, '  \"sidebar.open_project\": \"프로젝트 열기\",' + chr(10)),
+]:
+    path = Path(p); text = path.read_text(encoding='utf-8'); lines = []
+    for k, en, ko in ADD:
+        v = en if idx == 1 else ko
+        if f'\"{k}\":' not in text:
+            lines.append(f'  \"{k}\": {json.dumps(v, ensure_ascii=False)},')
+    chunk = chr(10).join(lines) + (chr(10) if lines else '')
+    if chunk and marker in text: text = text.replace(marker, chunk + marker, 1)
+    path.write_text(text, encoding='utf-8'); print(f'{p}: +{len(lines)}')
+"
+```
 
-### E. ✅ 완료 — 상단 "완료 작업 §11" 참조
+### Zed 브랜드 언급 (Z3 정책) — 발견 시 자동 처리
+- 영문 값: Zed 관련 표현을 `the app` 또는 일반화로 교체
+- 한글 값: "앱" 또는 자연스럽게 생략
+- 이미 처리된 예: `settings_page.desc.workspace_restoration.restore_on_startup`, `disable_git_integration`, `disable_ai` 등
 
----
+### 톤 (T1 격식체)
+- description 계열: "~합니다." 종결
+- 단순 label/button: 명사형 OK ("제한 모드", "파일 열기")
 
-## 다음 세션에서 이어받기
+### 체크리스트 (각 crate 처리 시)
+- [ ] raw 문자열 스캔 + 컨텍스트 확인 (cx 접근 여부)
+- [ ] Cargo.toml i18n 추가 (필요 시)
+- [ ] use i18n::t; 추가 (필요 시)
+- [ ] raw → t("key", cx) 교체
+- [ ] ko/en JSON에 키 추가
+- [ ] `cargo build -p <crate>` 성공 확인
+- [ ] 실패 시 즉시 롤백 (P2 원칙)
+- [ ] plan.md 누적 표 + notes.md 갱신
 
-### 빠른 재개 가이드
-1. 이 파일(`plan.md`)의 "대기 중" 섹션 참조
-2. 3개 결정 사항(A, B, C) 사용자에게 선택 요청
-3. 결정된 내용 실행 → 빌드 검증 → `notes.md` 갱신
-4. 필요 시 메모리 `project_license_cleanup.md` 업데이트
+### 완료 후
+- plan.md "P2 1차 완료" → "P2 완료 (모든 raw 처리 + 스킵 목록 업데이트)"로 갱신
+- notes.md에 2차분 항목 추가
+- git commit 제안 (사용자 결정)
 
-### 관련 참고 파일
-- `NOTICE` — 현재까지의 변경 범위 요약이 있음 (다음 작업 시 업데이트 필요)
-- `notes.md` — 작업 일자별 상세 기록
-- 이전 대화의 `plan.md` 히스토리: 옵션 D → 옵션 4 → 현재 최종 정리
-
-### 검증 명령
-- 빌드: `cargo build -p Dokkaebi -p xtask`
-- Zed URL grep: `grep -rn "zed\.dev\|zed-industries" crates/zed/src/`
-- 남은 script: `ls script/`
+## 참고 — Unique 문자열 78종 (영문 → 한글 번역 매핑)
+| 영문 | 한글 |
+|---|---|
+| General Settings | 일반 설정 |
+| Workspace Restoration | 워크스페이스 복원 |
+| Auto Update | 자동 업데이트 |
+| Theme | 테마 |
+| Buffer Font | 버퍼 글꼴 |
+| UI Font | UI 글꼴 |
+| Agent Panel Font | 에이전트 패널 글꼴 |
+| Text Rendering | 텍스트 렌더링 |
+| Cursor | 커서 |
+| Highlighting | 강조 표시 |
+| Guides | 가이드 |
+| Keybindings | 키 바인딩 |
+| Base Keymap | 기본 키맵 |
+| Modal Editing | 모달 편집 |
+| Auto Save | 자동 저장 |
+| Which-key Menu | Which-key 메뉴 |
+| Multibuffer | 멀티버퍼 |
+| Scrolling | 스크롤 |
+| Signature Help | 시그니처 도움말 |
+| Hover Popover | 호버 팝업 |
+| Drag And Drop Selection | 드래그 앤 드롭 선택 |
+| Gutter | 거터 |
+| Scrollbar | 스크롤바 |
+| Minimap | 미니맵 |
+| Toolbar | 툴바 |
+| Vim | Vim |
+| File Types | 파일 형식 |
+| Diagnostics | 진단 |
+| Inline Diagnostics | 인라인 진단 |
+| LSP Pull Diagnostics | LSP Pull 진단 |
+| LSP Highlights | LSP 하이라이트 |
+| Languages | 언어 |
+| Search | 검색 |
+| File Finder | 파일 찾기 |
+| File Scan | 파일 스캔 |
+| Status Bar | 상태 표시줄 |
+| Title Bar | 제목 표시줄 |
+| Tab Bar | 탭 표시줄 |
+| Tab Settings | 탭 설정 |
+| Preview Tabs | 미리보기 탭 |
+| Layout | 레이아웃 |
+| Window | 창 |
+| Pane Modifiers | 페인 보조 키 |
+| Pane Split Direction | 페인 분할 방향 |
+| Project Panel | 프로젝트 패널 |
+| Auto Open Files | 파일 자동 열기 |
+| Terminal Panel | 터미널 패널 |
+| Outline Panel | 아웃라인 패널 |
+| Git Panel | Git 패널 |
+| Agent Panel | 에이전트 패널 |
+| Notepad Panel | 메모장 패널 |
+| Environment | 환경 변수 |
+| Font | 글꼴 |
+| Display Settings | 표시 설정 |
+| Behavior Settings | 동작 설정 |
+| Layout Settings | 레이아웃 설정 |
+| Advanced Settings | 고급 설정 |
+| Git Integration | Git 통합 |
+| Git Gutter | Git 거터 |
+| Inline Git Blame | 인라인 Git Blame |
+| Git Blame View | Git Blame 보기 |
+| Branch Picker | 브랜치 선택기 |
+| Git Hunks | Git 변경 묶음 |
+| General | 일반 |
+| Agent Configuration | 에이전트 구성 |
+| Context Servers | 컨텍스트 서버 |
+| Claude Code | Claude Code |
+| Wallpaper | 배경 화면 |
+| Indentation | 들여쓰기 |
+| Wrapping | 줄바꿈 |
+| Indent Guides | 들여쓰기 가이드 |
+| Formatting | 포매팅 |
+| Autoclose | 자동 닫기 |
+| Whitespace | 공백 |
+| Completions | 자동 완성 |
+| Inlay Hints | 인레이 힌트 |
+| Tasks | 작업 |
+| Miscellaneous | 기타 |
+| LSP | LSP |
+| LSP Completions | LSP 자동 완성 |
+| Prettier | Prettier |
+| Edit Predictions | 편집 예측 |

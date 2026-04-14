@@ -111,6 +111,7 @@ use futures::{
 };
 use fuzzy::{StringMatch, StringMatchCandidate};
 use git::blame::{GitBlame, GlobalBlameRenderer};
+use i18n::t;
 use gpui::{
     Action, Animation, AnimationExt, AnyElement, App, AppContext, AsyncWindowContext,
     AvailableSpace, Background, Bounds, ClickEvent, ClipboardEntry, ClipboardItem, Context,
@@ -7144,7 +7145,7 @@ impl Editor {
                     let focus_handle = self.focus_handle.clone();
                     move |_window, cx| {
                         Tooltip::for_action_in(
-                            "Toggle Code Actions",
+                            t("editor.tooltip.toggle_code_actions", cx),
                             &ToggleCodeActions {
                                 deployed_from: None,
                                 quick_launch: false,
@@ -20871,7 +20872,7 @@ impl Editor {
                     .border_color(icon_color.opacity(0.5))
             })
             .child(Icon::new(IconName::Plus).size(IconSize::Small))
-            .tooltip(Tooltip::text("Add Review (drag to select multiple lines)"))
+            .tooltip(Tooltip::text(t("editor.tooltip.add_review_drag", cx)))
             .on_mouse_down(
                 gpui::MouseButton::Left,
                 cx.listener(move |editor, _event: &gpui::MouseDownEvent, window, cx| {
@@ -21027,7 +21028,7 @@ impl Editor {
         // Create the prompt editor for the review input
         let prompt_editor = cx.new(|cx| {
             let mut editor = Editor::single_line(window, cx);
-            editor.set_placeholder_text("Add a review comment...", window, cx);
+            editor.set_placeholder_text(&t("editor.placeholder.add_review_comment", cx), window, cx);
             editor
         });
 
@@ -21851,7 +21852,7 @@ impl Editor {
                                 IconButton::new("diff-review-close", IconName::Close)
                                     .icon_color(ui::Color::Muted)
                                     .icon_size(action_icon_size)
-                                    .tooltip(Tooltip::text("Close"))
+                                    .tooltip(Tooltip::text(t("editor.diff_review.close", cx.app)))
                                     .on_click(|_, window, cx| {
                                         window
                                             .dispatch_action(Box::new(crate::actions::Cancel), cx);
@@ -21861,7 +21862,7 @@ impl Editor {
                                 IconButton::new("diff-review-add", IconName::Return)
                                     .icon_color(ui::Color::Muted)
                                     .icon_size(action_icon_size)
-                                    .tooltip(Tooltip::text("Add comment"))
+                                    .tooltip(Tooltip::text(t("editor.diff_review.add_comment", cx.app)))
                                     .on_click(|_, window, cx| {
                                         window.dispatch_action(
                                             Box::new(crate::actions::SubmitDiffReviewComment),
@@ -28098,8 +28099,8 @@ impl Render for MissingEditPredictionKeybindingTooltip {
                     v_flex()
                         .flex_1()
                         .text_ui_sm(cx)
-                        .child(Label::new("Conflict with Accept Keybinding"))
-                        .child("Your keymap currently overrides the default accept keybinding. To continue, assign one keybinding for the `editor::AcceptEditPrediction` action.")
+                        .child(Label::new(t("editor.missing_keybinding.title", cx)))
+                        .child(t("editor.missing_keybinding.description", cx))
                 )
                 .child(
                     h_flex()
@@ -28107,10 +28108,10 @@ impl Render for MissingEditPredictionKeybindingTooltip {
                         .gap_1()
                         .items_end()
                         .w_full()
-                        .child(Button::new("open-keymap", "Assign Keybinding").size(ButtonSize::Compact).on_click(|_ev, window, cx| {
+                        .child(Button::new("open-keymap", t("editor.missing_keybinding.assign", cx)).size(ButtonSize::Compact).on_click(|_ev, window, cx| {
                             window.dispatch_action(zed_actions::OpenKeymapFile.boxed_clone(), cx)
                         }))
-                        .child(Button::new("see-docs", "See Docs").size(ButtonSize::Compact).on_click(|_ev, _window, cx| {
+                        .child(Button::new("see-docs", t("editor.missing_keybinding.see_docs", cx)).size(ButtonSize::Compact).on_click(|_ev, _window, cx| {
                             cx.open_url("https://zed.dev/docs/completions#edit-predictions-missing-keybinding");
                         })),
                 )
@@ -28163,7 +28164,7 @@ fn render_diff_hunk_controls(
                     let focus_handle = editor.focus_handle(cx);
                     move |_window, cx| {
                         Tooltip::for_action_in(
-                            "Stage Hunk",
+                            t("editor.tooltip.stage_hunk", cx),
                             &::git::ToggleStaged,
                             &focus_handle,
                             cx,
@@ -28189,7 +28190,7 @@ fn render_diff_hunk_controls(
                     let focus_handle = editor.focus_handle(cx);
                     move |_window, cx| {
                         Tooltip::for_action_in(
-                            "Unstage Hunk",
+                            t("editor.tooltip.unstage_hunk", cx),
                             &::git::ToggleStaged,
                             &focus_handle,
                             cx,
@@ -28214,7 +28215,7 @@ fn render_diff_hunk_controls(
                 .tooltip({
                     let focus_handle = editor.focus_handle(cx);
                     move |_window, cx| {
-                        Tooltip::for_action_in("Restore Hunk", &::git::Restore, &focus_handle, cx)
+                        Tooltip::for_action_in(t("editor.tooltip.restore_hunk", cx), &::git::Restore, &focus_handle, cx)
                     }
                 })
                 .on_click({
@@ -28240,7 +28241,7 @@ fn render_diff_hunk_controls(
                         .tooltip({
                             let focus_handle = editor.focus_handle(cx);
                             move |_window, cx| {
-                                Tooltip::for_action_in("Next Hunk", &GoToHunk, &focus_handle, cx)
+                                Tooltip::for_action_in(t("editor.tooltip.next_hunk", cx), &GoToHunk, &focus_handle, cx)
                             }
                         })
                         .on_click({
@@ -28272,7 +28273,7 @@ fn render_diff_hunk_controls(
                             let focus_handle = editor.focus_handle(cx);
                             move |_window, cx| {
                                 Tooltip::for_action_in(
-                                    "Previous Hunk",
+                                    t("editor.tooltip.previous_hunk", cx),
                                     &GoToPreviousHunk,
                                     &focus_handle,
                                     cx,

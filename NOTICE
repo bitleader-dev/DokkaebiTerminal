@@ -1,5 +1,5 @@
 Dokkaebi
-Copyright (c) 2026 Dokkaebi Team
+Copyright (c) 2026 Dokkaebi
 
 This product is based on Zed, originally developed by Zed Industries, Inc.:
   https://github.com/zed-industries/zed
@@ -7,11 +7,13 @@ This product is based on Zed, originally developed by Zed Industries, Inc.:
 
 Zed is licensed under the GNU General Public License, version 3 or later
 (GPL-3.0-or-later), with some components licensed under the Apache License
-2.0 (Apache-2.0). Dokkaebi is distributed under the same GPL-3.0-or-later
-license. See LICENSE-GPL and LICENSE-APACHE for full license texts.
+2.0 (Apache-2.0) or the GNU Affero General Public License, version 3 or
+later (AGPL-3.0-or-later). Dokkaebi is distributed under the same
+GPL-3.0-or-later license. See LICENSE-GPL, LICENSE-AGPL, and LICENSE-APACHE
+for full license texts.
 
 ==================================================================
-Modifications by Dokkaebi Team
+Modifications by Dokkaebi
 ==================================================================
 
 Dokkaebi adapts Zed into a Windows-focused terminal-centric workspace
@@ -47,7 +49,7 @@ and multi-tasking workflows. The major categories of modifications are:
 
 6. Localization
    - Korean (ko.json) and English (en.json) UI strings via i18n crate.
-   - Installer messages (setup/messages/) include Korean/English.
+   - Installer messages in setup/messages/ (English; Inno Setup .isl format).
 
 7. Repository cleanup
    - Upstream Zed's CI workflows, release pipelines, cloud/collab
@@ -55,17 +57,18 @@ and multi-tasking workflows. The major categories of modifications are:
      Zed Industries' SaaS legal documents (privacy-policy.md,
      subprocessors.md, terms.md, terms.rtf) have been removed as
      unused by Dokkaebi's build and distribution path.
-   - third-party-terms.md retained with wording adapted to Dokkaebi's
-     context, to disclose acceptable-use policies of AI providers that
-     users may connect to.
+   - legal/third-party-terms.md retained with wording adapted to
+     Dokkaebi's context, to disclose acceptable-use policies of AI
+     providers that users may connect to.
 
 ==================================================================
 Third-Party Attribution
 ==================================================================
 
 For a complete list of third-party dependencies and their licenses,
-see assets/licenses.md (generated via script/generate-licenses at
-build time; regenerate with `cargo about generate ...`).
+see assets/licenses.md (regenerate by installing cargo-about
+(`cargo install cargo-about@0.8.2`) and running
+`script/generate-licenses.ps1` under PowerShell 7+).
 
 The `docs/` directory in the source repository retains upstream Zed's
 user documentation, which describes Zed's features and is authored by

@@ -19,6 +19,7 @@ use editor::{
     scroll::Autoscroll,
 };
 use futures::{StreamExt, stream::FuturesOrdered};
+use i18n::t;
 use gpui::{
     Action, AnyElement, App, Axis, Context, Entity, EntityId, EventEmitter, FocusHandle, Focusable,
     Global, Hsla, InteractiveElement, IntoElement, KeyContext, ParentElement, Point, Render,
@@ -527,11 +528,11 @@ impl Render for ProjectSearchView {
             let is_search_underway = model.pending_search.is_some();
 
             let heading_text = if is_search_underway {
-                "Searching…"
+                t("search.project.heading.searching", cx)
             } else if has_no_results {
-                "No Results"
+                t("search.project.heading.no_results", cx)
             } else {
-                "Search All Files"
+                t("search.project.heading.search_all_files", cx)
             };
 
             let heading_text = div()
@@ -541,7 +542,7 @@ impl Render for ProjectSearchView {
             let page_content: Option<AnyElement> = if let Some(no_results) = model.no_results {
                 if model.pending_search.is_none() && no_results {
                     Some(
-                        Label::new("No results found in this project for the provided query")
+                        Label::new(t("search.project.label.no_results_found", cx))
                             .size(LabelSize::Small)
                             .into_any_element(),
                     )
@@ -935,7 +936,7 @@ impl ProjectSearchView {
 
         let query_editor = cx.new(|cx| {
             let mut editor = Editor::auto_height(1, 4, window, cx);
-            editor.set_placeholder_text("Search all files…", window, cx);
+            editor.set_placeholder_text(&t("search.project.placeholder.query", cx), window, cx);
             editor.set_use_autoclose(false);
             editor.set_text(query_text, window, cx);
             editor
@@ -959,7 +960,7 @@ impl ProjectSearchView {
         );
         let replacement_editor = cx.new(|cx| {
             let mut editor = Editor::auto_height(1, 4, window, cx);
-            editor.set_placeholder_text("Replace in project…", window, cx);
+            editor.set_placeholder_text(&t("search.project.placeholder.replacement", cx), window, cx);
             if let Some(text) = replacement_text {
                 editor.set_text(text, window, cx);
             }
@@ -989,7 +990,7 @@ impl ProjectSearchView {
 
         let included_files_editor = cx.new(|cx| {
             let mut editor = Editor::single_line(window, cx);
-            editor.set_placeholder_text("Include: crates/**/*.toml", window, cx);
+            editor.set_placeholder_text(&t("search.project.placeholder.include", cx), window, cx);
 
             editor
         });
@@ -1002,7 +1003,7 @@ impl ProjectSearchView {
 
         let excluded_files_editor = cx.new(|cx| {
             let mut editor = Editor::single_line(window, cx);
-            editor.set_placeholder_text("Exclude: vendor/*, *.lock", window, cx);
+            editor.set_placeholder_text(&t("search.project.placeholder.exclude", cx), window, cx);
 
             editor
         });
@@ -1660,12 +1661,12 @@ impl ProjectSearchView {
         v_flex()
             .gap_1()
             .child(
-                Label::new("Hit enter to search. For more options:")
+                Label::new(t("search.project.label.landing_minor", cx))
                     .color(Color::Muted)
                     .mb_2(),
             )
             .child(
-                Button::new("filter-paths", "Include/exclude specific paths")
+                Button::new("filter-paths", t("search.project.button.filter_paths", cx))
                     .start_icon(Icon::new(IconName::Filter).size(IconSize::Small))
                     .key_binding(KeyBinding::for_action_in(&ToggleFilters, &focus_handle, cx))
                     .on_click(|_event, window, cx| {
@@ -1673,7 +1674,7 @@ impl ProjectSearchView {
                     }),
             )
             .child(
-                Button::new("find-replace", "Find and replace")
+                Button::new("find-replace", t("search.project.button.find_replace", cx))
                     .start_icon(Icon::new(IconName::Replace).size(IconSize::Small))
                     .key_binding(KeyBinding::for_action_in(&ToggleReplace, &focus_handle, cx))
                     .on_click(|_event, window, cx| {
@@ -1681,7 +1682,7 @@ impl ProjectSearchView {
                     }),
             )
             .child(
-                Button::new("regex", "Match with regex")
+                Button::new("regex", t("search.project.button.regex", cx))
                     .start_icon(Icon::new(IconName::Regex).size(IconSize::Small))
                     .key_binding(KeyBinding::for_action_in(&ToggleRegex, &focus_handle, cx))
                     .on_click(|_event, window, cx| {
@@ -1689,7 +1690,7 @@ impl ProjectSearchView {
                     }),
             )
             .child(
-                Button::new("match-case", "Match case")
+                Button::new("match-case", t("search.project.button.match_case", cx))
                     .start_icon(Icon::new(IconName::CaseSensitive).size(IconSize::Small))
                     .key_binding(KeyBinding::for_action_in(
                         &ToggleCaseSensitive,
@@ -1701,7 +1702,7 @@ impl ProjectSearchView {
                     }),
             )
             .child(
-                Button::new("match-whole-words", "Match whole words")
+                Button::new("match-whole-words", t("search.project.button.match_whole_words", cx))
                     .start_icon(Icon::new(IconName::WholeWord).size(IconSize::Small))
                     .key_binding(KeyBinding::for_action_in(
                         &ToggleWholeWord,
@@ -2200,6 +2201,7 @@ impl Render for ProjectSearchBar {
                     )),
             );
 
+        let limit_tooltip_text = t("search.project.tooltip.limit_reached", cx);
         let matches_column = h_flex()
             .ml_1()
             .pl_1p5()
@@ -2252,10 +2254,8 @@ impl Render for ProjectSearchBar {
                                 )
                             }),
                     )
-                    .when(limit_reached, |this| {
-                        this.tooltip(Tooltip::text(
-                            "Search Limits Reached\nTry narrowing your search",
-                        ))
+                    .when(limit_reached, move |this| {
+                        this.tooltip(Tooltip::text(limit_tooltip_text))
                     }),
             );
 
@@ -2266,7 +2266,11 @@ impl Render for ProjectSearchBar {
                 IconButton::new("project-search-filter-button", IconName::Filter)
                     .shape(IconButtonShape::Square)
                     .tooltip(|_window, cx| {
-                        Tooltip::for_action("Toggle Filters", &ToggleFilters, cx)
+                        Tooltip::for_action(
+                            t("search.project.tooltip.toggle_filters", cx),
+                            &ToggleFilters,
+                            cx,
+                        )
                     })
                     .on_click(cx.listener(|this, _, window, cx| {
                         this.toggle_filters(window, cx);
@@ -2281,7 +2285,7 @@ impl Render for ProjectSearchBar {
                         let focus_handle = focus_handle.clone();
                         move |_window, cx| {
                             Tooltip::for_action_in(
-                                "Toggle Filters",
+                                t("search.project.tooltip.toggle_filters", cx),
                                 &ToggleFilters,
                                 &focus_handle,
                                 cx,
@@ -2398,7 +2402,7 @@ impl Render for ProjectSearchBar {
                     IconButton::new("project-search-opened-only", IconName::FolderSearch)
                         .shape(IconButtonShape::Square)
                         .toggle_state(self.is_opened_only_enabled(cx))
-                        .tooltip(Tooltip::text("Only Search Open Files"))
+                        .tooltip(Tooltip::text(t("search.project.tooltip.only_open_files", cx)))
                         .on_click(cx.listener(|this, _, window, cx| {
                             this.toggle_opened_only(window, cx);
                         })),

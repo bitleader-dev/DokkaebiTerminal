@@ -1,6 +1,7 @@
 mod outline_panel_settings;
 
 use anyhow::Context as _;
+use i18n::t;
 use collections::{BTreeSet, HashMap, HashSet, hash_map};
 use db::kvp::KeyValueStore;
 use editor::{
@@ -4861,7 +4862,7 @@ impl OutlinePanel {
                         this.child(
                             IconButton::new("clear_filter", IconName::Close)
                                 .shape(IconButtonShape::Square)
-                                .tooltip(Tooltip::text("Clear Filter"))
+                                .tooltip(Tooltip::text(t("outline_panel.clear_filter", cx)))
                                 .on_click(cx.listener(|outline_panel, _, window, cx| {
                                     outline_panel.filter_editor.update(cx, |editor, cx| {
                                         editor.set_text("", window, cx);
@@ -5152,7 +5153,7 @@ impl Render for OutlinePanel {
                         .gap_0p5()
                         .border_b_1()
                         .border_color(cx.theme().colors().border_variant)
-                        .child(Label::new("Searching:").color(Color::Muted))
+                        .child(Label::new(t("outline_panel.searching", cx)).color(Color::Muted))
                         .child(Label::new(query_text)),
                 )
             })

@@ -601,6 +601,11 @@ pub struct NotepadPanelSettingsContent {
     ///
     /// Default: right
     pub dock: Option<DockPosition>,
+    /// Default width of the notepad panel in pixels.
+    ///
+    /// Default: 250
+    #[serde(serialize_with = "crate::serialize_optional_f32_with_two_decimal_places")]
+    pub default_width: Option<f32>,
     /// Whether to restore notepad content on app startup.
     ///
     /// Default: false

@@ -2,6 +2,7 @@
 mod file_finder_tests;
 
 use futures::future::join_all;
+use i18n::t;
 pub use open_path_prompt::OpenPathDelegate;
 
 use collections::HashMap;
@@ -1766,7 +1767,7 @@ impl PickerDelegate for FileFinderDelegate {
                                 })
                                 .trigger(
                                     ButtonLike::new("split-trigger")
-                                        .child(Label::new("Split…"))
+                                        .child(Label::new(t("file_finder.split", cx)))
                                         .selected_style(ButtonStyle::Tinted(TintColor::Accent))
                                         .child(
                                             KeyBinding::for_action_in(
@@ -1807,7 +1808,7 @@ impl PickerDelegate for FileFinderDelegate {
                                 }),
                         )
                         .child(
-                            Button::new("open-selection", "Open")
+                            Button::new("open-selection", t("file_finder.open", cx))
                                 .key_binding(
                                     KeyBinding::for_action_in(&menu::Confirm, &focus_handle, cx)
                                         .map(|kb| kb.size(rems_from_px(12.))),

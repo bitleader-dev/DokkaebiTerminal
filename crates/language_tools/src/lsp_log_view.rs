@@ -5,6 +5,7 @@ use gpui::{
     App, Context, Corner, Entity, EventEmitter, FocusHandle, Focusable, IntoElement, ParentElement,
     Render, Styled, Subscription, Task, WeakEntity, Window, actions, div,
 };
+use i18n::t;
 use itertools::Itertools as _;
 use language::{LanguageServerId, language_settings::SoftWrap};
 use lsp::{
@@ -1117,7 +1118,7 @@ impl Render for LspLogToolbarItemView {
                     .child(lsp_menu)
                     .children(view_selector)
                     .child(
-                        log_view.update(cx, |this, _cx| match this.active_entry_kind {
+                        log_view.update(cx, |this, cx| match this.active_entry_kind {
                             LogKind::Trace => {
                                 let log_view = log_view.clone();
                                 div().child(
@@ -1126,7 +1127,7 @@ impl Render for LspLogToolbarItemView {
                                         .trigger(
                                             Button::new(
                                                 "language_server_trace_level_selector",
-                                                "Trace level",
+                                                t("language_tools.lsp_log.trace_level", cx),
                                             )
                                             .end_icon(
                                                 Icon::new(IconName::ChevronDown)
@@ -1196,7 +1197,7 @@ impl Render for LspLogToolbarItemView {
                                         .trigger(
                                             Button::new(
                                                 "language_server_log_level_selector",
-                                                "Log level",
+                                                t("language_tools.lsp_log.log_level", cx),
                                             )
                                             .end_icon(
                                                 Icon::new(IconName::ChevronDown)
@@ -1264,7 +1265,7 @@ impl Render for LspLogToolbarItemView {
                     ),
             )
             .child(
-                Button::new("clear_log_button", "Clear").on_click(cx.listener(
+                Button::new("clear_log_button", t("language_tools.lsp_log.clear", cx)).on_click(cx.listener(
                     |this, _, window, cx| {
                         if let Some(log_view) = this.log_view.as_ref() {
                             log_view.update(cx, |log_view, cx| {

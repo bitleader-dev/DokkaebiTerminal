@@ -1468,7 +1468,7 @@ impl ExtensionsPage {
     fn render_acp_registry_upsell(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let registry_url = zed_urls::acp_registry_blog(cx);
 
-        let view_registry = Button::new("view_registry", "View Registry")
+        let view_registry = Button::new("view_registry", t("extensions.view_registry", cx))
             .style(ButtonStyle::Tinted(ui::TintColor::Warning))
             .on_click({
                 let registry_url = registry_url.clone();
@@ -1481,7 +1481,7 @@ impl ExtensionsPage {
                     window.dispatch_action(Box::new(zed_actions::AcpRegistry), cx)
                 }
             });
-        let open_registry_button = Button::new("open_registry", "Learn More")
+        let open_registry_button = Button::new("open_registry", t("extensions.learn_more", cx))
             .end_icon(
                 Icon::new(IconName::ArrowUpRight)
                     .size(IconSize::Small)
@@ -1523,7 +1523,7 @@ impl ExtensionsPage {
         vim: bool,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let docs_url_button = Button::new("open_docs", "View Documentation")
+        let docs_url_button = Button::new("open_docs", t("extensions.view_documentation", cx))
             .end_icon(Icon::new(IconName::ArrowUpRight).size(IconSize::Small))
             .on_click({
                 move |_event, _window, cx| {
@@ -1554,7 +1554,7 @@ impl ExtensionsPage {
                                         h_flex()
                                             .pl_1()
                                             .gap_1()
-                                            .child(Label::new("Enable Vim mode"))
+                                            .child(Label::new(t("extensions.enable_vim_mode", cx)))
                                             .child(
                                                 Switch::new(
                                                     "enable-vim",

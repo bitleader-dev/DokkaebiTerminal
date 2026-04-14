@@ -9,6 +9,7 @@ use gpui::{
     ParentElement, Render, ScrollStrategy, SharedString, Styled, Task, UniformListScrollHandle,
     WeakEntity, Window, actions, div, rems, uniform_list,
 };
+use i18n::t;
 use language::{Buffer, OwnedSyntaxLayer};
 use std::{any::TypeId, mem, ops::Range};
 use theme::ActiveTheme;
@@ -536,17 +537,14 @@ impl Render for SyntaxTreeView {
                         .max_w_3_5()
                         .map(|this| {
                             if editor_state.is_some_and(|state| !state.has_language()) {
-                                this.child(Label::new("Current editor has no associated language"))
+                                this.child(Label::new(t("language_tools.syntax_tree.no_language", cx)))
                                     .child(
-                                        Label::new(concat!(
-                                            "Try assigning a language or",
-                                            "switching to a different buffer"
-                                        ))
+                                        Label::new(t("language_tools.syntax_tree.no_language_hint", cx))
                                         .size(LabelSize::Small),
                                     )
                             } else {
-                                this.child(Label::new("Not attached to an editor")).child(
-                                    Label::new("Focus an editor to show a new tree view")
+                                this.child(Label::new(t("language_tools.syntax_tree.not_attached", cx))).child(
+                                    Label::new(t("language_tools.syntax_tree.focus_editor", cx))
                                         .size(LabelSize::Small),
                                 )
                             }

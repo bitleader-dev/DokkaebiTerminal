@@ -30,6 +30,7 @@ use workspace::{
 pub struct NotepadPanelSettings {
     pub button: bool,
     pub dock: DockPosition,
+    pub default_width: Pixels,
     pub restore: bool,
     pub horizontal_scroll: bool,
 }
@@ -40,6 +41,7 @@ impl Settings for NotepadPanelSettings {
         Self {
             button: notepad_panel.button.unwrap(),
             dock: notepad_panel.dock.unwrap().into(),
+            default_width: px(notepad_panel.default_width.unwrap()),
             restore: notepad_panel.restore.unwrap(),
             horizontal_scroll: notepad_panel.horizontal_scroll.unwrap(),
         }
@@ -478,8 +480,8 @@ impl Panel for NotepadPanel {
         });
     }
 
-    fn default_size(&self, _window: &Window, _cx: &App) -> Pixels {
-        px(300.)
+    fn default_size(&self, _window: &Window, cx: &App) -> Pixels {
+        NotepadPanelSettings::get_global(cx).default_width
     }
 
     fn icon(&self, _window: &Window, cx: &App) -> Option<IconName> {

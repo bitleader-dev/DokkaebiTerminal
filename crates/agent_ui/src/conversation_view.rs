@@ -2525,7 +2525,7 @@ impl ConversationView {
     }
 
     fn current_model_name(&self, cx: &App) -> SharedString {
-        // For native agent (Zed Agent), use the specific model name (e.g., "Claude 3.5 Sonnet")
+        // For native agent (AI Agent), use the specific model name (e.g., "Claude 3.5 Sonnet")
         // For ACP agents, use the agent name (e.g., "Claude Agent", "Gemini CLI")
         // This provides better clarity about what refused the request
         if self.as_native_connection(cx).is_some() {
@@ -2591,7 +2591,7 @@ fn loading_contents_spinner(size: IconSize) -> AnyElement {
 }
 
 fn placeholder_text(agent_name: &str, has_commands: bool, cx: &App) -> String {
-    // 네이티브 에이전트는 "Zed Agent" 대신 "Agent"로 표시
+    // 네이티브 에이전트는 "AI Agent" 대신 "Agent"로 표시
     let is_native_agent = agent_name == agent::ZED_AGENT_ID.as_ref();
     let template = if has_commands && !is_native_agent {
         t("agent_panel.placeholder.message_with_commands", cx)

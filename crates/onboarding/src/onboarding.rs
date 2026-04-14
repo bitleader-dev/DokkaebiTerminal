@@ -6,7 +6,7 @@ use fs::Fs;
 use gpui::{
     Action, AnyElement, App, AppContext, AsyncWindowContext, Context, Entity, EventEmitter,
     FocusHandle, Focusable, Global, IntoElement, KeyContext, Render, ScrollHandle, SharedString,
-    Subscription, Task, WeakEntity, Window, actions,
+    Subscription, Task, WeakEntity, Window, actions, img,
 };
 use notifications::status_toast::{StatusToast, ToastIcon};
 use schemars::JsonSchema;
@@ -310,7 +310,12 @@ impl Render for Onboarding {
                                     .child(
                                         h_flex()
                                             .gap_4()
-                                            .child(Vector::square(VectorName::ZedLogo, rems(2.5)))
+                                            .child(
+                                                img("icons/icon.png")
+                                                    .w(rems_from_px(45.))
+                                                    .h(rems_from_px(45.))
+                                                    .flex_none(),
+                                            )
                                             .child(
                                                 v_flex()
                                                     .child(

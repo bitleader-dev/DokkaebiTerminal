@@ -580,7 +580,7 @@ impl AgentType {
 
     fn label(&self) -> SharedString {
         match self {
-            Self::NativeAgent | Self::TextThread => "Zed Agent".into(),
+            Self::NativeAgent | Self::TextThread => "AI Agent".into(),
             Self::Custom { id, .. } => id.0.clone(),
         }
     }
@@ -3738,7 +3738,7 @@ impl AgentPanel {
                 let name = m.provider.name().0;
                 SharedString::from(format!("{} Agent", name))
             })
-            .unwrap_or_else(|| "Zed Agent".into());
+            .unwrap_or_else(|| "AI Agent".into());
 
         let new_thread_menu_builder: Rc<
             dyn Fn(&mut Window, &mut App) -> Option<Entity<ContextMenu>>,
@@ -4248,52 +4248,9 @@ impl AgentPanel {
         plan.is_some_and(|plan| plan == Plan::ZedFree) && has_previous_trial
     }
 
-    fn should_render_onboarding(&self, cx: &mut Context<Self>) -> bool {
-        if self.on_boarding_upsell_dismissed.load(Ordering::Acquire) {
-            return false;
-        }
-
-        let user_store = self.user_store.read(cx);
-
-        if user_store.plan().is_some_and(|plan| plan == Plan::ZedPro)
-            && user_store
-                .subscription_period()
-                .and_then(|period| period.0.checked_add_days(chrono::Days::new(1)))
-                .is_some_and(|date| date < chrono::Utc::now())
-        {
-            OnboardingUpsell::set_dismissed(true, cx);
-            self.on_boarding_upsell_dismissed
-                .store(true, Ordering::Release);
-            return false;
-        }
-
-        let has_configured_non_zed_providers = LanguageModelRegistry::read_global(cx)
-            .visible_providers()
-            .iter()
-            .any(|provider| {
-                provider.is_authenticated(cx)
-                    && provider.id() != language_model::ZED_CLOUD_PROVIDER_ID
-            });
-
-        match &self.active_view {
-            ActiveView::Uninitialized | ActiveView::History { .. } | ActiveView::Configuration => {
-                false
-            }
-            ActiveView::AgentThread {
-                conversation_view, ..
-            } if conversation_view.read(cx).as_native_thread(cx).is_none() => false,
-            ActiveView::AgentThread { conversation_view } => {
-                let history_is_empty = conversation_view
-                    .read(cx)
-                    .history()
-                    .is_none_or(|h| h.read(cx).is_empty());
-                history_is_empty || !has_configured_non_zed_providers
-            }
-            ActiveView::TextThread { .. } => {
-                let history_is_empty = self.text_thread_history.read(cx).is_empty();
-                history_is_empty || !has_configured_non_zed_providers
-            }
-        }
+    fn should_render_onboarding(&self, _cx: &mut Context<Self>) -> bool {
+        // 온보딩 카드 비활성화 - 자체 API 키 사용으로 Zed AI 온보딩 불필요
+        false
     }
 
     fn render_onboarding(

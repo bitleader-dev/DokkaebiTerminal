@@ -564,8 +564,8 @@ impl Render for WelcomePage {
                                     .gap_4()
                                     .child(
                                         img("icons/icon.png")
-                                            .w(rems_from_px(45.))
-                                            .h(rems_from_px(45.))
+                                            .w(rems_from_px(70.))
+                                            .h(rems_from_px(70.))
                                             .flex_none(),
                                     )
                                     .child(

@@ -637,7 +637,7 @@ impl EditPredictionButton {
                 }
             })
             .separator()
-            .entry("Use Zed AI", None, {
+            .entry("Use AI Provider", None, {
                 let fs = fs.clone();
                 move |_window, cx| {
                     set_completion_provider(fs.clone(), cx, EditPredictionProvider::Zed)
@@ -1171,7 +1171,7 @@ impl EditPredictionButton {
                             },
                             |_window, cx| cx.open_url(&zed_urls::account_url(cx)),
                         )
-                        .entry("Upgrade to Zed Pro or contact us.", None, |_window, cx| {
+                        .entry("Upgrade to Pro or contact us.", None, |_window, cx| {
                             telemetry::event!(
                                 "Edit Prediction Menu Action",
                                 action = "upsell_clicked",
@@ -1194,7 +1194,7 @@ impl EditPredictionButton {
                             },
                         )
                         .entry(
-                            "Check your payment status or contact us at billing-support@zed.dev to continue using this feature.",
+                            "Check your payment status to continue using this feature.",
                             None,
                             |_window, cx| {
                                 cx.open_url(&zed_urls::account_url(cx))

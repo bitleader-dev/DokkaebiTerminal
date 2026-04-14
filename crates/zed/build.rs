@@ -2,12 +2,6 @@
 use std::process::Command;
 
 fn main() {
-    // Cargo.toml [package.metadata.dokkaebi] 에서 원본 버전 읽기
-    let cargo_toml = std::fs::read_to_string("Cargo.toml").expect("failed to read Cargo.toml");
-    if let Some(version) = parse_upstream_version(&cargo_toml) {
-        println!("cargo:rustc-env=DOKKAEBI_UPSTREAM_VERSION={version}");
-    }
-    println!("cargo:rerun-if-changed=Cargo.toml");
     #[cfg(target_os = "linux")]
     {
         // Add rpaths for libraries that webrtc-sys dlopens at runtime.
@@ -235,24 +229,3 @@ fn main() {
     }
 }
 
-/// Cargo.toml에서 `[package.metadata.dokkaebi]` 섹션의 `upstream_version` 값을 추출
-fn parse_upstream_version(toml_content: &str) -> Option<String> {
-    let mut in_section = false;
-    for line in toml_content.lines() {
-        let trimmed = line.trim();
-        if trimmed == "[package.metadata.dokkaebi]" {
-            in_section = true;
-            continue;
-        }
-        if in_section {
-            if trimmed.starts_with('[') {
-                break;
-            }
-            if let Some(value) = trimmed.strip_prefix("upstream_version") {
-                let value = value.trim().strip_prefix('=')?.trim();
-                return Some(value.trim_matches('"').to_string());
-            }
-        }
-    }
-    None
-}

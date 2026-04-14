@@ -2429,9 +2429,9 @@
     // Delay in milliseconds before showing the which-key popup.
     "delay_ms": 1000,
   },
-  // The server to connect to. If the environment variable
-  // ZED_SERVER_URL is set, it will override this setting.
-  "server_url": "https://zed.dev",
+  // Dokkaebi는 Zed cloud 연동을 사용하지 않으므로 기본 server_url을 비워둔다.
+  // 환경변수 ZED_SERVER_URL이 설정된 경우에만 해당 값이 사용된다.
+  "server_url": "",
   // Settings overrides to use when using Zed Preview.
   // Mostly useful for developers who are managing multiple instances of Zed.
   "preview": {

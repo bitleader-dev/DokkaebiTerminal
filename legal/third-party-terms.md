@@ -1,11 +1,8 @@
----
-title: Acceptable Use Policies
-slug: acceptable-use-policies
----
+# Acceptable Use Policies
 
-**Last Updated:** March 2, 2026
+**Last Updated:** 2026-04-13
 
-Some third-party services accessible through Zed have their own acceptable use policies. These apply whether Zed hosts the service on your behalf or you connect your own account. The applicable policies are listed below and apply alongside the [Zed End User Terms](/terms) and [Zed Privacy Policy](/privacy-policy).
+Some third-party services accessible through Dokkaebi have their own acceptable use policies. These apply when you connect your own account to use the corresponding features in Dokkaebi. Please review and comply with the applicable policies listed below.
 
 These policies may be updated from time to time by the applicable provider.
 

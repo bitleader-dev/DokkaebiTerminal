@@ -1,0 +1,86 @@
+Dokkaebi
+Copyright (c) 2026 Dokkaebi Team
+
+This product is based on Zed, originally developed by Zed Industries, Inc.:
+  https://github.com/zed-industries/zed
+  Copyright 2022-2025 Zed Industries, Inc.
+
+Zed is licensed under the GNU General Public License, version 3 or later
+(GPL-3.0-or-later), with some components licensed under the Apache License
+2.0 (Apache-2.0). Dokkaebi is distributed under the same GPL-3.0-or-later
+license. See LICENSE-GPL and LICENSE-APACHE for full license texts.
+
+==================================================================
+Modifications by Dokkaebi Team
+==================================================================
+
+Dokkaebi adapts Zed into a Windows-focused terminal-centric workspace
+optimized for AI coding agents (Claude Code, Gemini CLI, Codex, OpenCode)
+and multi-tasking workflows. The major categories of modifications are:
+
+1. Platform focus
+   - Primary target reduced to Windows. Windows installer built via
+     setup/dokkaebi.iss (Inno Setup), replacing upstream Zed's bundling
+     pipeline.
+   - macOS/Linux/FreeBSD-specific distribution assets and bundling
+     scripts removed.
+
+2. Application identity
+   - Application renamed to "Dokkaebi" (crates/zed/Cargo.toml, build.rs,
+     Windows resource metadata).
+   - Custom application icon (crates/zed/resources/windows/app-icon-dokkaebi.ico).
+   - About dialog credits upstream Zed explicitly.
+
+3. New feature: Notepad panel
+   - crates/notepad_panel: new crate providing an always-available
+     scratchpad panel with right-click "send selected text to terminal"
+     context menu.
+
+4. GitHub releases-based auto-update
+   - crates/github_update: GitHub Releases integration replacing Zed's
+     proprietary update server, with user-visible AutoUpdateSetting toggle.
+
+5. AI agent integration
+   - AI coding agents (Claude Code / Gemini CLI / Codex / OpenCode) run as
+     terminal sub-processes; original Zed assistant/agent crates retained
+     for compatibility.
+
+6. Localization
+   - Korean (ko.json) and English (en.json) UI strings via i18n crate.
+   - Installer messages (setup/messages/) include Korean/English.
+
+7. Repository cleanup
+   - Upstream Zed's CI workflows, release pipelines, cloud/collab
+     infrastructure, flatpak/snap packaging, macOS/Linux resources, and
+     Zed Industries' SaaS legal documents (privacy-policy.md,
+     subprocessors.md, terms.md, terms.rtf) have been removed as
+     unused by Dokkaebi's build and distribution path.
+   - third-party-terms.md retained with wording adapted to Dokkaebi's
+     context, to disclose acceptable-use policies of AI providers that
+     users may connect to.
+
+==================================================================
+Third-Party Attribution
+==================================================================
+
+For a complete list of third-party dependencies and their licenses,
+see assets/licenses.md (generated via script/generate-licenses at
+build time; regenerate with `cargo about generate ...`).
+
+The `docs/` directory in the source repository retains upstream Zed's
+user documentation, which describes Zed's features and is authored by
+"The Zed Team" (see docs/book.toml). It is preserved for attribution
+and for the Windows build guide linked from README.md; it is not
+redistributed in the Dokkaebi installer.
+
+The `.rules` file at the repository root was inherited from upstream
+Zed and is unchanged.
+
+==================================================================
+Trademark Notice
+==================================================================
+
+"Zed" is a trademark of Zed Industries, Inc. References to "Zed" in
+this project's source code, documentation, and NOTICE are for
+attribution and nominative reference only. Dokkaebi is not affiliated
+with, endorsed by, or sponsored by Zed Industries, Inc.

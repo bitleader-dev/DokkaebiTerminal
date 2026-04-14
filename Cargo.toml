@@ -46,7 +46,6 @@ members = [
     "crates/denoise",
     "crates/dev_container",
     "crates/diagnostics",
-    "crates/docs_preprocessor",
     "crates/edit_prediction",
     "crates/edit_prediction_context",
     "crates/edit_prediction_types",
@@ -54,7 +53,6 @@ members = [
     "crates/editor",
     "crates/encoding_selector",
     "crates/etw_tracing",
-    "crates/explorer_command_injector",
     "crates/extension",
     "crates/extension_api",
     "crates/extension_cli",
@@ -227,8 +225,6 @@ members = [
     "extensions/glsl",
     "extensions/html",
     "extensions/proto",
-    "extensions/slash-commands-example",
-    "extensions/test-extension",
 
     #
     # Tooling

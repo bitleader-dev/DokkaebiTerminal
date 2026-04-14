@@ -15,8 +15,6 @@ use util::ResultExt;
 
 use super::QuickActionBar;
 
-const ZED_REPL_DOCUMENTATION: &str = "https://zed.dev/docs/repl";
-
 struct ReplMenuState {
     tooltip: SharedString,
     icon: IconName,
@@ -372,23 +370,11 @@ impl QuickActionBar {
         .into_any_element()
     }
 
-    pub fn render_repl_setup(&self, language: &str, cx: &mut Context<Self>) -> Option<AnyElement> {
-        let tooltip: SharedString = SharedString::from(format!("Setup Zed REPL for {}", language));
+    pub fn render_repl_setup(&self, _language: &str, cx: &mut Context<Self>) -> Option<AnyElement> {
         Some(
             h_flex()
                 .gap(DynamicSpacing::Base06.rems(cx))
                 .child(self.render_kernel_selector(cx))
-                .child(
-                    IconButton::new("toggle_repl_icon", IconName::ReplNeutral)
-                        .style(ButtonStyle::Subtle)
-                        .shape(ui::IconButtonShape::Square)
-                        .icon_size(ui::IconSize::Small)
-                        .icon_color(Color::Muted)
-                        .tooltip(Tooltip::text(tooltip))
-                        .on_click(|_, _window, cx| {
-                            cx.open_url(&format!("{}#installation", ZED_REPL_DOCUMENTATION))
-                        }),
-                )
                 .into_any_element(),
         )
     }

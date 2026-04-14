@@ -5,47 +5,30 @@
 //! zed.dev in development).
 
 use gpui::App;
-use settings::Settings;
 
-use crate::ClientSettings;
-
-fn server_url(cx: &App) -> &str {
-    &ClientSettings::get_global(cx).server_url
+/// Dokkaebi에는 SaaS 계정 시스템이 없어 빈 URL을 반환한다.
+pub fn account_url(_cx: &App) -> String {
+    String::new()
 }
 
-/// Returns the URL to the account page on zed.dev.
-pub fn account_url(cx: &App) -> String {
-    format!("{server_url}/account", server_url = server_url(cx))
+/// Dokkaebi에는 구독 시스템이 없어 빈 URL을 반환한다.
+pub fn start_trial_url(_cx: &App) -> String {
+    String::new()
 }
 
-/// Returns the URL to the start trial page on zed.dev.
-pub fn start_trial_url(cx: &App) -> String {
-    format!(
-        "{server_url}/account/start-trial",
-        server_url = server_url(cx)
-    )
+/// Dokkaebi에는 구독 시스템이 없어 빈 URL을 반환한다.
+pub fn upgrade_to_zed_pro_url(_cx: &App) -> String {
+    String::new()
 }
 
-/// Returns the URL to the upgrade page on zed.dev.
-pub fn upgrade_to_zed_pro_url(cx: &App) -> String {
-    format!("{server_url}/account/upgrade", server_url = server_url(cx))
+/// Dokkaebi에는 자체 편집 예측 문서가 없어 빈 URL을 반환한다.
+pub fn edit_prediction_docs(_cx: &App) -> String {
+    String::new()
 }
 
-
-/// Returns the URL to Zed's edit prediction documentation.
-pub fn edit_prediction_docs(cx: &App) -> String {
-    format!(
-        "{server_url}/docs/ai/edit-prediction",
-        server_url = server_url(cx)
-    )
-}
-
-/// Returns the URL to Zed's ACP registry blog post.
-pub fn acp_registry_blog(cx: &App) -> String {
-    format!(
-        "{server_url}/blog/acp-registry",
-        server_url = server_url(cx)
-    )
+/// Dokkaebi에는 ACP 레지스트리 블로그가 없어 빈 URL을 반환한다.
+pub fn acp_registry_blog(_cx: &App) -> String {
+    String::new()
 }
 
 pub fn shared_agent_thread_url(session_id: &str) -> String {

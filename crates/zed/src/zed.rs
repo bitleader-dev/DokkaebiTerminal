@@ -17,7 +17,6 @@ pub use app_menus::*;
 use assets::Assets;
 
 use breadcrumbs::Breadcrumbs;
-use client::zed_urls;
 use collections::VecDeque;
 use editor::{Editor, MultiBuffer};
 use extension_host::ExtensionStore;
@@ -43,7 +42,6 @@ use language_tools::lsp_log_view::LspLogToolbarItemView;
 use markdown::{Markdown, MarkdownElement, MarkdownFont, MarkdownStyle};
 use migrate::{MigrationBanner, MigrationEvent, MigrationNotification, MigrationType};
 use migrator::migrate_keymap;
-use onboarding::DOCS_URL;
 use onboarding::multibuffer_hint::MultibufferHint;
 pub use open_listener::*;
 use outline_panel::OutlinePanel;
@@ -93,12 +91,12 @@ use workspace::{
 };
 use workspace::{Pane, notifications::DetachAndPromptErr};
 use zed_actions::{
-    OpenAccountSettings, OpenBrowser, OpenDocs, OpenServerSettings, OpenSettingsFile, OpenZedUrl,
+    OpenBrowser, OpenServerSettings, OpenSettingsFile, OpenZedUrl,
     Quit,
 };
 
 actions!(
-    zed,
+    dokkaebi,
     [
         /// Opens the element inspector for debugging UI.
         DebugElements,
@@ -215,11 +213,6 @@ pub fn init(cx: &mut App) {
                 window,
                 cx,
             );
-        });
-    })
-    .on_action(|_: &OpenAccountSettings, cx| {
-        with_active_or_new_workspace(cx, |_, _, cx| {
-            cx.open_url(&zed_urls::account_url(cx));
         });
     })
     .on_action(|_: &OpenTasks, cx| {
@@ -516,7 +509,7 @@ fn initialize_file_watcher(window: &mut Window, cx: &mut Context<Workspace>) {
             db::indoc! {r#"
             inotify_init returned {}
 
-            This may be due to system-wide limits on inotify instances. For troubleshooting see: https://zed.dev/docs/linux
+            This may be due to system-wide limits on inotify instances.
             "#},
             e
         );
@@ -524,13 +517,12 @@ fn initialize_file_watcher(window: &mut Window, cx: &mut Context<Workspace>) {
             PromptLevel::Critical,
             "Could not start inotify",
             Some(&message),
-            &["Troubleshoot and Quit"],
+            &["Quit"],
             cx,
         );
         cx.spawn(async move |_, cx| {
             if prompt.await == Ok(0) {
                 cx.update(|cx| {
-                    cx.open_url("https://zed.dev/docs/linux#could-not-start-inotify");
                     cx.quit();
                 });
             }
@@ -547,7 +539,7 @@ fn initialize_file_watcher(window: &mut Window, cx: &mut Context<Workspace>) {
             db::indoc! {r#"
             ReadDirectoryChangesW initialization failed: {}
 
-            This may occur on network filesystems and WSL paths. For troubleshooting see: https://zed.dev/docs/windows
+            This may occur on network filesystems and WSL paths.
             "#},
             e
         );
@@ -555,13 +547,12 @@ fn initialize_file_watcher(window: &mut Window, cx: &mut Context<Workspace>) {
             PromptLevel::Critical,
             "Could not start ReadDirectoryChangesW",
             Some(&message),
-            &["Troubleshoot and Quit"],
+            &["Quit"],
             cx,
         );
         cx.spawn(async move |_, cx| {
             if prompt.await == Ok(0) {
                 cx.update(|cx| {
-                    cx.open_url("https://zed.dev/docs/windows");
                     cx.quit()
                 });
             }
@@ -576,42 +567,32 @@ fn show_software_emulation_warning_if_needed(
     cx: &mut Context<Workspace>,
 ) {
     if specs.is_software_emulated && std::env::var("ZED_ALLOW_EMULATED_GPU").is_err() {
-        let (graphics_api, docs_url, open_url) = if cfg!(target_os = "windows") {
-            (
-                "DirectX",
-                "https://zed.dev/docs/windows",
-                "https://zed.dev/docs/windows",
-            )
+        let graphics_api = if cfg!(target_os = "windows") {
+            "DirectX"
         } else {
-            (
-                "Vulkan",
-                "https://zed.dev/docs/linux",
-                "https://zed.dev/docs/linux#zed-fails-to-open-windows",
-            )
+            "Vulkan"
         };
         let message = format!(
             db::indoc! {r#"
-            Zed uses {} for rendering and requires a compatible GPU.
+            Dokkaebi uses {} for rendering and requires a compatible GPU.
 
             Currently you are using a software emulated GPU ({}) which
             will result in awful performance.
 
-            For troubleshooting see: {}
             Set ZED_ALLOW_EMULATED_GPU=1 env var to permanently override.
             "#},
-            graphics_api, specs.device_name, docs_url
+            graphics_api, specs.device_name
         );
         let prompt = window.prompt(
             PromptLevel::Critical,
             "Unsupported GPU",
             Some(&message),
-            &["Skip", "Troubleshoot and Quit"],
+            &["Skip", "Quit"],
             cx,
         );
         cx.spawn(async move |_, cx| {
             if prompt.await == Ok(1) {
                 cx.update(|cx| {
-                    cx.open_url(open_url);
                     cx.quit();
                 });
             }
@@ -753,7 +734,6 @@ fn register_actions(
     cx: &mut Context<Workspace>,
 ) {
     workspace
-        .register_action(|_, _: &OpenDocs, _, cx| cx.open_url(DOCS_URL))
         .register_action(|_, _: &Minimize, window, _| {
             window.minimize_window();
         })
@@ -1218,8 +1198,6 @@ struct AboutDialog {
     focus: gpui::FocusHandle,
     /// 버전 문자열 (예: "Dokkaebi Dev 0.1.0 (debug)")
     version_text: String,
-    /// 원본 Zed 버전
-    upstream_version: &'static str,
 }
 
 impl AboutDialog {
@@ -1232,18 +1210,16 @@ impl AboutDialog {
             ""
         };
         let version_text = format!("{release_channel} {version}{debug}");
-        let upstream_version = env!("DOKKAEBI_UPSTREAM_VERSION");
 
         Self {
             focus: cx.focus_handle(),
             version_text,
-            upstream_version,
         }
     }
 
 }
 
-const ZED_REPO_URL: &str = "https://github.com/zed-industries/zed";
+const ZED_PROJECT_URL: &str = "https://zed.dev/";
 
 impl Render for AboutDialog {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -1252,8 +1228,8 @@ impl Render for AboutDialog {
         let title = i18n::t("about.title", cx);
         let credit_prefix = i18n::t("about.credit_prefix", cx);
         let credit_link = i18n::t("about.credit_link", cx);
-        let credit_suffix = i18n::t("about.credit_suffix", cx);
-        let upstream_version = self.upstream_version;
+        let credit_suffix_1 = i18n::t("about.credit_suffix_1", cx);
+        let credit_suffix_2 = i18n::t("about.credit_suffix_2", cx);
         let ok_label = i18n::t("about.ok", cx);
 
         v_flex()
@@ -1287,15 +1263,14 @@ impl Render for AboutDialog {
                     .font_weight(gpui::FontWeight::SEMIBOLD)
                     .child(self.version_text.clone()),
             )
-            // 크레딧 (링크 포함)
+            // 크레딧 (링크 포함, 세로 3줄 배치로 긴 문구를 좁은 다이얼로그에 맞춤)
             .child(
-                div()
+                v_flex()
                     .w_full()
                     .text_xs()
                     .text_color(cx.theme().colors().text_muted)
                     .child(
                         h_flex()
-                            .flex_wrap()
                             .child(credit_prefix.to_string())
                             .child(
                                 div()
@@ -1304,12 +1279,13 @@ impl Render for AboutDialog {
                                     .text_color(cx.theme().colors().link_text_hover)
                                     .hover(|s| s.underline())
                                     .on_click(cx.listener(|_, _, _window, cx| {
-                                        cx.open_url(ZED_REPO_URL);
+                                        cx.open_url(ZED_PROJECT_URL);
                                     }))
                                     .child(credit_link.to_string()),
-                            )
-                            .child(format!("{} (v{})", credit_suffix, upstream_version)),
-                    ),
+                            ),
+                    )
+                    .child(credit_suffix_1.to_string())
+                    .child(credit_suffix_2.to_string()),
             )
             // 버튼
             .child(

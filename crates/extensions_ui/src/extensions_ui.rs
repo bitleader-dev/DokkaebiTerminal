@@ -43,7 +43,7 @@ use crate::extension_version_selector::{
 };
 
 actions!(
-    zed,
+    dokkaebi,
     [
         /// Installs an extension from a local directory for development.
         InstallDevExtension

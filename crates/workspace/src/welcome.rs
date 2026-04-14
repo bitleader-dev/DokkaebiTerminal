@@ -29,7 +29,7 @@ pub struct OpenRecentProject {
 }
 
 actions!(
-    zed,
+    dokkaebi,
     [
         /// Show the Zed welcome screen
         ShowWelcome

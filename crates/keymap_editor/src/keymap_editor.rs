@@ -4068,6 +4068,7 @@ fn is_hidden_action(action_name: &str) -> bool {
         "zed_predict_onboarding",    // 편집 예측 온보딩
         "zeta",                      // 편집 예측 평가
         "client",                    // Zed 클라우드 계정 (로그인/로그아웃)
+        "feedback",                  // Zed 팀 대상 피드백 (URL 전부 no-op 상태)
     ];
 
     // 활성 네임스페이스 내의 개별 비활성 액션
@@ -4075,7 +4076,7 @@ fn is_hidden_action(action_name: &str) -> bool {
         "workspace::FollowNextCollaborator",
         "workspace::Unfollow",
         "workspace::ToggleEditPrediction",
-        "zed::OpenTelemetryLog",
+        "dokkaebi::OpenTelemetryLog",
         "title_bar::SimulateUpdateAvailable",
         "dev::OpenEditPredictionContextView",
         "dev::EditPredictionContextGoBack",
@@ -4087,6 +4088,23 @@ fn is_hidden_action(action_name: &str) -> bool {
         "editor::NextEditPrediction",
         "editor::PreviousEditPrediction",
         "editor::ToggleEditPrediction",
+        // Zed 저장소/URL 리다이렉트 (handler는 있으나 URL no-op 또는 내부 호출용)
+        "dokkaebi::OpenZedRepo",
+        "dokkaebi::OpenZedUrl",
+        // 개발자 크래시 테스트 (일반 사용자 노출 시 위험)
+        "dokkaebi::TestPanic",
+        "dokkaebi::TestCrash",
+        // UI 인스펙터/개발자 전용 (handler 미등록 또는 개발자용)
+        "dokkaebi::DebugElements",
+        "dokkaebi::ShowDefaultSemanticTokenRules",
+        // Windows ETW 진단 (개발자 전용)
+        "dokkaebi::RecordEtwTrace",
+        "dokkaebi::RecordEtwTraceWithHeapTracing",
+        "dokkaebi::SaveEtwTrace",
+        "dokkaebi::CancelEtwTrace",
+        // gpui examples 전용 카운터 (일반 빌드 미사용)
+        "counter::Increment",
+        "counter::Decrement",
     ];
 
     // 네임스페이스 검사 ("namespace::" 접두사)

@@ -187,7 +187,7 @@ pub struct ExtensionIndexLanguageEntry {
 }
 
 actions!(
-    zed,
+    dokkaebi,
     [
         /// Reloads all installed extensions.
         ReloadExtensions

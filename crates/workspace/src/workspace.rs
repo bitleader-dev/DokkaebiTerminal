@@ -9275,7 +9275,7 @@ pub struct OpenChannelNotesById {
 }
 
 actions!(
-    zed,
+    dokkaebi,
     [
         /// Opens the Zed log file.
         OpenLog,

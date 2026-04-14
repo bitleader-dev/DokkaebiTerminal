@@ -100,6 +100,8 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
                 #[cfg(target_os = "macos")]
                 MenuItem::action(t("menu.zed.show_all", cx), super::ShowAll),
                 MenuItem::separator(),
+                MenuItem::action(t("menu.zed.open_licenses", cx), zed_actions::OpenLicenses),
+                MenuItem::separator(),
                 MenuItem::action(t("menu.zed.quit", cx), Quit),
             ],
         },

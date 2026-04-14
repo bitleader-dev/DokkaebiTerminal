@@ -213,8 +213,10 @@ impl HttpClientWithUrl {
     /// Builds a Zed API URL using the given path.
     pub fn build_zed_api_url(&self, path: &str, query: &[(&str, &str)]) -> Result<Url> {
         let base_url = self.base_url();
+        // Dokkaebi는 기본 server_url을 비워 Zed cloud 로그인을 차단하지만,
+        // Extension 마켓플레이스는 public API라 빈 값일 때도 api.zed.dev로 fallback한다.
         let base_api_url = match base_url.as_ref() {
-            "https://zed.dev" => "https://api.zed.dev",
+            "https://zed.dev" | "" => "https://api.zed.dev",
             "https://staging.zed.dev" => "https://api-staging.zed.dev",
             "http://localhost:3000" => "http://localhost:8080",
             other => other,

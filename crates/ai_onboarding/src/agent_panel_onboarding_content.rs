@@ -58,12 +58,12 @@ impl Render for AgentPanelOnboarding {
             .user_store
             .read(cx)
             .plan()
-            .is_some_and(|plan| plan == Plan::ZedProTrial);
+            .is_some_and(|plan| plan == Plan::DokkaebiProTrial);
         let is_pro_user = self
             .user_store
             .read(cx)
             .plan()
-            .is_some_and(|plan| plan == Plan::ZedPro);
+            .is_some_and(|plan| plan == Plan::DokkaebiPro);
 
         AgentPanelOnboardingCard::new()
             .child(

@@ -21,6 +21,7 @@ use editor::{
 use editor::{FoldPlaceholder, display_map::CreaseId};
 use fs::Fs;
 use futures::FutureExt;
+use i18n::t;
 use gpui::{
     Action, Animation, AnimationExt, AnyElement, App, ClipboardEntry, ClipboardItem, Empty, Entity,
     EventEmitter, FocusHandle, Focusable, FontWeight, Global, InteractiveElement, IntoElement,
@@ -894,7 +895,7 @@ impl TextThreadEditor {
                         |_, _, _, _| Empty.into_any_element(),
                     )
                     .with_metadata(CreaseMetadata {
-                        icon_path: SharedString::from(IconName::ZedAgent.path()),
+                        icon_path: SharedString::from(IconName::DokkaebiAgent.path()),
                         label: "Thinking Process".into(),
                     }),
                 );
@@ -2246,7 +2247,7 @@ impl TextThreadEditor {
         let provider_icon = active_provider
             .as_ref()
             .map(|p| p.icon())
-            .unwrap_or(IconOrSvg::Icon(IconName::ZedAgent));
+            .unwrap_or(IconOrSvg::Icon(IconName::DokkaebiAgent));
 
         let (color, icon) = if self.language_model_selector_menu_handle.is_deployed() {
             (Color::Accent, IconName::ChevronUp)
@@ -2315,7 +2316,7 @@ impl TextThreadEditor {
     }
 
     fn render_payment_required_error(&self, cx: &mut Context<Self>) -> AnyElement {
-        const ERROR_MESSAGE: &str = "Free tier exceeded. Subscribe and add payment to continue using Zed LLMs. You'll be billed at cost for tokens used.";
+        let error_message = t("agent_ui.payment_required.description", cx);
 
         v_flex()
             .gap_0p5()
@@ -2331,7 +2332,7 @@ impl TextThreadEditor {
                     .id("error-message")
                     .max_h_24()
                     .overflow_y_scroll()
-                    .child(Label::new(ERROR_MESSAGE)),
+                    .child(Label::new(error_message)),
             )
             .child(
                 h_flex()

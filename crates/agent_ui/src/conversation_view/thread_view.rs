@@ -7,6 +7,7 @@ use std::cell::RefCell;
 use acp_thread::{ContentBlock, PlanEntry};
 use cloud_api_types::{SubmitAgentThreadFeedbackBody, SubmitAgentThreadFeedbackCommentsBody};
 use editor::actions::OpenExcerpts;
+use i18n::t;
 
 use crate::StartThreadIn;
 use crate::message_editor::SharedSessionCapabilities;
@@ -4821,60 +4822,29 @@ impl ThreadView {
         {
             let feedback = self.thread_feedback.feedback;
 
-            let tooltip_meta = || {
-                SharedString::new(
-                    "Rating the thread sends all of your current conversation to the Zed team.",
-                )
-            };
+            let tooltip_meta = t("agent_ui.thread_rating.disclaimer", cx);
 
             container = container
-                    .child(
-                        IconButton::new("feedback-thumbs-up", IconName::ThumbsUp)
-                            .shape(ui::IconButtonShape::Square)
-                            .icon_size(IconSize::Small)
-                            .icon_color(match feedback {
-                                Some(ThreadFeedback::Positive) => Color::Accent,
-                                _ => Color::Ignored,
-                            })
-                            .tooltip(move |window, cx| match feedback {
-                                Some(ThreadFeedback::Positive) => {
-                                    Tooltip::text("Thanks for your feedback!")(window, cx)
-                                }
-                                _ => {
-                                    Tooltip::with_meta("Helpful Response", None, tooltip_meta(), cx)
-                                }
-                            })
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.handle_feedback_click(ThreadFeedback::Positive, window, cx);
-                            })),
-                    )
-                    .child(
-                        IconButton::new("feedback-thumbs-down", IconName::ThumbsDown)
-                            .shape(ui::IconButtonShape::Square)
-                            .icon_size(IconSize::Small)
-                            .icon_color(match feedback {
-                                Some(ThreadFeedback::Negative) => Color::Accent,
-                                _ => Color::Ignored,
-                            })
-                            .tooltip(move |window, cx| match feedback {
-                                Some(ThreadFeedback::Negative) => {
-                                    Tooltip::text(
-                                    "We appreciate your feedback and will use it to improve in the future.",
-                                )(window, cx)
-                                }
-                                _ => {
-                                    Tooltip::with_meta(
-                                        "Not Helpful Response",
-                                        None,
-                                        tooltip_meta(),
-                                        cx,
-                                    )
-                                }
-                            })
-                            .on_click(cx.listener(move |this, _, window, cx| {
-                                this.handle_feedback_click(ThreadFeedback::Negative, window, cx);
-                            })),
-                    );
+                .child(self.render_feedback_button(
+                    "feedback-thumbs-up",
+                    IconName::ThumbsUp,
+                    ThreadFeedback::Positive,
+                    "agent_ui.thread_rating.thanks",
+                    "agent_ui.thread_rating.helpful_response",
+                    feedback,
+                    tooltip_meta.clone(),
+                    cx,
+                ))
+                .child(self.render_feedback_button(
+                    "feedback-thumbs-down",
+                    IconName::ThumbsDown,
+                    ThreadFeedback::Negative,
+                    "agent_ui.thread_rating.appreciation",
+                    "agent_ui.thread_rating.not_helpful_response",
+                    feedback,
+                    tooltip_meta,
+                    cx,
+                ));
         }
 
         if let Some(project) = self.project.upgrade()
@@ -4937,6 +4907,46 @@ impl ThreadView {
     pub fn scroll_to_end(&mut self, cx: &mut Context<Self>) {
         self.list_state.scroll_to_end();
         cx.notify();
+    }
+
+    // Thumbs Up/Down 피드백 버튼 공통 렌더링.
+    // selected_tooltip_key는 이미 평가된 상태의 tooltip, prompt_tooltip_key는 미평가 상태의 tooltip.
+    #[allow(clippy::too_many_arguments)]
+    fn render_feedback_button(
+        &self,
+        id: &'static str,
+        icon: IconName,
+        kind: ThreadFeedback,
+        selected_tooltip_key: &'static str,
+        prompt_tooltip_key: &'static str,
+        current_feedback: Option<ThreadFeedback>,
+        tooltip_meta: SharedString,
+        cx: &Context<Self>,
+    ) -> IconButton {
+        let is_selected = current_feedback == Some(kind);
+        IconButton::new(id, icon)
+            .shape(ui::IconButtonShape::Square)
+            .icon_size(IconSize::Small)
+            .icon_color(if is_selected {
+                Color::Accent
+            } else {
+                Color::Ignored
+            })
+            .tooltip(move |window, cx| {
+                if is_selected {
+                    Tooltip::text(t(selected_tooltip_key, cx))(window, cx)
+                } else {
+                    Tooltip::with_meta(
+                        t(prompt_tooltip_key, cx),
+                        None,
+                        tooltip_meta.clone(),
+                        cx,
+                    )
+                }
+            })
+            .on_click(cx.listener(move |this, _, window, cx| {
+                this.handle_feedback_click(kind, window, cx);
+            }))
     }
 
     fn handle_feedback_click(

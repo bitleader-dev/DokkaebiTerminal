@@ -29,7 +29,7 @@ use ui::{
     ToggleButtonGroupSize, ToggleButtonGroupStyle, ToggleButtonSimple, Tooltip, WithScrollbar,
     prelude::*,
 };
-use i18n::t;
+use i18n::{t, t_arg};
 use vim_mode_setting::VimModeSetting;
 use workspace::{
     Workspace,
@@ -1164,9 +1164,7 @@ impl ExtensionsPage {
                                     let version = extension.manifest.version.clone();
                                     move |_, cx| {
                                         Tooltip::simple(
-                                            format!(
-                                                "v{version} is not compatible with this version of Zed.",
-                                            ),
+                                            t_arg("extensions.incompatible_version", &version, cx),
                                              cx,
                                         )
                                     }
@@ -1594,117 +1592,101 @@ impl ExtensionsPage {
         let mut container = v_flex();
 
         for feature in &self.upsells {
-            let banner = match feature {
-                Feature::AgentClaude => self.render_feature_upsell_banner(
-                    "Claude Agent support is built-in to Zed!".into(),
-                    "https://zed.dev/docs/ai/external-agents#claude-agent".into(),
+            // (i18n 키, docs URL, primary 여부) 메타데이터 lookup
+            let (key, url, primary) = match feature {
+                Feature::AgentClaude => (
+                    "extensions.upsell.claude_agent",
+                    "https://zed.dev/docs/ai/external-agents#claude-agent",
                     false,
-                    cx,
                 ),
-                Feature::AgentCodex => self.render_feature_upsell_banner(
-                    "Codex CLI support is built-in to Zed!".into(),
-                    "https://zed.dev/docs/ai/external-agents#codex-cli".into(),
+                Feature::AgentCodex => (
+                    "extensions.upsell.codex_cli",
+                    "https://zed.dev/docs/ai/external-agents#codex-cli",
                     false,
-                    cx,
                 ),
-                Feature::AgentGemini => self.render_feature_upsell_banner(
-                    "Gemini CLI support is built-in to Zed!".into(),
-                    "https://zed.dev/docs/ai/external-agents#gemini-cli".into(),
+                Feature::AgentGemini => (
+                    "extensions.upsell.gemini_cli",
+                    "https://zed.dev/docs/ai/external-agents#gemini-cli",
                     false,
-                    cx,
                 ),
-                Feature::ExtensionBasedpyright => self.render_feature_upsell_banner(
-                    "Basedpyright (Python language server) support is built-in to Zed!".into(),
-                    "https://zed.dev/docs/languages/python#basedpyright".into(),
+                Feature::ExtensionBasedpyright => (
+                    "extensions.upsell.basedpyright",
+                    "https://zed.dev/docs/languages/python#basedpyright",
                     false,
-                    cx,
                 ),
-                Feature::ExtensionRuff => self.render_feature_upsell_banner(
-                    "Ruff (linter for Python) support is built-in to Zed!".into(),
-                    "https://zed.dev/docs/languages/python#code-formatting--linting".into(),
+                Feature::ExtensionRuff => (
+                    "extensions.upsell.ruff",
+                    "https://zed.dev/docs/languages/python#code-formatting--linting",
                     false,
-                    cx,
                 ),
-                Feature::ExtensionTailwind => self.render_feature_upsell_banner(
-                    "Tailwind CSS support is built-in to Zed!".into(),
-                    "https://zed.dev/docs/languages/tailwindcss".into(),
+                Feature::ExtensionTailwind => (
+                    "extensions.upsell.tailwind",
+                    "https://zed.dev/docs/languages/tailwindcss",
                     false,
-                    cx,
                 ),
-                Feature::ExtensionTy => self.render_feature_upsell_banner(
-                    "Ty (Python language server) support is built-in to Zed!".into(),
-                    "https://zed.dev/docs/languages/python".into(),
+                Feature::ExtensionTy => (
+                    "extensions.upsell.ty_python",
+                    "https://zed.dev/docs/languages/python",
                     false,
-                    cx,
                 ),
-                Feature::Git => self.render_feature_upsell_banner(
-                    "Zed comes with basic Git support—more features are coming in the future."
-                        .into(),
-                    "https://zed.dev/docs/git".into(),
+                Feature::Git => (
+                    "extensions.upsell.git",
+                    "https://zed.dev/docs/git",
                     false,
-                    cx,
                 ),
-                Feature::LanguageBash => self.render_feature_upsell_banner(
-                    "Shell support is built-in to Zed!".into(),
-                    "https://zed.dev/docs/languages/bash".into(),
+                Feature::LanguageBash => (
+                    "extensions.upsell.shell",
+                    "https://zed.dev/docs/languages/bash",
                     false,
-                    cx,
                 ),
-                Feature::LanguageC => self.render_feature_upsell_banner(
-                    "C support is built-in to Zed!".into(),
-                    "https://zed.dev/docs/languages/c".into(),
+                Feature::LanguageC => (
+                    "extensions.upsell.c",
+                    "https://zed.dev/docs/languages/c",
                     false,
-                    cx,
                 ),
-                Feature::LanguageCpp => self.render_feature_upsell_banner(
-                    "C++ support is built-in to Zed!".into(),
-                    "https://zed.dev/docs/languages/cpp".into(),
+                Feature::LanguageCpp => (
+                    "extensions.upsell.cpp",
+                    "https://zed.dev/docs/languages/cpp",
                     false,
-                    cx,
                 ),
-                Feature::LanguageGo => self.render_feature_upsell_banner(
-                    "Go support is built-in to Zed!".into(),
-                    "https://zed.dev/docs/languages/go".into(),
+                Feature::LanguageGo => (
+                    "extensions.upsell.go",
+                    "https://zed.dev/docs/languages/go",
                     false,
-                    cx,
                 ),
-                Feature::LanguagePython => self.render_feature_upsell_banner(
-                    "Python support is built-in to Zed!".into(),
-                    "https://zed.dev/docs/languages/python".into(),
+                Feature::LanguagePython => (
+                    "extensions.upsell.python",
+                    "https://zed.dev/docs/languages/python",
                     false,
-                    cx,
                 ),
-                Feature::LanguageReact => self.render_feature_upsell_banner(
-                    "React support is built-in to Zed!".into(),
-                    "https://zed.dev/docs/languages/typescript".into(),
+                Feature::LanguageReact => (
+                    "extensions.upsell.react",
+                    "https://zed.dev/docs/languages/typescript",
                     false,
-                    cx,
                 ),
-                Feature::LanguageRust => self.render_feature_upsell_banner(
-                    "Rust support is built-in to Zed!".into(),
-                    "https://zed.dev/docs/languages/rust".into(),
+                Feature::LanguageRust => (
+                    "extensions.upsell.rust",
+                    "https://zed.dev/docs/languages/rust",
                     false,
-                    cx,
                 ),
-                Feature::LanguageTypescript => self.render_feature_upsell_banner(
-                    "Typescript support is built-in to Zed!".into(),
-                    "https://zed.dev/docs/languages/typescript".into(),
+                Feature::LanguageTypescript => (
+                    "extensions.upsell.typescript",
+                    "https://zed.dev/docs/languages/typescript",
                     false,
-                    cx,
                 ),
-                Feature::OpenIn => self.render_feature_upsell_banner(
-                    "Zed supports linking to a source line on GitHub and others.".into(),
-                    "https://zed.dev/docs/git#git-integrations".into(),
+                Feature::OpenIn => (
+                    "extensions.upsell.open_in",
+                    "https://zed.dev/docs/git#git-integrations",
                     false,
-                    cx,
                 ),
-                Feature::Vim => self.render_feature_upsell_banner(
-                    "Vim support is built-in to Zed!".into(),
-                    "https://zed.dev/docs/vim".into(),
+                Feature::Vim => (
+                    "extensions.upsell.vim",
+                    "https://zed.dev/docs/vim",
                     true,
-                    cx,
                 ),
             };
+            let banner =
+                self.render_feature_upsell_banner(t(key, cx), url.into(), primary, cx);
             container = container.child(banner);
         }
 

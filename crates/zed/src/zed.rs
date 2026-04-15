@@ -22,6 +22,7 @@ use editor::{Editor, MultiBuffer};
 use extension_host::ExtensionStore;
 use feature_flags::{FeatureFlagAppExt as _, PanicFeatureFlag};
 use fs::Fs;
+use github_update::GithubUpdater;
 use futures::FutureExt as _;
 use futures::future::Either;
 use futures::{StreamExt, channel::mpsc, select_biased};
@@ -275,6 +276,12 @@ pub fn init(cx: &mut App) {
         with_active_or_new_workspace(cx, |workspace, window, cx| {
             about(workspace, window, cx);
         });
+    })
+    .on_action(|_: &zed_actions::CheckForUpdates, cx| {
+        // 이미 체크·다운로드 진행 중이면 check() 내부에서 pending 가드로 무시된다.
+        if let Some(updater) = GithubUpdater::get(cx) {
+            updater.update(cx, |updater, cx| updater.check(cx));
+        }
     });
 }
 

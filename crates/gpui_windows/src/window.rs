@@ -1393,14 +1393,33 @@ fn retrieve_window_placement(
         ..Default::default()
     };
     unsafe { GetWindowPlacement(hwnd, &mut placement)? };
-    // the bounds may be not inside the display
+    // 중심점이 같은 모니터 안이면 원본 위치를 살리고, 다른 모니터(또는 화면 밖)면 기본 위치로 리셋한다.
+    // 어느 분기든 마지막에 작업 영역으로 클램프해 화면 밖 표시를 항상 차단한다.
     let bounds = if display.check_given_bounds(initial_bounds) {
         initial_bounds
     } else {
         display.default_bounds()
     };
-    let bounds = bounds.to_device_pixels(scale_factor);
-    placement.rcNormalPosition = calculate_window_rect(bounds, border_offset);
+    let bounds = display.clamp_bounds(bounds);
+    // SetWindowPlacement는 위치는 통합 물리 좌표(=대상 모니터의 device pixels)로,
+    // 크기는 윈도우 현재 컨텍스트(scale_factor)의 단위로 받는다(Windows가 대상 DPI에 맞춰 자동 확대).
+    // 두 좌표계가 달라 단순히 to_device_pixels(scale_factor)로 통일하면 다중 DPI 환경에서
+    // 위치는 어긋나거나 크기는 두 번 확대돼 창이 모니터를 가로질러 표시된다.
+    let target_scale = display.scale_factor();
+    let pos_x = (bounds.origin.x.as_f32() * target_scale).round() as i32;
+    let pos_y = (bounds.origin.y.as_f32() * target_scale).round() as i32;
+    let size_w = (bounds.size.width.as_f32() * scale_factor).round() as i32;
+    let size_h = (bounds.size.height.as_f32() * scale_factor).round() as i32;
+    let left_offset = border_offset.width_offset.get() / 2;
+    let top_offset = border_offset.height_offset.get() / 2;
+    let right_offset = border_offset.width_offset.get() - left_offset;
+    let bottom_offset = border_offset.height_offset.get() - top_offset;
+    placement.rcNormalPosition = RECT {
+        left: pos_x - left_offset,
+        top: pos_y - top_offset,
+        right: pos_x + size_w + right_offset,
+        bottom: pos_y + size_h + bottom_offset,
+    };
     Ok(placement)
 }
 

@@ -11,7 +11,8 @@ pub struct I18n {
     /// 현재 선택된 로케일
     locale: Locale,
     /// 로케일별 번역 데이터 (locale -> (key -> value))
-    translations: HashMap<Locale, HashMap<String, String>>,
+    /// 값은 SharedString으로 보관해 매 호출 시 Arc::clone만 발생하도록 한다.
+    translations: HashMap<Locale, HashMap<String, SharedString>>,
 }
 
 impl Global for I18n {}
@@ -66,6 +67,7 @@ impl I18n {
     /// JSON 바이트에서 번역 데이터 로드
     pub fn load_translations(&mut self, locale: Locale, json: &[u8]) {
         if let Ok(map) = serde_json::from_slice::<HashMap<String, String>>(json) {
+            let map = map.into_iter().map(|(k, v)| (k, SharedString::from(v))).collect();
             self.translations.insert(locale, map);
         }
     }
@@ -75,8 +77,8 @@ impl I18n {
         self.translations
             .get(&self.locale)
             .and_then(|map| map.get(key))
-            .map(|s| SharedString::from(s.clone()))
-            .unwrap_or_else(|| SharedString::from(key.to_string()))
+            .cloned()
+            .unwrap_or_else(|| SharedString::from(key.to_owned()))
     }
 }
 
@@ -124,4 +126,19 @@ pub fn current_locale(cx: &App) -> Locale {
 /// 키에 해당하는 번역 문자열을 반환한다.
 pub fn t(key: &str, cx: &App) -> SharedString {
     cx.global::<I18n>().translate(key)
+}
+
+/// 단일 `{}` placeholder를 값으로 치환한 번역 문자열을 반환한다.
+pub fn t_arg(key: &str, value: impl AsRef<str>, cx: &App) -> String {
+    t(key, cx).replace("{}", value.as_ref())
+}
+
+/// 명명된 `{name}` placeholder들을 값으로 치환한 번역 문자열을 반환한다.
+pub fn t_args(key: &str, args: &[(&str, &str)], cx: &App) -> String {
+    let mut result = t(key, cx).to_string();
+    for (name, value) in args {
+        let pattern = format!("{{{name}}}");
+        result = result.replace(&pattern, value);
+    }
+    result
 }

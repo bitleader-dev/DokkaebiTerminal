@@ -1,4 +1,5 @@
 use anyhow::Context as _;
+use i18n::t;
 use copilot::{
     Copilot, GlobalCopilotAuth, Status,
     request::{self, PromptUserDeviceFlow},
@@ -248,14 +249,14 @@ impl CopilotCodeVerification {
             .gap_2p5()
             .items_center()
             .text_center()
-            .child(Headline::new("Use GitHub Copilot in Zed").size(HeadlineSize::Large))
+            .child(Headline::new(t("copilot_ui.sign_in.headline", cx)).size(HeadlineSize::Large))
             .child(
-                Label::new("Using Copilot requires an active subscription on GitHub.")
+                Label::new(t("copilot_ui.sign_in.requires_subscription", cx))
                     .color(Color::Muted),
             )
             .child(Self::render_device_code(data, cx))
             .child(
-                Label::new("Paste this code into GitHub after clicking the button below.")
+                Label::new(t("copilot_ui.sign_in.paste_code_hint", cx))
                     .color(Color::Muted),
             )
             .child(
@@ -663,9 +664,9 @@ impl ConfigurationView {
         }
     }
 
-    fn render_for_chat(&self) -> impl IntoElement {
-        let start_label = "To use Zed's agent with GitHub Copilot, you need to be logged in to GitHub. Note that your GitHub account must have an active Copilot Chat subscription.";
-        let no_status_label = "Copilot Chat requires an active GitHub Copilot subscription. Please ensure Copilot is configured and try again, or use a different LLM provider.";
+    fn render_for_chat(&self, cx: &App) -> impl IntoElement {
+        let start_label = t("copilot_ui.sign_in.description", cx);
+        let no_status_label = t("copilot_ui.sign_in.chat_no_subscription", cx);
 
         if let Some(msg) = self.loading_message() {
             v_flex()
@@ -713,7 +714,7 @@ impl Render for ConfigurationView {
         if self.edit_prediction {
             self.render_for_edit_prediction().into_any_element()
         } else {
-            self.render_for_chat().into_any_element()
+            self.render_for_chat(cx).into_any_element()
         }
     }
 }

@@ -7,6 +7,7 @@ use gpui::{
     AsyncWindowContext, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable, ScrollHandle,
     Subscription, Task, TextStyle, TextStyleRefinement, UnderlineStyle, WeakEntity, prelude::*,
 };
+use i18n::{t, t_arg};
 use language::{Language, LanguageRegistry};
 use markdown::{Markdown, MarkdownElement, MarkdownStyle};
 use notifications::status_toast::{StatusToast, ToastIcon};
@@ -1026,7 +1027,11 @@ fn wait_for_context_server(
     let (tx, rx) = futures::channel::oneshot::channel();
     let tx = Arc::new(Mutex::new(Some(tx)));
 
-    let context_server_id_for_timeout = context_server_id.clone();
+    let timeout_error = t_arg(
+        "agent_ui.context_server.timeout_error",
+        context_server_id.to_string(),
+        cx,
+    );
     let subscription = cx.subscribe(context_server_store, move |_, event, _cx| {
         let ServerStatusChangedEvent { server_id, status } = event;
 
@@ -1063,10 +1068,7 @@ fn wait_for_context_server(
             futures::future::Either::Left((Err(_), _)) => {
                 Err(Arc::from("Context server store was dropped"))
             }
-            futures::future::Either::Right(_) => Err(Arc::from(format!(
-                "Timed out waiting for context server `{}` to start. Check the Zed log for details.",
-                context_server_id_for_timeout
-            ))),
+            futures::future::Either::Right(_) => Err(Arc::from(timeout_error)),
         }
     })
 }

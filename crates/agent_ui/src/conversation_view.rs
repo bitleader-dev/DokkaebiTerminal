@@ -24,7 +24,7 @@ use editor::{
 use feature_flags::{AgentSharingFeatureFlag, AgentV2FeatureFlag, FeatureFlagAppExt as _};
 use file_icons::FileIcons;
 use fs::Fs;
-use i18n::t;
+use i18n::{t, t_arg};
 use futures::FutureExt as _;
 use gpui::{
     Action, Animation, AnimationExt, AnyView, App, ClickEvent, ClipboardItem, CursorStyle,
@@ -1304,7 +1304,7 @@ impl ConversationView {
                     } else {
                         "New message"
                     },
-                    IconName::ZedAssistant,
+                    IconName::DokkaebiAssistant,
                     window,
                     cx,
                 );
@@ -2043,7 +2043,11 @@ impl ConversationView {
         cx: &mut Context<Self>,
     ) -> AnyElement {
         let (heading_label, description_label) = (
-            format!("Upgrade {} to work with Zed", self.agent.agent_id()),
+            t_arg(
+                "agent_ui.upgrade_agent.title",
+                self.agent.agent_id().to_string(),
+                cx,
+            ),
             if version.is_empty() {
                 format!(
                     "Currently using {}, which does not report a valid --version",
@@ -3655,7 +3659,7 @@ pub(crate) mod tests {
         C: 'static + AgentConnection + Send + Clone,
     {
         fn logo(&self) -> ui::IconName {
-            ui::IconName::ZedAgent
+            ui::IconName::DokkaebiAgent
         }
 
         fn agent_id(&self) -> AgentId {

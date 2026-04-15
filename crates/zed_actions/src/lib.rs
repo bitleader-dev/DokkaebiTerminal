@@ -55,6 +55,8 @@ actions!(
         Quit,
         /// Shows information about Zed.
         About,
+        /// 설정 메뉴에서 GitHub 업데이트를 수동으로 확인한다.
+        CheckForUpdates,
         /// Views open source licenses.
         OpenLicenses,
         /// Opens the telemetry log.

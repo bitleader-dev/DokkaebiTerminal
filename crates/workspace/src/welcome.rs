@@ -134,6 +134,64 @@ impl RenderOnce for SectionButton {
     }
 }
 
+/// 환영 탭 도움말 섹션의 정보 행. 클릭 불가하며 좌측 아이콘·설명, 우측 안내 텍스트를 보여준다.
+#[derive(IntoElement)]
+struct InfoRow {
+    label: SharedString,
+    value: SharedString,
+    icon: IconName,
+}
+
+impl InfoRow {
+    fn new(
+        label: impl Into<SharedString>,
+        value: impl Into<SharedString>,
+        icon: IconName,
+    ) -> Self {
+        Self {
+            label: label.into(),
+            value: value.into(),
+            icon,
+        }
+    }
+}
+
+impl RenderOnce for InfoRow {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        // 우측 값은 Label 대신 div+text 스타일로 직접 렌더해야 flex 자식의 min-content 제약을
+        // 받지 않고 자유롭게 줄바꿈된다.
+        let value_color = Color::Muted.color(cx);
+        let value_font = theme::theme_settings(cx).buffer_font(cx).clone();
+        h_flex()
+            .w_full()
+            .min_h(rems_from_px(28.))
+            .px_2()
+            .gap_4()
+            .items_start()
+            .child(
+                h_flex()
+                    .flex_shrink_0()
+                    .gap_2()
+                    .child(
+                        Icon::new(self.icon)
+                            .color(Color::Muted)
+                            .size(IconSize::Small),
+                    )
+                    .child(Label::new(self.label)),
+            )
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .text_right()
+                    .text_ui_sm(cx)
+                    .text_color(value_color)
+                    .font(value_font)
+                    .child(self.value),
+            )
+    }
+}
+
 enum SectionVisibility {
     Always,
 }
@@ -447,6 +505,33 @@ impl WelcomePage {
         }
     }
 
+    /// 도움말 섹션 렌더링. 클릭 불가한 정보 행 4개를 고정 순서로 표시한다.
+    fn render_help_section(&self, cx: &App) -> impl IntoElement {
+        v_flex()
+            .min_w_full()
+            .child(SectionHeader::new(t("welcome.section.help", cx)))
+            .child(InfoRow::new(
+                t("welcome.help.prompt_palette.label", cx),
+                t("welcome.help.prompt_palette.value", cx),
+                IconName::Sparkle,
+            ))
+            .child(InfoRow::new(
+                t("welcome.help.terminal_history.label", cx),
+                t("welcome.help.terminal_history.value", cx),
+                IconName::HistoryRerun,
+            ))
+            .child(InfoRow::new(
+                t("welcome.help.claude_code_sound.label", cx),
+                t("welcome.help.claude_code_sound.value", cx),
+                IconName::Bell,
+            ))
+            .child(InfoRow::new(
+                t("welcome.help.background_image.label", cx),
+                t("welcome.help.background_image.value", cx),
+                IconName::Image,
+            ))
+    }
+
     fn render_recent_project_section(
         &self,
         recent_projects: Vec<impl IntoElement>,
@@ -585,7 +670,7 @@ impl Render for WelcomePage {
                             ))
                             .child(second_section)
                             .when(!self.fallback_to_recent_projects, |this| {
-                                this.child(
+                                this.child(self.render_help_section(cx)).child(
                                     v_flex().gap_1().child(Divider::horizontal()).child(
                                         Button::new("welcome-exit", t("welcome.return_to_onboarding", cx))
                                             .tab_index(last_index as isize)

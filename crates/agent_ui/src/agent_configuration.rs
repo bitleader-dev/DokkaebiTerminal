@@ -19,6 +19,7 @@ use gpui::{
     Action, AnyView, App, AsyncWindowContext, Corner, Entity, EventEmitter, FocusHandle, Focusable,
     ScrollHandle, Subscription, Task, WeakEntity,
 };
+use i18n::t;
 use itertools::Itertools;
 use language::LanguageRegistry;
 use language_model::{
@@ -473,8 +474,8 @@ impl AgentConfiguration {
             .min_w_0()
             .w_full()
             .child(self.render_section_title(
-                "LLM Providers",
-                "Add at least one provider to use AI-powered features with Zed's native agent.",
+                t("agent_ui.section.llm_providers", cx),
+                t("agent_ui.llm_providers.description", cx),
                 popover_menu.into_any_element(),
             ))
             .child(
@@ -509,11 +510,11 @@ impl AgentConfiguration {
                 .blend(cx.theme().colors().text_accent.opacity(0.2));
 
             let (plan_name, label_color, bg_color) = match plan {
-                Plan::ZedFree => ("Free", Color::Default, free_chip_bg),
-                Plan::ZedProTrial => ("Pro Trial", Color::Accent, pro_chip_bg),
-                Plan::ZedPro => ("Pro", Color::Accent, pro_chip_bg),
-                Plan::ZedBusiness => ("Business", Color::Accent, pro_chip_bg),
-                Plan::ZedStudent => ("Student", Color::Accent, pro_chip_bg),
+                Plan::DokkaebiFree => ("Free", Color::Default, free_chip_bg),
+                Plan::DokkaebiProTrial => ("Pro Trial", Color::Accent, pro_chip_bg),
+                Plan::DokkaebiPro => ("Pro", Color::Accent, pro_chip_bg),
+                Plan::DokkaebiBusiness => ("Business", Color::Accent, pro_chip_bg),
+                Plan::DokkaebiStudent => ("Student", Color::Accent, pro_chip_bg),
             };
 
             Chip::new(plan_name.to_string())
@@ -575,8 +576,8 @@ impl AgentConfiguration {
             .border_b_1()
             .border_color(cx.theme().colors().border)
             .child(self.render_section_title(
-                "Model Context Protocol (MCP) Servers",
-                "All MCP servers connected directly or via a Zed extension.",
+                t("agent_ui.section.mcp_servers", cx),
+                t("agent_ui.context_servers.description", cx),
                 add_server_popover.into_any_element(),
             ))
             .child(

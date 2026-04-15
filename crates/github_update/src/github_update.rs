@@ -162,6 +162,13 @@ impl GithubUpdater {
                     }
                     Ok(None) => {
                         log::info!("github_update: 최신 버전입니다");
+                        // 수동 체크로 새 버전이 없다고 확인된 경우, 이전에 남아 있던
+                        // 업데이트 알림(UpdateAvailable)은 더 이상 유효하지 않으므로 Idle로 되돌린다.
+                        // Errored는 사용자가 dismiss로 닫는 상태라 여기서 건드리지 않는다.
+                        if matches!(this.status, GithubUpdateStatus::UpdateAvailable { .. }) {
+                            this.status = GithubUpdateStatus::Idle;
+                            cx.notify();
+                        }
                     }
                     Err(err) => {
                         // 사용자는 아이콘을 보지 않으므로 조용히 로그만 남긴다.

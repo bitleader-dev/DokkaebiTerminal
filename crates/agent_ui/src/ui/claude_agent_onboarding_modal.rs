@@ -3,6 +3,7 @@ use gpui::{
     ClickEvent, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable, MouseDownEvent, Render,
     linear_color_stop, linear_gradient,
 };
+use i18n::t;
 use ui::{TintColor, Vector, VectorName, prelude::*};
 use workspace::{ModalView, Workspace};
 
@@ -196,9 +197,12 @@ impl Render for ClaudeCodeOnboardingModal {
                     .size(LabelSize::Small)
                     .color(Color::Muted),
             )
-            .child(Headline::new("Claude Agent: Natively in Zed").size(HeadlineSize::Large));
+            .child(
+                Headline::new(t("agent_ui.claude_onboarding.title", cx))
+                    .size(HeadlineSize::Large),
+            );
 
-        let copy = "Powered by the Agent Client Protocol, you can now run Claude Agent as\na first-class citizen in Zed's agent panel.";
+        let copy = t("agent_ui.claude_onboarding.copy", cx);
 
         let open_panel_button = Button::new("open-panel", "Start with Claude Agent")
             .style(ButtonStyle::Tinted(TintColor::Accent))

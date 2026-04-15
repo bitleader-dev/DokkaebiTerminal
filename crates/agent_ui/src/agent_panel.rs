@@ -3175,7 +3175,7 @@ impl Panel for AgentPanel {
     }
 
     fn icon(&self, _window: &Window, cx: &App) -> Option<IconName> {
-        (self.enabled(cx) && AgentSettings::get_global(cx).button).then_some(IconName::ZedAssistant)
+        (self.enabled(cx) && AgentSettings::get_global(cx).button).then_some(IconName::DokkaebiAssistant)
     }
 
     fn icon_tooltip(&self, _window: &Window, _cx: &App) -> Option<&'static str> {
@@ -3796,7 +3796,7 @@ impl AgentPanel {
                                         }))
                                     },
                                 )
-                                .icon(IconName::ZedAgent)
+                                .icon(IconName::DokkaebiAgent)
                                 .icon_color(Color::Muted)
                                 .handler({
                                     let workspace = workspace.clone();
@@ -4037,7 +4037,7 @@ impl AgentPanel {
                     .size(IconSize::Small)
                     .color(icon_color)
             } else {
-                let icon_name = selected_agent_builtin_icon.unwrap_or(IconName::ZedAgent);
+                let icon_name = selected_agent_builtin_icon.unwrap_or(IconName::DokkaebiAgent);
                 Icon::new(icon_name).size(IconSize::Small).color(icon_color)
             };
 
@@ -4245,7 +4245,7 @@ impl AgentPanel {
         let plan = self.user_store.read(cx).plan();
         let has_previous_trial = self.user_store.read(cx).trial_started_at().is_some();
 
-        plan.is_some_and(|plan| plan == Plan::ZedFree) && has_previous_trial
+        plan.is_some_and(|plan| plan == Plan::DokkaebiFree) && has_previous_trial
     }
 
     fn should_render_onboarding(&self, _cx: &mut Context<Self>) -> bool {
@@ -4348,7 +4348,7 @@ impl AgentPanel {
                 .when(border_bottom, |this| {
                     this.border_position(ui::BorderPosition::Bottom)
                 })
-                .title("Sign in to continue using Zed as your LLM provider.")
+                .title(t("agent_ui.sign_in.continue_provider", cx))
                 .actions_slot(
                     Button::new("sign_in", "Sign In")
                         .style(ButtonStyle::Tinted(ui::TintColor::Warning))

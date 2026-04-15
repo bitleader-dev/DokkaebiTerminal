@@ -1,11 +1,14 @@
-use gpui::{IntoElement, ParentElement};
+use gpui::{App, IntoElement, ParentElement, SharedString};
+use i18n::t;
 use ui::{List, ListBulletItem, prelude::*};
 
-/// Centralized definitions for Zed AI plans
+/// AI 플랜 관련 공통 정의
 pub struct PlanDefinitions;
 
 impl PlanDefinitions {
-    pub const AI_DESCRIPTION: &'static str = "Zed offers a complete agentic experience, with robust editing and reviewing features to collaborate with AI.";
+    pub fn ai_description(cx: &App) -> SharedString {
+        t("ai_onboarding.ai_description", cx)
+    }
 
     pub fn free_plan(&self) -> impl IntoElement {
         List::new()

@@ -1,4 +1,5 @@
 use codestral::{CODESTRAL_API_URL, codestral_api_key_state, codestral_api_url};
+use i18n::t_arg;
 use edit_prediction::{
     ApiKeyState,
     mercury::{MERCURY_CREDENTIALS_URL, mercury_api_token},
@@ -289,9 +290,10 @@ fn render_api_key_provider(
                         .child(description)
                         .when_some(env_var_name, |this, env_var_name| {
                             this.child({
-                                let label = format!(
-                                    "Or set the {} env var and restart Zed.",
-                                    env_var_name.as_ref()
+                                let label = t_arg(
+                                    "settings_ui.edit_prediction_setup.env_hint",
+                                    env_var_name.as_ref(),
+                                    cx,
                                 );
                                 Label::new(label).size(LabelSize::Small).color(Color::Muted)
                             })

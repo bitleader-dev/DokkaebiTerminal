@@ -3376,11 +3376,19 @@ fn parse_upstream_track(upstream_track: &str) -> Result<UpstreamTracking> {
 }
 
 fn checkpoint_author_envs() -> HashMap<String, String> {
+    // Dokkaebi 내부 임시 checkpoint 커밋용 author/committer.
+    // 사용자 git config와 분리된 별도 식별자이며 외부로 푸시되지 않는다.
     HashMap::from_iter([
-        ("GIT_AUTHOR_NAME".to_string(), "Zed".to_string()),
-        ("GIT_AUTHOR_EMAIL".to_string(), "hi@zed.dev".to_string()),
-        ("GIT_COMMITTER_NAME".to_string(), "Zed".to_string()),
-        ("GIT_COMMITTER_EMAIL".to_string(), "hi@zed.dev".to_string()),
+        ("GIT_AUTHOR_NAME".to_string(), "Dokkaebi".to_string()),
+        (
+            "GIT_AUTHOR_EMAIL".to_string(),
+            "noreply@dokkaebi.local".to_string(),
+        ),
+        ("GIT_COMMITTER_NAME".to_string(), "Dokkaebi".to_string()),
+        (
+            "GIT_COMMITTER_EMAIL".to_string(),
+            "noreply@dokkaebi.local".to_string(),
+        ),
     ])
 }
 

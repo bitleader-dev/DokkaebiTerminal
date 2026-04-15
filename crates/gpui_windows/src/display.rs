@@ -190,6 +190,27 @@ impl WindowsDisplay {
         }
     }
 
+    /// 주어진 bounds를 이 모니터의 작업 영역(taskbar 등 제외) 안으로 보정한다.
+    /// 크기가 작업 영역보다 크면 축소하고, 위치가 작업 영역을 벗어나면 안쪽으로 이동한다.
+    pub fn clamp_bounds(&self, bounds: Bounds<Pixels>) -> Bounds<Pixels> {
+        let work = self.visible_bounds;
+
+        // 1. 크기를 작업 영역 이내로 제한
+        let clamped_size = bounds.size.min(&work.size);
+
+        // 2. 위치를 작업 영역 안으로 이동 (우측/하단이 화면을 넘으면 안쪽으로 끌어당김)
+        let max_origin = point(
+            work.origin.x + work.size.width - clamped_size.width,
+            work.origin.y + work.size.height - clamped_size.height,
+        );
+        let clamped_origin = bounds.origin.clamp(&work.origin, &max_origin);
+
+        Bounds {
+            origin: clamped_origin,
+            size: clamped_size,
+        }
+    }
+
     pub fn displays() -> Vec<Rc<dyn PlatformDisplay>> {
         available_monitors()
             .into_iter()
@@ -204,6 +225,10 @@ impl WindowsDisplay {
 
     pub fn physical_bounds(&self) -> Bounds<DevicePixels> {
         self.physical_bounds
+    }
+
+    pub fn scale_factor(&self) -> f32 {
+        self.scale_factor
     }
 }
 

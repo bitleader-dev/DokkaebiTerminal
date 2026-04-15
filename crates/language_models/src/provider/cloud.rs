@@ -1093,23 +1093,23 @@ struct ZedAiConfiguration {
 impl RenderOnce for ZedAiConfiguration {
     fn render(self, _window: &mut Window, _cx: &mut App) -> impl IntoElement {
         let (subscription_text, has_paid_plan) = match self.plan {
-            Some(Plan::ZedPro) => (
+            Some(Plan::DokkaebiPro) => (
                 "You have access to Zed's hosted models through your Pro subscription.",
                 true,
             ),
-            Some(Plan::ZedProTrial) => (
+            Some(Plan::DokkaebiProTrial) => (
                 "You have access to Zed's hosted models through your Pro trial.",
                 false,
             ),
-            Some(Plan::ZedStudent) => (
+            Some(Plan::DokkaebiStudent) => (
                 "You have access to Zed's hosted models through your Student subscription.",
                 true,
             ),
-            Some(Plan::ZedBusiness) => (
+            Some(Plan::DokkaebiBusiness) => (
                 "You have access to Zed's hosted models through your Organization.",
                 true,
             ),
-            Some(Plan::ZedFree) | None => (
+            Some(Plan::DokkaebiFree) | None => (
                 if self.eligible_for_trial {
                     "Subscribe for access to Zed's hosted models. Start with a 14 day free trial."
                 } else {
@@ -1260,15 +1260,15 @@ impl Component for ZedAiConfiguration {
                     ),
                     single_example(
                         "Free Plan",
-                        configuration(true, Some(Plan::ZedFree), true, false),
+                        configuration(true, Some(Plan::DokkaebiFree), true, false),
                     ),
                     single_example(
                         "Pro Trial Plan",
-                        configuration(true, Some(Plan::ZedProTrial), true, false),
+                        configuration(true, Some(Plan::DokkaebiProTrial), true, false),
                     ),
                     single_example(
                         "Pro Plan",
-                        configuration(true, Some(Plan::ZedPro), true, false),
+                        configuration(true, Some(Plan::DokkaebiPro), true, false),
                     ),
                 ])
                 .into_any_element(),

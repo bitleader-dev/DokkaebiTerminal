@@ -823,7 +823,7 @@ pub enum IconOrSvg {
 
 impl Default for IconOrSvg {
     fn default() -> Self {
-        Self::Icon(IconName::ZedAssistant)
+        Self::Icon(IconName::DokkaebiAssistant)
     }
 }
 

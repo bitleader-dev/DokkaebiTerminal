@@ -1,4 +1,5 @@
 use gpui::{AnyElement, ClickEvent, prelude::*};
+use i18n::t;
 
 use crate::{ButtonLike, CommonAnimationExt, Tooltip, prelude::*};
 
@@ -71,16 +72,16 @@ impl UpdateButton {
         self
     }
 
-    pub fn checking() -> Self {
-        Self::new(IconName::ArrowCircle, "Checking for Zed updates…").icon_animate(true)
+    pub fn checking(cx: &App) -> Self {
+        Self::new(IconName::ArrowCircle, t("ui.update_button.checking", cx)).icon_animate(true)
     }
 
-    pub fn downloading(version: impl Into<SharedString>) -> Self {
-        Self::new(IconName::Download, "Downloading Zed update…").tooltip(version)
+    pub fn downloading(version: impl Into<SharedString>, cx: &App) -> Self {
+        Self::new(IconName::Download, t("ui.update_button.downloading", cx)).tooltip(version)
     }
 
-    pub fn installing(version: impl Into<SharedString>) -> Self {
-        Self::new(IconName::ArrowCircle, "Installing Zed update…")
+    pub fn installing(version: impl Into<SharedString>, cx: &App) -> Self {
+        Self::new(IconName::ArrowCircle, t("ui.update_button.installing", cx))
             .icon_animate(true)
             .tooltip(version)
     }
@@ -91,8 +92,8 @@ impl UpdateButton {
             .with_dismiss()
     }
 
-    pub fn errored(error: impl Into<SharedString>) -> Self {
-        Self::new(IconName::Warning, "Failed to update Zed")
+    pub fn errored(error: impl Into<SharedString>, cx: &App) -> Self {
+        Self::new(IconName::Warning, t("ui.update_button.failed", cx))
             .icon_color(Color::Warning)
             .tooltip(error)
             .with_dismiss()
@@ -157,11 +158,11 @@ impl Component for UpdateButton {
 
     fn description() -> Option<&'static str> {
         Some(
-            "A button component displayed in the title bar to show auto-update status and allow users to restart Zed.",
+            "A button component displayed in the title bar to show auto-update status and allow users to restart the app.",
         )
     }
 
-    fn preview(_window: &mut Window, _cx: &mut App) -> Option<AnyElement> {
+    fn preview(_window: &mut Window, cx: &mut App) -> Option<AnyElement> {
         let version = "1.99.0";
 
         Some(
@@ -171,14 +172,17 @@ impl Component for UpdateButton {
                     example_group_with_title(
                         "Progress States",
                         vec![
-                            single_example("Checking", UpdateButton::checking().into_any_element()),
+                            single_example(
+                                "Checking",
+                                UpdateButton::checking(cx).into_any_element(),
+                            ),
                             single_example(
                                 "Downloading",
-                                UpdateButton::downloading(version).into_any_element(),
+                                UpdateButton::downloading(version, cx).into_any_element(),
                             ),
                             single_example(
                                 "Installing",
-                                UpdateButton::installing(version).into_any_element(),
+                                UpdateButton::installing(version, cx).into_any_element(),
                             ),
                         ],
                     ),
@@ -191,7 +195,7 @@ impl Component for UpdateButton {
                             ),
                             single_example(
                                 "Error",
-                                UpdateButton::errored("Network timeout").into_any_element(),
+                                UpdateButton::errored("Network timeout", cx).into_any_element(),
                             ),
                         ],
                     ),

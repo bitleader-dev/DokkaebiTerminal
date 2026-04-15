@@ -55,7 +55,7 @@ impl ThreadItem {
     pub fn new(id: impl Into<ElementId>, title: impl Into<SharedString>) -> Self {
         Self {
             id: id.into(),
-            icon: IconName::ZedAgent,
+            icon: IconName::DokkaebiAgent,
             icon_color: None,
             icon_visible: true,
             custom_icon_from_external_svg: None,

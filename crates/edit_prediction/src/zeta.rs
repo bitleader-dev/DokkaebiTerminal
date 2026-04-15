@@ -1,3 +1,4 @@
+use i18n::t;
 use crate::{
     CurrentEditPrediction, DebugEvent, EditPredictionFinishedDebugEvent, EditPredictionId,
     EditPredictionModelInput, EditPredictionStartedDebugEvent, EditPredictionStore, StoredEvent,
@@ -478,7 +479,10 @@ fn handle_api_response<T>(
                         move |cx| {
                             cx.new(|cx| {
                                 ErrorMessagePrompt::new(error_message.clone(), cx)
-                                    .with_link_button("Update Zed", "https://zed.dev/releases")
+                                    .with_link_button(
+                                        t("edit_prediction.update_button", cx),
+                                        "https://zed.dev/releases".into(),
+                                    )
                             })
                         },
                     );

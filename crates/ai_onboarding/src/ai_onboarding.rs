@@ -300,11 +300,11 @@ impl RenderOnce for ZedAiOnboarding {
         if matches!(self.sign_in_status, SignInStatus::SignedIn) {
             match self.plan {
                 None => self.render_free_plan_state(cx),
-                Some(Plan::ZedFree) => self.render_free_plan_state(cx),
-                Some(Plan::ZedProTrial) => self.render_trial_state(cx),
-                Some(Plan::ZedPro) => self.render_pro_plan_state(cx),
-                Some(Plan::ZedBusiness) => self.render_business_plan_state(cx),
-                Some(Plan::ZedStudent) => self.render_student_plan_state(cx),
+                Some(Plan::DokkaebiFree) => self.render_free_plan_state(cx),
+                Some(Plan::DokkaebiProTrial) => self.render_trial_state(cx),
+                Some(Plan::DokkaebiPro) => self.render_pro_plan_state(cx),
+                Some(Plan::DokkaebiBusiness) => self.render_business_plan_state(cx),
+                Some(Plan::DokkaebiStudent) => self.render_student_plan_state(cx),
             }
         } else {
             self.render_sign_in_disclaimer(cx)
@@ -358,23 +358,23 @@ impl Component for ZedAiOnboarding {
                     ),
                     single_example(
                         "Free Plan",
-                        onboarding(SignInStatus::SignedIn, Some(Plan::ZedFree), false),
+                        onboarding(SignInStatus::SignedIn, Some(Plan::DokkaebiFree), false),
                     ),
                     single_example(
                         "Pro Trial",
-                        onboarding(SignInStatus::SignedIn, Some(Plan::ZedProTrial), false),
+                        onboarding(SignInStatus::SignedIn, Some(Plan::DokkaebiProTrial), false),
                     ),
                     single_example(
                         "Pro Plan",
-                        onboarding(SignInStatus::SignedIn, Some(Plan::ZedPro), false),
+                        onboarding(SignInStatus::SignedIn, Some(Plan::DokkaebiPro), false),
                     ),
                     single_example(
                         "Business Plan",
-                        onboarding(SignInStatus::SignedIn, Some(Plan::ZedBusiness), false),
+                        onboarding(SignInStatus::SignedIn, Some(Plan::DokkaebiBusiness), false),
                     ),
                     single_example(
                         "Student Plan",
-                        onboarding(SignInStatus::SignedIn, Some(Plan::ZedStudent), false),
+                        onboarding(SignInStatus::SignedIn, Some(Plan::DokkaebiStudent), false),
                     ),
                 ])
                 .into_any_element(),

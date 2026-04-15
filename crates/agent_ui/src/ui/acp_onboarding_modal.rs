@@ -3,6 +3,7 @@ use gpui::{
     ClickEvent, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable, MouseDownEvent, Render,
     linear_color_stop, linear_gradient,
 };
+use i18n::t;
 use ui::{TintColor, Vector, VectorName, prelude::*};
 use workspace::{ModalView, Workspace};
 
@@ -188,9 +189,9 @@ impl Render for AcpOnboardingModal {
                     .size(LabelSize::Small)
                     .color(Color::Muted),
             )
-            .child(Headline::new("Bring Your Own Agent to Zed").size(HeadlineSize::Large));
+            .child(Headline::new(t("agent_ui.acp_onboarding.title", cx)).size(HeadlineSize::Large));
 
-        let copy = "Bring the agent of your choice to Zed via our new Agent Client Protocol (ACP), starting with Google's Gemini CLI integration.";
+        let copy = t("agent_ui.acp_onboarding.copy", cx);
 
         let open_panel_button = Button::new("open-panel", "Start with Gemini CLI")
             .style(ButtonStyle::Tinted(TintColor::Accent))

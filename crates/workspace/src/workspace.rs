@@ -9491,25 +9491,11 @@ pub fn join_channel(
                 active_window
                     .update(cx, |_, window, cx| {
                         let detail: SharedString = match err.error_code() {
-                            ErrorCode::SignedOut => "Please sign in to continue.".into(),
-                            ErrorCode::UpgradeRequired => concat!(
-                                "Your are running an unsupported version of Zed. ",
-                                "Please update to continue."
-                            )
-                            .into(),
-                            ErrorCode::NoSuchChannel => concat!(
-                                "No matching channel was found. ",
-                                "Please check the link and try again."
-                            )
-                            .into(),
-                            ErrorCode::Forbidden => concat!(
-                                "This channel is private, and you do not have access. ",
-                                "Please ask someone to add you and try again."
-                            )
-                            .into(),
-                            ErrorCode::Disconnected => {
-                                "Please check your internet connection and try again.".into()
-                            }
+                            ErrorCode::SignedOut => t("workspace.signed_out", cx),
+                            ErrorCode::UpgradeRequired => t("workspace.unsupported_version", cx),
+                            ErrorCode::NoSuchChannel => t("workspace.no_such_channel", cx),
+                            ErrorCode::Forbidden => t("workspace.forbidden_channel", cx),
+                            ErrorCode::Disconnected => t("workspace.disconnected", cx),
                             _ => format!("{}\n\nPlease try again.", err).into(),
                         };
                         window.prompt(

@@ -1,5 +1,6 @@
 use crate::{ListBulletItem, Vector, VectorName, prelude::*};
 use component::{Component, ComponentScope, example_group, single_example};
+use i18n::t;
 use gpui::{
     AnyElement, ClickEvent, IntoElement, ParentElement, SharedString, linear_color_stop,
     linear_gradient,
@@ -211,7 +212,7 @@ impl Component for AnnouncementToast {
             div().w_80().child(
                 AnnouncementToast::new()
                     .illustration(illustration)
-                    .heading("What's new in Zed")
+                    .heading(t("ui.announcement_toast.heading", cx))
                     .description(
                         "This version comes in with some changes to the workspace for a better experience.",
                     )

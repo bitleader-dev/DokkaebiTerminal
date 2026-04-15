@@ -11,6 +11,7 @@ use agent_settings::AgentSettings;
 use chrono::{DateTime, Datelike as _, Local, NaiveDate, TimeDelta, Utc};
 use editor::Editor;
 use fs::Fs;
+use i18n::t;
 use gpui::{
     AnyElement, App, Context, Entity, EventEmitter, FocusHandle, Focusable, ListState, Render,
     SharedString, Subscription, Task, Window, list, prelude::*, px,
@@ -686,7 +687,7 @@ impl ThreadsArchiveView {
             .color(Color::Muted)
             .size(IconSize::Small)
         } else {
-            Icon::new(IconName::ZedAgent)
+            Icon::new(IconName::DokkaebiAgent)
                 .color(Color::Muted)
                 .size(IconSize::Small)
         };
@@ -708,8 +709,8 @@ impl ThreadsArchiveView {
             .menu(move |window, cx| {
                 Some(ContextMenu::build(window, cx, |menu, _window, cx| {
                     menu.item(
-                        ContextMenuEntry::new("AI Agent")
-                            .icon(IconName::ZedAgent)
+                        ContextMenuEntry::new(t("agent_ui.threads_archive.menu.ai_agent", cx))
+                            .icon(IconName::DokkaebiAgent)
                             .icon_color(Color::Muted)
                             .handler({
                                 let this = this.clone();
@@ -765,7 +766,7 @@ impl ThreadsArchiveView {
                             if let Some(icon_path) = icon_path {
                                 entry = entry.custom_icon_svg(icon_path);
                             } else {
-                                entry = entry.icon(IconName::ZedAgent);
+                                entry = entry.icon(IconName::DokkaebiAgent);
                             }
 
                             entry = entry.icon_color(Color::Muted).handler({

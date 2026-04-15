@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "Dokkaebi"
-version = "0.0.1"
+version = "0.1.0"
 dependencies = [
  "acp_thread",
  "acp_tools",
@@ -617,6 +617,7 @@ dependencies = [
  "cloud_api_types",
  "component",
  "gpui",
+ "i18n",
  "language_model",
  "serde",
  "smallvec",
@@ -3267,6 +3268,7 @@ dependencies = [
  "anyhow",
  "copilot",
  "gpui",
+ "i18n",
  "language",
  "log",
  "lsp",
@@ -4500,6 +4502,7 @@ dependencies = [
  "futures 0.3.31",
  "gpui",
  "heapless",
+ "i18n",
  "indoc",
  "itertools 0.14.0",
  "language",
@@ -12587,6 +12590,7 @@ dependencies = [
  "fuzzy",
  "gpui",
  "http_client",
+ "i18n",
  "indoc",
  "language",
  "log",
@@ -13180,6 +13184,7 @@ dependencies = [
  "collections",
  "editor",
  "gpui",
+ "i18n",
  "language",
  "language_model",
  "log",
@@ -16549,6 +16554,7 @@ dependencies = [
  "gpui",
  "gpui_macros",
  "gpui_util",
+ "i18n",
  "icons",
  "itertools 0.14.0",
  "menu",

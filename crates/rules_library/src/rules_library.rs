@@ -1,5 +1,6 @@
 use anyhow::Result;
 use collections::{HashMap, HashSet};
+use i18n::t;
 use editor::{CompletionProvider, SelectionEffects};
 use editor::{CurrentLineHighlight, Editor, EditorElement, EditorEvent, EditorStyle, actions::Tab};
 use gpui::{
@@ -342,10 +343,10 @@ impl PickerDelegate for RulePickerDelegate {
     ) -> Option<Self::ListItem> {
         match self.filtered_entries.get(ix)? {
             RulePickerEntry::Header(title) => {
-                let tooltip_text = if title.as_ref() == "Built-in Rules" {
-                    "Built-in rules are those included out of the box with Zed."
+                let tooltip_text: SharedString = if title.as_ref() == "Built-in Rules" {
+                    t("rules_library.built_in_rules.description", cx)
                 } else {
-                    "Default Rules are attached by default with every new thread."
+                    t("rules_library.default_rules.description", cx)
                 };
 
                 Some(

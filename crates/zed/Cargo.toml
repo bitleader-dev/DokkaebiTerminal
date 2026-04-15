@@ -2,10 +2,10 @@
 description = "Dokkaebi - a Windows-focused terminal workspace for AI coding agents, based on Zed."
 edition.workspace = true
 name = "Dokkaebi"
-version = "0.0.1"
+version = "0.1.0"
 publish.workspace = true
 license = "GPL-3.0-or-later"
-authors = ["Dokkaebi Team"]
+authors = ["Dokkaebi"]
 default-run = "dokkaebi"
 
 [lints]

@@ -81,7 +81,7 @@ pub enum EditPredictionProvider {
     None,
     #[default]
     Copilot,
-    Zed,
+    Dokkaebi,
     Codestral,
     Ollama,
     OpenAiCompatibleApi,
@@ -96,12 +96,13 @@ impl<'de> Deserialize<'de> for EditPredictionProvider {
     where
         D: serde::Deserializer<'de>,
     {
+        // EditPredictionProvider variant 추가/변경 시 이 Content enum도 같이 수정해야 한다.
         #[derive(Deserialize)]
         #[serde(rename_all = "snake_case")]
         pub enum Content {
             None,
             Copilot,
-            Zed,
+            Dokkaebi,
             Codestral,
             Ollama,
             OpenAiCompatibleApi,
@@ -112,7 +113,7 @@ impl<'de> Deserialize<'de> for EditPredictionProvider {
         Ok(match Content::deserialize(deserializer)? {
             Content::None => EditPredictionProvider::None,
             Content::Copilot => EditPredictionProvider::Copilot,
-            Content::Zed => EditPredictionProvider::Zed,
+            Content::Dokkaebi => EditPredictionProvider::Dokkaebi,
             Content::Codestral => EditPredictionProvider::Codestral,
             Content::Ollama => EditPredictionProvider::Ollama,
             Content::OpenAiCompatibleApi => EditPredictionProvider::OpenAiCompatibleApi,
@@ -120,7 +121,7 @@ impl<'de> Deserialize<'de> for EditPredictionProvider {
             Content::Experimental(name)
                 if name == EXPERIMENTAL_ZETA2_EDIT_PREDICTION_PROVIDER_NAME =>
             {
-                EditPredictionProvider::Zed
+                EditPredictionProvider::Dokkaebi
             }
             Content::Experimental(name) => {
                 return Err(D::Error::custom(format!(
@@ -133,22 +134,9 @@ impl<'de> Deserialize<'de> for EditPredictionProvider {
 }
 
 impl EditPredictionProvider {
-    pub fn is_zed(&self) -> bool {
-        match self {
-            EditPredictionProvider::Zed => true,
-            EditPredictionProvider::None
-            | EditPredictionProvider::Copilot
-            | EditPredictionProvider::Codestral
-            | EditPredictionProvider::Ollama
-            | EditPredictionProvider::OpenAiCompatibleApi
-            | EditPredictionProvider::Mercury
-            | EditPredictionProvider::Experimental(_) => false,
-        }
-    }
-
     pub fn display_name(&self) -> Option<&'static str> {
         match self {
-            EditPredictionProvider::Zed => Some("Cloud AI"),
+            EditPredictionProvider::Dokkaebi => Some("Cloud AI"),
             EditPredictionProvider::Copilot => Some("GitHub Copilot"),
             EditPredictionProvider::Codestral => Some("Codestral"),
             EditPredictionProvider::Mercury => Some("Mercury"),

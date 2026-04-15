@@ -1,3 +1,4 @@
+use i18n::{t, t_arg};
 use crate::{
     AnyActiveCall, AppState, CollaboratorId, FollowerState, Pane, ParticipantLocation, Workspace,
     WorkspaceSettings,
@@ -401,26 +402,30 @@ impl PaneLeaderDecorator for PaneRenderContext<'_> {
                     } => {
                         if Some(leader_project_id) == self.project.read(cx).remote_id() {
                             is_in_unshared_view.then(|| {
-                                Label::new(format!(
-                                    "{} is in an unshared pane",
-                                    leader.user.github_login
+                                Label::new(t_arg(
+                                    "workspace.in_unshared_pane",
+                                    &leader.user.github_login,
+                                    cx,
                                 ))
                             })
                         } else {
                             leader_join_data = Some((leader_project_id, leader.user.id));
-                            Some(Label::new(format!(
-                                "Follow {} to their active project",
-                                leader.user.github_login,
+                            Some(Label::new(t_arg(
+                                "workspace.follow_to_active_project",
+                                &leader.user.github_login,
+                                cx,
                             )))
                         }
                     }
-                    ParticipantLocation::UnsharedProject => Some(Label::new(format!(
-                        "{} is viewing an unshared Zed project",
-                        leader.user.github_login
+                    ParticipantLocation::UnsharedProject => Some(Label::new(t_arg(
+                        "workspace.unshared_project",
+                        &leader.user.github_login,
+                        cx,
                     ))),
-                    ParticipantLocation::External => Some(Label::new(format!(
-                        "{} is viewing a window outside of Zed",
-                        leader.user.github_login
+                    ParticipantLocation::External => Some(Label::new(t_arg(
+                        "workspace.unknown_window",
+                        &leader.user.github_login,
+                        cx,
                     ))),
                 };
                 status_box = leader_status_box.map(|status| {

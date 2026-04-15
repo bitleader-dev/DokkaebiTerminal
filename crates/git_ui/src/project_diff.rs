@@ -4,7 +4,7 @@ use crate::{
     git_panel_settings::GitPanelSettings,
     resolve_active_repository,
 };
-use i18n::t;
+use i18n::{t, t_arg};
 use agent_settings::AgentSettings;
 use anyhow::{Context as _, Result, anyhow};
 use buffer_diff::{BufferDiff, DiffHunkSecondaryStatus};
@@ -1548,7 +1548,7 @@ impl Render for ProjectDiffToolbar {
             // "Send Review to Agent" button (only shown when there are review comments)
             .when(review_count > 0, |el| {
                 el.child(vertical_divider()).child(
-                    render_send_review_to_agent_button(review_count, &focus_handle).on_click(
+                    render_send_review_to_agent_button(review_count, &focus_handle, cx).on_click(
                         cx.listener(|this, _, window, cx| {
                             this.dispatch_action(&SendReviewToAgent, window, cx)
                         }),
@@ -1558,18 +1558,26 @@ impl Render for ProjectDiffToolbar {
     }
 }
 
-fn render_send_review_to_agent_button(review_count: usize, focus_handle: &FocusHandle) -> Button {
+fn render_send_review_to_agent_button(
+    review_count: usize,
+    focus_handle: &FocusHandle,
+    cx: &App,
+) -> Button {
     Button::new(
         "send-review",
-        format!("Send Review to Agent ({})", review_count),
+        t_arg(
+            "git_ui.project_diff.send_review_to_agent",
+            review_count.to_string(),
+            cx,
+        ),
     )
     .start_icon(
-        Icon::new(IconName::ZedAssistant)
+        Icon::new(IconName::DokkaebiAssistant)
             .size(IconSize::Small)
             .color(Color::Muted),
     )
     .tooltip(Tooltip::for_action_title_in(
-        "Send all review comments to the Agent panel",
+        t("git_ui.project_diff.send_review_tooltip", cx),
         &SendReviewToAgent,
         focus_handle,
     ))
@@ -1659,18 +1667,18 @@ impl Render for BranchDiffToolbar {
             .when(show_review_button, |this| {
                 let focus_handle = focus_handle.clone();
                 this.child(Divider::vertical()).child(
-                    Button::new("review-diff", "Review Diff")
+                    Button::new("review-diff", t("git_ui.project_diff.review_diff", cx))
                         .start_icon(
-                            Icon::new(IconName::ZedAssistant)
+                            Icon::new(IconName::DokkaebiAssistant)
                                 .size(IconSize::Small)
                                 .color(Color::Muted),
                         )
                         .key_binding(KeyBinding::for_action_in(&ReviewDiff, &focus_handle, cx))
                         .tooltip(move |_, cx| {
                             Tooltip::with_meta_in(
-                                "Review Diff",
+                                t("git_ui.project_diff.review_diff", cx),
                                 Some(&ReviewDiff),
-                                "Send this diff for your last agent to review.",
+                                t("git_ui.project_diff.review_diff_tooltip", cx),
                                 &focus_handle,
                                 cx,
                             )
@@ -1682,7 +1690,7 @@ impl Render for BranchDiffToolbar {
             })
             .when(review_count > 0, |this| {
                 this.child(vertical_divider()).child(
-                    render_send_review_to_agent_button(review_count, &focus_handle).on_click(
+                    render_send_review_to_agent_button(review_count, &focus_handle, cx).on_click(
                         cx.listener(|this, _, window, cx| {
                             this.dispatch_action(&SendReviewToAgent, window, cx)
                         }),

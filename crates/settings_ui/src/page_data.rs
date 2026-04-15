@@ -3333,34 +3333,6 @@ fn window_and_layout_page() -> SettingsPage {
         ]
     }
 
-    fn title_bar_section() -> [SettingsPageItem; 2] {
-        [
-            SettingsPageItem::SectionHeader("settings_page.section.title_bar"),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "settings_page.item.show_onboarding_banner",
-                description: "settings_page.desc.title_bar.show_onboarding_banner",
-                field: Box::new(SettingField {
-                    json_path: Some("title_bar.show_onboarding_banner"),
-                    pick: |settings_content| {
-                        settings_content
-                            .title_bar
-                            .as_ref()?
-                            .show_onboarding_banner
-                            .as_ref()
-                    },
-                    write: |settings_content, value| {
-                        settings_content
-                            .title_bar
-                            .get_or_insert_default()
-                            .show_onboarding_banner = value;
-                    },
-                }),
-                metadata: None,
-                files: USER,
-            }),
-        ]
-    }
-
     fn tab_bar_section() -> [SettingsPageItem; 9] {
         [
             SettingsPageItem::SectionHeader("settings_page.section.tab_bar"),
@@ -3788,41 +3760,6 @@ fn window_and_layout_page() -> SettingsPage {
         ]
     }
 
-    fn window_section() -> [SettingsPageItem; 3] {
-        [
-            SettingsPageItem::SectionHeader("settings_page.section.window"),
-            // todo(settings_ui): Should we filter by platform.as_ref()?
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "settings_page.item.use_system_window_tabs",
-                description: "(macOS only) whether to allow Windows to tab together.",
-                field: Box::new(SettingField {
-                    json_path: Some("use_system_window_tabs"),
-                    pick: |settings_content| {
-                        settings_content.workspace.use_system_window_tabs.as_ref()
-                    },
-                    write: |settings_content, value| {
-                        settings_content.workspace.use_system_window_tabs = value;
-                    },
-                }),
-                metadata: None,
-                files: USER,
-            }),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "settings_page.item.window_decorations",
-                description: "(Linux only) whether Zed or your compositor should draw window decorations.",
-                field: Box::new(SettingField {
-                    json_path: Some("window_decorations"),
-                    pick: |settings_content| settings_content.workspace.window_decorations.as_ref(),
-                    write: |settings_content, value| {
-                        settings_content.workspace.window_decorations = value;
-                    },
-                }),
-                metadata: None,
-                files: USER,
-            }),
-        ]
-    }
-
     fn pane_modifiers_section() -> [SettingsPageItem; 4] {
         [
             SettingsPageItem::SectionHeader("settings_page.section.pane_modifiers"),
@@ -3936,12 +3873,10 @@ fn window_and_layout_page() -> SettingsPage {
         title: "settings_page.item.window_layout",
         items: concat_sections![
             status_bar_section(),
-            title_bar_section(),
             tab_bar_section(),
             tab_settings_section(),
             preview_tabs_section(),
             layout_section(),
-            window_section(),
             pane_modifiers_section(),
             pane_split_direction_section(),
         ],
@@ -5896,27 +5831,9 @@ fn terminal_page() -> SettingsPage {
         ]
     }
 
-    fn behavior_settings_section() -> [SettingsPageItem; 4] {
+    fn behavior_settings_section() -> [SettingsPageItem; 3] {
         [
             SettingsPageItem::SectionHeader("settings_page.section.behavior_settings"),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "settings_page.item.option_as_meta",
-                description: "settings_page.desc.behavior_settings.option_as_meta",
-                field: Box::new(SettingField {
-                    json_path: Some("terminal.option_as_meta"),
-                    pick: |settings_content| {
-                        settings_content.terminal.as_ref()?.option_as_meta.as_ref()
-                    },
-                    write: |settings_content, value| {
-                        settings_content
-                            .terminal
-                            .get_or_insert_default()
-                            .option_as_meta = value;
-                    },
-                }),
-                metadata: None,
-                files: USER,
-            }),
             SettingsPageItem::SettingItem(SettingItem {
                 title: "settings_page.item.copy_on_select",
                 description: "settings_page.desc.behavior_settings.copy_on_select",

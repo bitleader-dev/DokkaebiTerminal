@@ -56,7 +56,9 @@ actions!(
 
 const COPILOT_SETTINGS_PATH: &str = "/settings/copilot";
 const COPILOT_SETTINGS_URL: &str = concat!("https://github.com", "/settings/copilot");
-const PRIVACY_DOCS: &str = "https://zed.dev/docs/ai/privacy-and-security";
+// Dokkaebi: Zed cloud 미사용으로 데이터 처리 정책이 Zed와 다르다.
+// 자체 privacy 문서 작성 전까지 빈 문자열로 두고 "View Docs" 메뉴는 비활성 처리한다.
+const PRIVACY_DOCS: &str = "";
 
 struct CopilotErrorToast;
 
@@ -324,7 +326,7 @@ impl Render for EditPredictionButton {
                 )
             }
             provider @ (EditPredictionProvider::Experimental(_)
-            | EditPredictionProvider::Zed
+            | EditPredictionProvider::Dokkaebi
             | EditPredictionProvider::Mercury) => {
                 let enabled = self.editor_enabled.unwrap_or(true);
                 let file = self.file.clone();
@@ -332,7 +334,7 @@ impl Render for EditPredictionButton {
                 let project = self.project.clone();
                 let provider_name: &'static str = match provider {
                     EditPredictionProvider::Experimental(name) => name,
-                    EditPredictionProvider::Zed => "zed",
+                    EditPredictionProvider::Dokkaebi => "dokkaebi",
                     _ => "unknown",
                 };
                 let icons = self
@@ -340,7 +342,7 @@ impl Render for EditPredictionButton {
                     .as_ref()
                     .map(|p| p.icons(cx))
                     .unwrap_or_else(|| {
-                        edit_prediction_types::EditPredictionIconSet::new(IconName::ZedPredict)
+                        edit_prediction_types::EditPredictionIconSet::new(IconName::DokkaebiPredict)
                     });
 
                 let ep_icon;
@@ -640,7 +642,7 @@ impl EditPredictionButton {
             .entry("Use AI Provider", None, {
                 let fs = fs.clone();
                 move |_window, cx| {
-                    set_completion_provider(fs.clone(), cx, EditPredictionProvider::Zed)
+                    set_completion_provider(fs.clone(), cx, EditPredictionProvider::Dokkaebi)
                 }
             })
         })
@@ -770,7 +772,7 @@ impl EditPredictionButton {
 
         menu = menu.separator().header("Privacy");
 
-        if matches!(provider, EditPredictionProvider::Zed) {
+        if matches!(provider, EditPredictionProvider::Dokkaebi) {
             if let Some(provider) = &self.edit_prediction_provider {
                 let data_collection = provider.data_collection_state(cx);
 
@@ -897,9 +899,11 @@ impl EditPredictionButton {
                     }
                 }),
         ).item(
+            // Dokkaebi: 자체 privacy 문서 작성 전까지 비활성 (zed.dev 문서 링크 제거)
             ContextMenuEntry::new("View Docs")
                 .icon(IconName::FileGeneric)
                 .icon_color(Color::Muted)
+                .disabled(true)
                 .handler(move |_, cx| {
                     telemetry::event!(
                         "Edit Prediction Menu Action",
@@ -915,7 +919,7 @@ impl EditPredictionButton {
                 .as_ref()
                 .map(|p| p.icons(cx))
                 .unwrap_or_else(|| {
-                    edit_prediction_types::EditPredictionIconSet::new(IconName::ZedPredict)
+                    edit_prediction_types::EditPredictionIconSet::new(IconName::DokkaebiPredict)
                 });
             menu = menu.item(
                 ContextMenuEntry::new("This file is excluded.")
@@ -1037,7 +1041,7 @@ impl EditPredictionButton {
             let needs_sign_in = user.is_none()
                 && matches!(
                     provider,
-                    EditPredictionProvider::None | EditPredictionProvider::Zed
+                    EditPredictionProvider::None | EditPredictionProvider::Dokkaebi
                 );
 
             if needs_sign_in {
@@ -1421,8 +1425,6 @@ pub fn set_completion_provider(fs: Arc<dyn Fs>, cx: &mut App, provider: EditPred
 pub fn get_available_providers(cx: &mut App) -> Vec<EditPredictionProvider> {
     let mut providers = Vec::new();
 
-    providers.push(EditPredictionProvider::Zed);
-
     let app_state = workspace::AppState::global(cx);
     if copilot::GlobalCopilotAuth::try_get_or_init(app_state, cx)
         .is_some_and(|copilot| copilot.0.read(cx).is_authenticated())
@@ -1569,7 +1571,7 @@ fn render_zeta_tab_animation(cx: &App) -> impl IntoElement {
             8.,
         ))
         .child(tab_sequence(true))
-        .child(Icon::new(IconName::ZedPredict))
+        .child(Icon::new(IconName::DokkaebiPredict))
         .child(tab_sequence(false))
 }
 

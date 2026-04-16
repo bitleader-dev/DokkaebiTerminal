@@ -121,7 +121,7 @@ pub trait PickerDelegate: Sized + 'static {
     ) -> bool {
         true
     }
-    // hover 시 항목을 자동 선택할지 여부 (업스트림 #53264)
+    // hover 시 항목을 자동 선택할지 여부
     fn select_on_hover(&self) -> bool {
         true
     }

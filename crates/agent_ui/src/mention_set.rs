@@ -750,7 +750,7 @@ pub(crate) async fn insert_images_as_context(
     }
 
     for (image, name) in images {
-        // 각 이미지마다 이름을 반영한 mention URI 생성 (업스트림 #52995)
+        // 각 이미지마다 이름을 반영한 mention URI 생성
         let mention_uri = MentionUri::PastedImage {
             name: name.to_string(),
         };

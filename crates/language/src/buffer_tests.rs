@@ -4104,10 +4104,7 @@ fn test_random_chunk_bitmaps(cx: &mut App, mut rng: StdRng) {
     // Get all chunks and verify their bitmaps
     let chunks = snapshot.chunks(
         0..snapshot.len(),
-        LanguageAwareStyling {
-            tree_sitter: false,
-            diagnostics: false,
-        },
+        LanguageAwareStyling::NONE,
     );
 
     for chunk in chunks {

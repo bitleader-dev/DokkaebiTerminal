@@ -862,7 +862,6 @@ impl ExtensionsPage {
                             .truncate()
                     }))
                     .child(
-                        // 다운로드 수 라벨 i18n 치환
                         Label::new(t_arg(
                             "extensions.downloads",
                             &extension.download_count.to_formatted_string(&Locale::en),
@@ -959,7 +958,6 @@ impl ExtensionsPage {
         cx: &mut App,
     ) -> Entity<ContextMenu> {
         ContextMenu::build(window, cx, |context_menu, window, cx| {
-            // 확장 카드 컨텍스트 메뉴 항목 i18n 치환
             context_menu
                 .entry(
                     t("extensions.menu.install_another_version", cx),

@@ -202,7 +202,7 @@ impl ModelInput {
                 .text(cx)
                 .parse::<u64>()
                 .map_err(|_| SharedString::from("Max Tokens must be a number"))?,
-            // reasoning_effort는 수동 모달에서는 None, 설정 JSON에서 지정 가능 (업스트림 #50582)
+            // reasoning_effort는 수동 모달에서는 None, 설정 JSON에서 지정 가능
             reasoning_effort: None,
             capabilities: ModelCapabilities {
                 tools: self.capabilities.supports_tools.selected(),

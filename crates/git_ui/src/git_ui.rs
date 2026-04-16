@@ -49,7 +49,6 @@ pub mod stash_picker;
 pub mod text_diff_view;
 pub mod worktree_picker;
 
-// 상태바 병합 충돌 indicator 뷰 export (업스트림 #53033)
 pub use conflict_view::MergeConflictIndicator;
 
 pub fn init(cx: &mut App) {

@@ -18268,10 +18268,7 @@ impl Editor {
                     let old_name: Arc<str> = buffer
                         .chunks(
                             rename_start..rename_end,
-                            LanguageAwareStyling {
-                                tree_sitter: true,
-                                diagnostics: true,
-                            },
+                            LanguageAwareStyling::ALL,
                         )
                         .map(|chunk| {
                             if old_highlight_id.is_none() {
@@ -24041,10 +24038,7 @@ impl Editor {
 
         let chunks = snapshot.chunks(
             range,
-            LanguageAwareStyling {
-                tree_sitter: true,
-                diagnostics: true,
-            },
+            LanguageAwareStyling::ALL,
         );
         let mut lines = Vec::new();
         let mut line: VecDeque<Chunk> = VecDeque::new();

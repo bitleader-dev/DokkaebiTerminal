@@ -1285,7 +1285,7 @@ pub enum RemoteConnectionOptions {
 impl RemoteConnectionOptions {
     pub fn display_name(&self) -> String {
         match self {
-            // SSH 설정 nickname이 있으면 호스트명 대신 nickname 표시 (업스트림 #53103)
+            // SSH 설정 nickname이 있으면 호스트명 대신 nickname 표시
             RemoteConnectionOptions::Ssh(opts) => opts
                 .nickname
                 .clone()

@@ -890,7 +890,7 @@ impl PickerDelegate for BranchListDelegate {
                 IconName::Plus
             }
             Entry::Branch { branch, .. } => {
-                // HEAD 브랜치 체크마크 강조 (업스트림 #53351)
+                // HEAD 브랜치 체크마크 강조
                 if branch.is_head {
                     IconName::Check
                 } else if branch.is_remote() {

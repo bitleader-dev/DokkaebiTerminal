@@ -593,7 +593,7 @@ pub(crate) fn resolve_conflict(
     })
 }
 
-// 상태바에 표시되는 병합 충돌 indicator. 이전 우측 하단 알림 방식 대체 (업스트림 #53033)
+// 상태바에 표시되는 병합 충돌 indicator. 이전 우측 하단 알림 방식 대체
 pub struct MergeConflictIndicator {
     project: Entity<Project>,
     conflicted_paths: Vec<String>,
@@ -632,12 +632,12 @@ impl MergeConflictIndicator {
             GitStoreEvent::ConflictsUpdated
                 | GitStoreEvent::RepositoryUpdated(_, RepositoryEvent::StatusesChanged, _)
         );
+        if !conflicts_changed {
+            return;
+        }
 
         let agent_settings = AgentSettings::get_global(cx);
-        if !agent_settings.enabled(cx)
-            || !agent_settings.show_merge_conflict_indicator
-            || !conflicts_changed
-        {
+        if !agent_settings.enabled(cx) || !agent_settings.show_merge_conflict_indicator {
             return;
         }
 

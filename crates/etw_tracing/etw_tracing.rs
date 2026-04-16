@@ -81,7 +81,6 @@ fn show_etw_notification_with_action(
 }
 
 fn show_etw_status_notification(cx: &mut App, status: Result<StatusMessage>, output_path: PathBuf) {
-    // ETW 상태 알림 본문을 i18n으로 치환
     match status {
         Ok(StatusMessage::Stopped) => {
             let display_path = output_path.display().to_string();
@@ -142,7 +141,6 @@ pub fn init(cx: &mut App) {
     });
 
     cx.on_action(|_: &SaveEtwTrace, cx: &mut App| {
-        // 저장 액션 알림 i18n 치환
         let session = cx.global_mut::<GlobalEtwSession>().0.as_mut();
         let Some(session) = session else {
             let message = i18n::t("etw_tracing.no_active_to_stop", cx);
@@ -166,7 +164,6 @@ pub fn init(cx: &mut App) {
     });
 
     cx.on_action(|_: &CancelEtwTrace, cx: &mut App| {
-        // 취소 액션 알림 i18n 치환
         let session = cx.global_mut::<GlobalEtwSession>().0.as_mut();
         let Some(session) = session else {
             let message = i18n::t("etw_tracing.no_active_to_cancel", cx);
@@ -191,7 +188,6 @@ pub fn init(cx: &mut App) {
 }
 
 fn start_etw_recording(cx: &mut App, heap_pid: Option<u32>) {
-    // ETW 녹화 시작 알림 i18n 치환
     if has_active_etw_session(cx) {
         let message = i18n::t("etw_tracing.already_in_progress", cx);
         show_etw_notification(cx, message);
@@ -229,7 +225,6 @@ fn start_etw_recording(cx: &mut App, heap_pid: Option<u32>) {
             Ok(session) => session,
             Err(error) => {
                 cx.update(|cx| {
-                    // 녹화 시작 실패 알림 i18n 치환
                     let message = i18n::t_args(
                         "etw_tracing.start_failed",
                         &[("error", &format!("{error:#}"))],
@@ -263,7 +258,6 @@ fn start_etw_recording(cx: &mut App, heap_pid: Option<u32>) {
                 _listener: listener,
                 socket_path,
             });
-            // 녹화 시작 알림 i18n 치환
             let message = i18n::t("etw_tracing.started", cx);
             show_etw_notification(cx, message);
         });

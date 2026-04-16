@@ -1235,10 +1235,7 @@ impl InlaySnapshot {
     pub fn text(&self) -> String {
         self.chunks(
             Default::default()..self.len(),
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling::NONE,
             Highlights::default(),
         )
             .map(|chunk| chunk.chunk.text)
@@ -1985,10 +1982,7 @@ mod tests {
                 let actual_text = inlay_snapshot
                     .chunks(
                         range,
-                        LanguageAwareStyling {
-                            tree_sitter: false,
-                            diagnostics: false,
-                        },
+                        LanguageAwareStyling::NONE,
                         Highlights {
                             text_highlights: Some(&text_highlights),
                             inlay_highlights: Some(&inlay_highlights),
@@ -2167,10 +2161,7 @@ mod tests {
         // Get all chunks and verify their bitmaps
         let chunks = snapshot.chunks(
             InlayOffset(MultiBufferOffset(0))..snapshot.len(),
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling::NONE,
             Highlights::default(),
         );
 
@@ -2305,10 +2296,7 @@ mod tests {
         let chunks: Vec<_> = inlay_snapshot
             .chunks(
                 InlayOffset(MultiBufferOffset(0))..inlay_snapshot.len(),
-                LanguageAwareStyling {
-                    tree_sitter: false,
-                    diagnostics: false,
-                },
+                LanguageAwareStyling::NONE,
                 highlights,
             )
             .collect();
@@ -2423,10 +2411,7 @@ mod tests {
             let chunks: Vec<_> = inlay_snapshot
                 .chunks(
                     InlayOffset(MultiBufferOffset(0))..inlay_snapshot.len(),
-                    LanguageAwareStyling {
-                        tree_sitter: false,
-                        diagnostics: false,
-                    },
+                    LanguageAwareStyling::NONE,
                     highlights,
                 )
                 .collect();

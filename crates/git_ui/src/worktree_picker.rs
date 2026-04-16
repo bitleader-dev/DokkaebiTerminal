@@ -24,7 +24,7 @@ use workspace::{ModalView, MultiWorkspace, Workspace, notifications::DetachAndPr
 
 use crate::git_panel::show_error_toast;
 
-// 메인 worktree 표시 이름 (업스트림 #53351)
+// 메인 worktree 표시 이름
 const MAIN_WORKTREE_DISPLAY_NAME: &str = "main";
 
 actions!(
@@ -248,6 +248,14 @@ impl Render for WorktreeList {
     }
 }
 
+fn worktree_display_name(worktree: &GitWorktree) -> &str {
+    if worktree.is_main {
+        MAIN_WORKTREE_DISPLAY_NAME
+    } else {
+        worktree.display_name()
+    }
+}
+
 #[derive(Debug, Clone)]
 struct WorktreeEntry {
     worktree: GitWorktree,
@@ -274,7 +282,7 @@ pub struct WorktreeListDelegate {
     focus_handle: FocusHandle,
     default_branch: Option<SharedString>,
     forbidden_deletion_path: Option<PathBuf>,
-    // 현재 활성 worktree 경로를 기억해 체크마크 표시 (업스트림 #53351)
+    // 현재 활성 worktree 경로를 기억해 체크마크 표시
     current_worktree_path: Option<PathBuf>,
 }
 
@@ -698,12 +706,8 @@ impl PickerDelegate for WorktreeListDelegate {
                     .iter()
                     .enumerate()
                     .map(|(ix, worktree)| {
-                        // 메인 worktree는 "main"으로 표기해 검색 가능하도록 (업스트림 #53351)
-                        let name = if worktree.is_main {
-                            MAIN_WORKTREE_DISPLAY_NAME
-                        } else {
-                            worktree.display_name()
-                        };
+                        // 메인 worktree는 "main"으로 표기해 검색 가능하도록
+                        let name = worktree_display_name(worktree);
                         StringMatchCandidate::new(ix, name)
                     })
                     .collect::<Vec<StringMatchCandidate>>();
@@ -729,11 +733,7 @@ impl PickerDelegate for WorktreeListDelegate {
                 .update(cx, |picker, _| {
                     if !query.is_empty()
                         && !matches.first().is_some_and(|entry| {
-                            let name = if entry.worktree.is_main {
-                                MAIN_WORKTREE_DISPLAY_NAME
-                            } else {
-                                entry.worktree.display_name()
-                            };
+                            let name = worktree_display_name(&entry.worktree);
                             name == query
                         })
                     {
@@ -788,7 +788,7 @@ impl PickerDelegate for WorktreeListDelegate {
         cx: &mut Context<Picker<Self>>,
     ) -> Option<Self::ListItem> {
         let entry = &self.matches.get(ix)?;
-        // 긴 절대 경로는 홈 디렉터리 기준으로 축약 (업스트림 #53351)
+        // 긴 절대 경로는 홈 디렉터리 기준으로 축약
         let path = entry.worktree.path.compact().to_string_lossy().to_string();
         let sha = entry
             .worktree
@@ -812,12 +812,8 @@ impl PickerDelegate for WorktreeListDelegate {
                 ),
             )
         } else {
-            // 메인 worktree는 "main"으로 표기 (업스트림 #53351)
-            let display_name = if entry.worktree.is_main {
-                MAIN_WORKTREE_DISPLAY_NAME
-            } else {
-                entry.worktree.display_name()
-            };
+            // 메인 worktree는 "main"으로 표기
+            let display_name = worktree_display_name(&entry.worktree);
             let first_line = display_name.lines().next().unwrap_or(display_name);
             let positions: Vec<_> = entry
                 .positions
@@ -849,7 +845,7 @@ impl PickerDelegate for WorktreeListDelegate {
                 }))
         };
 
-        // 현재 활성 worktree 식별 (업스트림 #53351)
+        // 현재 활성 worktree 식별
         let is_current = !entry.is_new
             && self
                 .current_worktree_path

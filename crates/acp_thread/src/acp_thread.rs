@@ -1032,7 +1032,7 @@ pub struct AcpThread {
     connection: Rc<dyn AgentConnection>,
     token_usage: Option<TokenUsage>,
     prompt_capabilities: acp::PromptCapabilities,
-    // 복원된 스레드에서도 slash command 목록을 유지하기 위한 저장소 (업스트림 #53209)
+    // 복원된 스레드에서도 slash command 목록을 유지하기 위한 저장소
     available_commands: Vec<acp::AvailableCommand>,
     _observe_prompt_capabilities: Task<anyhow::Result<()>>,
     terminals: HashMap<acp::TerminalId, Entity<Terminal>>,
@@ -1421,7 +1421,7 @@ impl AcpThread {
                 available_commands,
                 ..
             }) => {
-                // 복원 시에도 유지할 수 있도록 자체 필드에 보관 (업스트림 #53209)
+                // 복원 시에도 유지할 수 있도록 자체 필드에 보관
                 self.available_commands = available_commands.clone();
                 cx.emit(AcpThreadEvent::AvailableCommandsUpdated(available_commands));
             }

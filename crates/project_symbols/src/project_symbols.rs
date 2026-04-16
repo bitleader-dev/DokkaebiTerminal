@@ -142,7 +142,7 @@ impl PickerDelegate for ProjectSymbolsDelegate {
                     );
 
                     editor.update(cx, |editor, cx| {
-                        // diff가 펼쳐진 multibuffer 상에서도 올바른 위치로 점프하도록 excerpt 앵커 사용 (업스트림 #52268)
+                        // diff가 펼쳐진 multibuffer 상에서도 올바른 위치로 점프하도록 excerpt 앵커 사용
                         let multibuffer_snapshot = editor.buffer().read(cx).snapshot(cx);
                         let Some((excerpt_id, _, buffer_snapshot)) =
                             multibuffer_snapshot.as_singleton()
@@ -287,7 +287,7 @@ impl PickerDelegate for ProjectSymbolsDelegate {
             background_color: Some(cx.theme().colors().text_accent.alpha(0.3)),
             ..Default::default()
         };
-        // UTF-8 문자 경계를 넘는 하이라이트 range로 인한 패닉 방지 (업스트림 #53563)
+        // UTF-8 문자 경계를 넘는 하이라이트 range로 인한 패닉 방지
         let custom_highlights = string_match
             .positions
             .iter()

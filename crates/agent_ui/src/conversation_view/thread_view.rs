@@ -165,7 +165,7 @@ impl ThreadFeedbackState {
     }
 }
 
-// 스피너를 독립 뷰로 분리해 생성 중에도 스레드 트리 전체가 리렌더되지 않도록 함 (업스트림 #51756)
+// 스피너를 독립 뷰로 분리해 생성 중에도 스레드 트리 전체가 리렌더되지 않도록 함
 struct GeneratingSpinner {
     variant: SpinnerVariant,
 }
@@ -384,7 +384,7 @@ impl ThreadView {
     ) -> Self {
         let id = thread.read(cx).session_id().clone();
 
-        // 복원된 스레드에 명령 목록이 있으면 placeholder에 반영 (업스트림 #53209)
+        // 복원된 스레드에 명령 목록이 있으면 placeholder에 반영
         let has_commands = !session_capabilities.read().available_commands().is_empty();
         let placeholder = placeholder_text(agent_display_name.as_ref(), has_commands, cx);
 
@@ -7265,7 +7265,7 @@ impl ThreadView {
             .gap_2()
             .map(|this| {
                 if card_layout {
-                    // 카드 레이아웃에 전체 패딩 부여 + 항목 간 경계선 유지 (업스트림 #53194)
+                    // 카드 레이아웃에 전체 패딩 부여 + 항목 간 경계선 유지
                     this.p_2().when(context_ix > 0, |this| {
                         this.border_t_1()
                             .border_color(self.tool_card_border_color(cx))

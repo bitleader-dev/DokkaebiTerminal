@@ -884,7 +884,7 @@ impl ProjectPanel {
                     if project_panel_settings.sort_mode != new_settings.sort_mode {
                         this.update_visible_entries(None, false, false, window, cx);
                     }
-                    // sort_order 변경 시에도 재정렬 (업스트림 #50221)
+                    // sort_order 변경 시에도 재정렬
                     if project_panel_settings.sort_order != new_settings.sort_order {
                         this.update_visible_entries(None, false, false, window, cx);
                     }
@@ -2571,7 +2571,7 @@ impl ProjectPanel {
                 .map(|entry| entry.to_owned())
                 .collect();
 
-        // sort_mode + sort_order 둘 다 반영 (업스트림 #50221)
+        // sort_mode + sort_order 둘 다 반영
         let sort_mode = ProjectPanelSettings::get_global(cx).sort_mode;
         let sort_order = ProjectPanelSettings::get_global(cx).sort_order;
         sort_worktree_entries(&mut siblings, sort_mode, sort_order);
@@ -7448,7 +7448,7 @@ impl ClipboardEntry {
     }
 }
 
-// cmp_* 3개 함수를 compare_rel_paths_by 호출 1개로 통합 (업스트림 #50221)
+// cmp_* 3개 함수를 compare_rel_paths_by 호출 1개로 통합
 #[inline]
 fn cmp_worktree_entries(
     a: &Entry,

@@ -24,7 +24,7 @@ pub(crate) enum ParsedHtmlElement {
     List(ParsedHtmlList),
     Table(ParsedHtmlTable),
     BlockQuote(ParsedHtmlBlockQuote),
-    // text_align을 함께 보존하기 위해 struct variant로 확장 (업스트림 #53196)
+    // text_align을 함께 보존하기 위해 struct variant로 확장
     Paragraph(ParsedHtmlParagraph),
     Image(HtmlImage),
 }
@@ -91,7 +91,7 @@ pub(crate) struct ParsedHtmlHeading {
     pub source_range: Range<usize>,
     pub level: HeadingLevel,
     pub contents: HtmlParagraph,
-    // HTML 헤딩의 text-align 스타일 보존 (업스트림 #53196)
+    // HTML 헤딩의 text-align 스타일 보존
     pub text_align: Option<TextAlign>,
 }
 
@@ -258,7 +258,7 @@ fn parse_html_node(
         }
         NodeData::Comment { .. } => {}
         NodeData::Element { name, attrs, .. } => {
-            // HTML style/align 속성에서 text-align 값 미리 추출 (업스트림 #53196)
+            // HTML style/align 속성에서 text-align 값 미리 추출
             let styles_map = extract_styles_from_attributes(attrs);
             let text_align = text_align_from_attributes(attrs, &styles_map);
             let mut styles = if let Some(styles) = html_style_from_html_styles(styles_map) {

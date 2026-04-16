@@ -1845,10 +1845,7 @@ impl DisplaySnapshot {
         self.block_snapshot
             .chunks(
                 BlockRow(display_row.0)..BlockRow(self.max_point().row().next_row().0),
-                LanguageAwareStyling {
-                    tree_sitter: false,
-                    diagnostics: false,
-                },
+                LanguageAwareStyling::NONE,
                 self.masked,
                 Highlights::default(),
             )
@@ -1862,10 +1859,7 @@ impl DisplaySnapshot {
             self.block_snapshot
                 .chunks(
                     BlockRow(row)..BlockRow(row + 1),
-                    LanguageAwareStyling {
-                        tree_sitter: false,
-                        diagnostics: false,
-                    },
+                    LanguageAwareStyling::NONE,
                     self.masked,
                     Highlights::default(),
                 )
@@ -1992,10 +1986,7 @@ impl DisplaySnapshot {
 
         let chunks = custom_highlights::CustomHighlightsChunks::new(
             multibuffer_range,
-            LanguageAwareStyling {
-                tree_sitter: true,
-                diagnostics: true,
-            },
+            LanguageAwareStyling::ALL,
             None,
             Some(&self.semantic_token_highlights),
             multibuffer,
@@ -2048,10 +2039,7 @@ impl DisplaySnapshot {
         let range = display_row..display_row.next_row();
         for chunk in self.highlighted_chunks(
             range,
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling::NONE,
             editor_style,
         ) {
             line.push_str(chunk.text);
@@ -3482,10 +3470,7 @@ pub mod tests {
         let mut chunks = Vec::<(String, Option<lsp::DiagnosticSeverity>, Rgba)>::new();
         for chunk in snapshot.chunks(
             DisplayRow(0)..DisplayRow(5),
-            LanguageAwareStyling {
-                tree_sitter: true,
-                diagnostics: true,
-            },
+            LanguageAwareStyling::ALL,
             Default::default(),
         ) {
             let color = chunk
@@ -4041,10 +4026,7 @@ pub mod tests {
         let mut chunks: Vec<(String, Option<Hsla>, Option<Hsla>)> = Vec::new();
         for chunk in snapshot.chunks(
             rows,
-            LanguageAwareStyling {
-                tree_sitter: true,
-                diagnostics: true,
-            },
+            LanguageAwareStyling::ALL,
             HighlightStyles::default(),
         ) {
             let syntax_color = chunk

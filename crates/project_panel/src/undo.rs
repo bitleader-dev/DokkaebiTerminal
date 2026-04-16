@@ -193,7 +193,6 @@ impl UndoManager {
 
                 workspace.show_notification(notification_id, cx, move |cx| {
                     cx.new(|cx| {
-                        // 프로젝트 패널 되돌리기 실패 알림 제목 i18n 치환
                         if let [err] = messages.as_slice() {
                             let title = i18n::t("project_panel.undo_failed_single", cx);
                             MessageNotification::new(err.to_string(), cx)

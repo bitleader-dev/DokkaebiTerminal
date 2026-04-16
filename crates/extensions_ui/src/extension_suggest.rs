@@ -170,7 +170,6 @@ pub(crate) fn suggest(buffer: Entity<Buffer>, window: &mut Window, cx: &mut Cont
 
         workspace.show_notification(notification_id, cx, |cx| {
             cx.new(move |cx| {
-                // 확장 설치 제안 팝업 본문/버튼을 i18n으로 치환
                 let prompt = i18n::t_args(
                     "extension_suggest.prompt",
                     &[

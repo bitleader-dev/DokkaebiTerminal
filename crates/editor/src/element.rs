@@ -3658,7 +3658,7 @@ impl EditorElement {
         } else {
             let use_tree_sitter = !snapshot.semantic_tokens_enabled
                 || snapshot.use_tree_sitter_for_syntax(rows.start, cx);
-            // tree_sitter 하이라이트는 semantic_tokens=full 시 꺼질 수 있지만 진단은 유지 (업스트림 #53008)
+            // tree_sitter 하이라이트는 semantic_tokens=full 시 꺼질 수 있지만 진단은 유지
             let language_aware = LanguageAwareStyling {
                 tree_sitter: use_tree_sitter,
                 diagnostics: true,

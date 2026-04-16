@@ -705,10 +705,7 @@ impl FoldSnapshot {
     pub fn text(&self) -> String {
         self.chunks(
             FoldOffset(MultiBufferOffset(0))..self.len(),
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling::NONE,
             Highlights::default(),
         )
         .map(|c| c.text)
@@ -955,10 +952,7 @@ impl FoldSnapshot {
     pub fn chars_at(&self, start: FoldPoint) -> impl '_ + Iterator<Item = char> {
         self.chunks(
             start.to_offset(self)..self.len(),
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling::NONE,
             Highlights::default(),
         )
         .flat_map(|chunk| chunk.text.chars())
@@ -968,10 +962,7 @@ impl FoldSnapshot {
     pub fn chunks_at(&self, start: FoldPoint) -> FoldChunks<'_> {
         self.chunks(
             start.to_offset(self)..self.len(),
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling::NONE,
             Highlights::default(),
         )
     }
@@ -2140,10 +2131,7 @@ mod tests {
                     snapshot
                         .chunks(
                             start..end,
-                            LanguageAwareStyling {
-                                tree_sitter: false,
-                                diagnostics: false,
-                            },
+                            LanguageAwareStyling::NONE,
                             Highlights::default(),
                         )
                         .map(|c| c.text)
@@ -2317,10 +2305,7 @@ mod tests {
         // Get all chunks and verify their bitmaps
         let chunks = snapshot.chunks(
             FoldOffset(MultiBufferOffset(0))..FoldOffset(snapshot.len().0),
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling::NONE,
             Highlights::default(),
         );
 

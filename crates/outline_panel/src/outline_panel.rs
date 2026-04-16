@@ -220,10 +220,7 @@ impl SearchState {
                     let mut highlight_ranges = Vec::new();
                     for mut chunk in highlight_arguments.multi_buffer_snapshot.chunks(
                         context_offset_range.start..context_offset_range.end,
-                        LanguageAwareStyling {
-                            tree_sitter: true,
-                            diagnostics: true,
-                        },
+                        LanguageAwareStyling::ALL,
                     ) {
                         if !non_whitespace_symbol_occurred {
                             for c in chunk.text.chars() {

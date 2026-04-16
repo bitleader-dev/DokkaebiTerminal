@@ -81,7 +81,6 @@ pub fn suggest_on_worktree_updated(
 
         workspace.show_notification(notification_id, cx, |cx| {
             cx.new(move |cx| {
-                // Dev Container 제안 팝업 본문/버튼 i18n 치환
                 let prompt = i18n::t("dev_container_suggest.prompt", cx);
                 let accept = i18n::t("dev_container_suggest.accept", cx);
                 let dismiss = i18n::t("dev_container_suggest.dismiss", cx);

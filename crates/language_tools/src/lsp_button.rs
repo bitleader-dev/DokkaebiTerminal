@@ -1277,7 +1277,6 @@ impl Render for LspButton {
             }
         }
 
-        // LSP 툴팁 상태 문구 i18n 치환
         let (indicator, description) = if has_errors {
             (
                 Some(Indicator::dot().color(Color::Error)),

@@ -381,7 +381,7 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
                 self.model.capabilities.parallel_tool_calls,
                 self.model.capabilities.prompt_cache_key,
                 self.max_output_tokens(),
-                // 사용자 설정 reasoning_effort 전달 (업스트림 #50582)
+                // 사용자 설정 reasoning_effort 전달
                 self.model.reasoning_effort.clone(),
             );
             let completions = self.stream_completion(request, cx);

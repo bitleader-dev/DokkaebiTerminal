@@ -4024,10 +4024,7 @@ impl MultiBufferSnapshot {
     pub fn text(&self) -> String {
         self.chunks(
             MultiBufferOffset::ZERO..self.len(),
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling::NONE,
         )
             .map(|chunk| chunk.text)
             .collect()
@@ -4068,10 +4065,7 @@ impl MultiBufferSnapshot {
     pub fn text_for_range<T: ToOffset>(&self, range: Range<T>) -> impl Iterator<Item = &str> + '_ {
         self.chunks(
             range,
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling::NONE,
         )
         .map(|chunk| chunk.text)
     }

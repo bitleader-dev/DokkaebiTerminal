@@ -8388,7 +8388,6 @@ fn notify_if_database_failed(window: WindowHandle<MultiWorkspace>, cx: &mut Asyn
                         cx,
                         |cx| {
                             cx.new(|cx| {
-                                // DB 로드 실패 알림 i18n 치환
                                 let message = i18n::t("workspace.db_failed", cx);
                                 let button = i18n::t("workspace.file_issue", cx);
                                 MessageNotification::new(message, cx)
@@ -9945,7 +9944,6 @@ pub fn open_paths(
                     let workspace = multi_workspace.workspace().clone();
                     workspace.update(cx, |workspace, cx| {
                         workspace.show_notification(NotificationId::unique::<OpenInWsl>(), cx, move |cx| {
-                            // WSL 경로 힌트 알림 i18n 치환
                             let display_path = util::markdown::MarkdownInlineCode(&path.to_string_lossy()).to_string();
                             let msg = i18n::t_args(
                                 "workspace.wsl_hint",

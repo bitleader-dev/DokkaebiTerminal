@@ -297,7 +297,7 @@ impl ExtensionBuilder {
                 .arg("--git-dir")
                 .arg(&git_dir)
                 // 사용자 git config url rewriting(insteadOf) 영향을 배제하기 위해
-                // GIT_CONFIG_GLOBAL 무효화 + origin URL만 조회 (업스트림 #52538)
+                // GIT_CONFIG_GLOBAL 무효화 + origin URL만 조회
                 .args(["remote", "get-url", "origin"])
                 .env("GIT_CONFIG_GLOBAL", "/dev/null")
                 .output()

@@ -804,7 +804,7 @@ impl VsCodeSettings {
             show_diagnostics: self
                 .read_bool("problems.decorations.enabled")
                 .and_then(|b| if b { Some(ShowDiagnostics::Off) } else { None }),
-            // VSCode의 explorer.sortOrder → Dokkaebi sort_mode/sort_order 매핑 (업스트림 #50221)
+            // VSCode의 explorer.sortOrder → Dokkaebi sort_mode/sort_order 매핑
             sort_mode: self.read_enum("explorer.sortOrder", |s| match s {
                 "default" | "foldersNestsFiles" => Some(ProjectPanelSortMode::DirectoriesFirst),
                 "mixed" => Some(ProjectPanelSortMode::Mixed),

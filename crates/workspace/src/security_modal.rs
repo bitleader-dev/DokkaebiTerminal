@@ -31,7 +31,7 @@ pub struct SecurityModal {
     worktree_store: WeakEntity<WorktreeStore>,
     remote_host: Option<RemoteHostLocation>,
     focus_handle: FocusHandle,
-    // 경로 리스트가 많을 때 내부 스크롤을 지원하기 위한 핸들 (업스트림 #53124)
+    // 경로 리스트가 많을 때 내부 스크롤을 지원하기 위한 핸들
     project_list_scroll_handle: ScrollHandle,
     trusted: Option<bool>,
 }
@@ -73,7 +73,7 @@ impl Render for SecurityModal {
             return v_flex().into_any_element();
         }
 
-        // 다수 프로젝트인 경우 헤더에 (N) 표기 (업스트림 #53124)
+        // 다수 프로젝트인 경우 헤더에 (N) 표기
         let restricted_count = self.restricted_paths.len();
         let header_label: SharedString = if restricted_count == 1 {
             t("security.header.single", cx)
@@ -114,7 +114,7 @@ impl Render for SecurityModal {
                             .child(Label::new(header_label)),
                     )
                     .child(
-                        // 경로가 많을 때 모달이 창 밖으로 넘치지 않도록 스크롤 컨테이너로 감쌈 (업스트림 #53124)
+                        // 경로가 많을 때 모달이 창 밖으로 넘치지 않도록 스크롤 컨테이너로 감쌈
                         div()
                             .size_full()
                             .vertical_scrollbar_for(&self.project_list_scroll_handle, window, cx)

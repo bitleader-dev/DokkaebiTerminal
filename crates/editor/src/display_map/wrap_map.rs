@@ -513,10 +513,7 @@ impl WrapSnapshot {
                 let mut remaining = None;
                 let mut chunks = new_tab_snapshot.chunks(
                     TabPoint::new(edit.new_rows.start, 0)..new_tab_snapshot.max_point(),
-                    LanguageAwareStyling {
-                        tree_sitter: false,
-                        diagnostics: false,
-                    },
+                    LanguageAwareStyling::NONE,
                     Highlights::default(),
                 );
                 let mut edit_transforms = Vec::<Transform>::new();
@@ -963,10 +960,7 @@ impl WrapSnapshot {
     pub fn text_chunks(&self, wrap_row: WrapRow) -> impl Iterator<Item = &str> {
         self.chunks(
             wrap_row..self.max_point().row() + WrapRow(1),
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling::NONE,
             Highlights::default(),
         )
         .map(|h| h.text)
@@ -1725,10 +1719,7 @@ mod tests {
                 let actual_text = self
                     .chunks(
                         WrapRow(start_row)..WrapRow(end_row),
-                        LanguageAwareStyling {
-                            tree_sitter: true,
-                            diagnostics: true,
-                        },
+                        LanguageAwareStyling::ALL,
                         Highlights::default(),
                     )
                     .map(|c| c.text)

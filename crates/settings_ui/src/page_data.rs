@@ -1613,7 +1613,7 @@ fn editor_page() -> SettingsPage {
                 title: "settings_page.item.delay",
                 description: "settings_page.desc.hover_popover.delay",
                 field: Box::new(SettingField {
-                    // delay 설정의 json_path 오타 수정 (업스트림 #53359)
+                    // delay 설정의 json_path 오타 수정
                     json_path: Some("hover_popover_delay"),
                     pick: |settings_content| settings_content.editor.hover_popover_delay.as_ref(),
                     write: |settings_content, value| {
@@ -4382,7 +4382,7 @@ fn panels_page() -> SettingsPage {
                 metadata: None,
                 files: USER,
             }),
-            // 정렬 모드·순서를 Project Panel 섹션 끝에 노출 (업스트림 #50221)
+            // 정렬 모드·순서를 Project Panel 섹션 끝에 노출
             SettingsPageItem::SettingItem(SettingItem {
                 title: "settings_page.item.sort_mode",
                 description: "settings_page.desc.auto_open_files.sort_mode",
@@ -6716,7 +6716,7 @@ fn ai_page(cx: &App) -> SettingsPage {
                 metadata: None,
                 files: USER,
             }),
-            // 상태바 병합 충돌 indicator 표시 여부 (업스트림 #53033)
+            // 상태바 병합 충돌 indicator 표시 여부
             SettingsPageItem::SettingItem(SettingItem {
                 title: "settings_page.item.show_merge_conflict_indicator",
                 description: "settings_page.desc.agent.show_merge_conflict_indicator",

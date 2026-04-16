@@ -3741,7 +3741,7 @@ impl BufferSnapshot {
         let range = range.start.to_offset(self)..range.end.to_offset(self);
 
         let mut syntax = None;
-        // tree_sitter와 diagnostics를 개별 제어해 semantic_tokens="full" 시 진단이 함께 꺼지지 않도록 함 (업스트림 #53008)
+        // tree_sitter와 diagnostics를 개별 제어해 semantic_tokens="full" 시 진단이 함께 꺼지지 않도록 함
         if language_aware.tree_sitter {
             syntax = Some(self.get_highlights(range.clone()));
         }
@@ -4488,10 +4488,7 @@ impl BufferSnapshot {
         let mut name_ranges = Vec::new();
         let mut chunks = self.chunks(
             source_range_for_text.clone(),
-            LanguageAwareStyling {
-                tree_sitter: true,
-                diagnostics: true,
-            },
+            LanguageAwareStyling::ALL,
         );
         let mut last_buffer_range_end = 0;
         for (buffer_range, is_name) in buffer_ranges {
@@ -5352,10 +5349,7 @@ impl BufferSnapshot {
         let mut chunk_ix = query.range.start;
         for chunk in self.chunks(
             query.range,
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling::NONE,
         ) {
             for (i, c) in chunk.text.char_indices() {
                 let ix = chunk_ix + i;
@@ -5395,15 +5389,24 @@ impl BufferSnapshot {
     }
 }
 
-/// 스타일이 포함된 chunk 생성 시 사용하는 설정. (업스트림 #53008)
+/// 스타일이 포함된 chunk 생성 시 사용하는 설정.
 /// tree_sitter 하이라이트와 diagnostics 표시를 개별 제어해, `semantic_tokens="full"` 사용자가
 /// tree-sitter 하이라이트를 끈 상태에서도 진단 밑줄이 유지되도록 한다.
 #[derive(Clone, Copy)]
 pub struct LanguageAwareStyling {
-    /// tree-sitter로 chunk를 하이라이트할지 여부.
     pub tree_sitter: bool,
-    /// 진단 데이터를 chunk에 반영할지 여부.
     pub diagnostics: bool,
+}
+
+impl LanguageAwareStyling {
+    pub const NONE: Self = Self {
+        tree_sitter: false,
+        diagnostics: false,
+    };
+    pub const ALL: Self = Self {
+        tree_sitter: true,
+        diagnostics: true,
+    };
 }
 
 pub struct WordsQuery<'a> {

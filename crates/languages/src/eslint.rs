@@ -33,7 +33,7 @@ fn eslint_server_binary_arguments(server_path: &Path) -> Vec<OsString> {
 
 pub struct EsLintLspAdapter {
     node: NodeRuntime,
-    // ESLint 설치 버전 탐지용 파일 시스템 (업스트림 #52886)
+    // ESLint 설치 버전 탐지용 파일 시스템
     fs: Arc<dyn Fs>,
 }
 
@@ -91,7 +91,7 @@ impl LspInstaller for EsLintLspAdapter {
         _: bool,
         _: &mut AsyncApp,
     ) -> Result<GitHubLspBinaryVersion> {
-        // 업스트림 microsoft/vscode-eslint 직접 사용 (업스트림 #52886)
+        // 업스트림 microsoft/vscode-eslint 직접 사용
         let url = build_asset_url(
             "microsoft/vscode-eslint",
             Self::CURRENT_VERSION_TAG_NAME,
@@ -176,7 +176,7 @@ impl LspInstaller for EsLintLspAdapter {
     }
 }
 
-// ESLint 프로젝트 config 유형 (업스트림 #52886)
+// ESLint 프로젝트 config 유형
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EslintConfigKind {
     Flat,
@@ -231,7 +231,7 @@ impl LspAdapter for EsLintLspAdapter {
         cx: &mut AsyncApp,
     ) -> Result<Value> {
         let worktree_root = delegate.worktree_root_path();
-        // 요청된 파일의 절대 경로를 worktree 기준으로 분리 (업스트림 #52886)
+        // 요청된 파일의 절대 경로를 worktree 기준으로 분리
         let requested_file_path = requested_uri
             .as_ref()
             .filter(|uri| uri.scheme() == "file")
@@ -338,7 +338,7 @@ impl LspAdapter for EsLintLspAdapter {
 
 /// On Windows, converts Unix-style separators (/) to Windows-style (\).
 /// On Unix, returns the path unchanged
-// 요청된 파일부터 worktree 루트까지 조상 디렉터리를 가까운 순으로 반환 (업스트림 #52886)
+// 요청된 파일부터 worktree 루트까지 조상 디렉터리를 가까운 순으로 반환
 fn ancestor_directories<'a>(
     worktree_root: &'a Path,
     requested_file: Option<&'a Path>,

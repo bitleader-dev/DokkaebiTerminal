@@ -809,7 +809,7 @@ pub enum ProjectPanelSortMode {
     FilesFirst,
 }
 
-// 파일·폴더 이름 정렬 순서 옵션 (업스트림 #50221)
+// 파일·폴더 이름 정렬 순서 옵션
 #[derive(
     Copy,
     Clone,

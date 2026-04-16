@@ -4379,10 +4379,7 @@ fn assert_chunks_in_ranges(snapshot: &MultiBufferSnapshot) {
     for ix in 0..full_text.len() {
         let mut chunks = snapshot.chunks(
             MultiBufferOffset(0)..snapshot.len(),
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling::NONE,
         );
         chunks.seek(MultiBufferOffset(ix)..snapshot.len());
         let tail = chunks.map(|chunk| chunk.text).collect::<String>();
@@ -4646,10 +4643,7 @@ fn test_random_chunk_bitmaps(cx: &mut App, mut rng: StdRng) {
 
     let chunks = snapshot.chunks(
             MultiBufferOffset(0)..snapshot.len(),
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling::NONE,
         );
 
     for chunk in chunks {
@@ -4817,10 +4811,7 @@ fn test_random_chunk_bitmaps_with_diffs(cx: &mut App, mut rng: StdRng) {
 
     let chunks = snapshot.chunks(
             MultiBufferOffset(0)..snapshot.len(),
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling::NONE,
         );
 
     for chunk in chunks {

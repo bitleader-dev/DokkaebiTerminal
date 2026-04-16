@@ -481,7 +481,6 @@ pub fn initialize_workspace(
             cx.new(|_| line_ending_selector::LineEndingIndicator::default());
         let system_monitor_item =
             cx.new(|cx| system_monitor::SystemMonitor::new(cx));
-        // 병합 충돌 indicator 상태바 항목 (업스트림 #53033)
         let merge_conflict_indicator =
             cx.new(|cx| git_ui::MergeConflictIndicator::new(workspace, cx));
         workspace.status_bar().update(cx, |status_bar, cx| {
@@ -1567,7 +1566,6 @@ fn notify_settings_errors(result: settings::SettingsParseResult, is_user: bool, 
             } else {
                 show_app_notification(id, cx, move |cx| {
                     cx.new(|cx| {
-                        // 잘못된 사용자 설정 파일 알림 i18n 치환
                         let message = i18n::t_args(
                             "settings.invalid_user_file",
                             &[("error", &error.to_string())],
@@ -1604,7 +1602,6 @@ fn notify_settings_errors(result: settings::SettingsParseResult, is_user: bool, 
             if !showed_parse_error {
                 show_app_notification(id, cx, move |cx| {
                     cx.new(|cx| {
-                        // 설정 마이그레이션 실패 알림 i18n 치환
                         let message = i18n::t_args(
                             "settings.migration_failed",
                             &[("error", &err.to_string())],
@@ -1807,7 +1804,6 @@ fn show_keymap_file_json_error(
     error: &anyhow::Error,
     cx: &mut App,
 ) {
-    // 키맵 JSON 파싱 오류 알림 i18n 치환
     let message: SharedString = i18n::t_args(
         "keymap.json_parse_error",
         &[("error", &error.to_string())],
@@ -1833,7 +1829,6 @@ fn show_keymap_file_load_error(
     error_message: MarkdownString,
     cx: &mut App,
 ) {
-    // 키맵 파일 열기 버튼 라벨 i18n 치환
     let button = i18n::t("keymap.open_file", cx);
     show_markdown_app_notification(
         notification_id,

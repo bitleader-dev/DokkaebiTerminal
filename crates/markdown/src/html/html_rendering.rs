@@ -79,7 +79,7 @@ impl MarkdownElement {
 
         match element {
             ParsedHtmlElement::Paragraph(paragraph) => {
-                // HTML paragraph의 text-align 반영 후 pop_markdown_paragraph로 스타일 정리 (업스트림 #53196)
+                // HTML paragraph의 text-align 반영 후 pop_markdown_paragraph로 스타일 정리
                 self.push_markdown_paragraph(
                     builder,
                     &source_range,

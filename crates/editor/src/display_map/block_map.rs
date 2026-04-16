@@ -2130,10 +2130,7 @@ impl BlockSnapshot {
     pub fn text(&self) -> String {
         self.chunks(
             BlockRow(0)..self.transforms.summary().output_rows,
-            LanguageAwareStyling {
-                tree_sitter: false,
-                diagnostics: false,
-            },
+            LanguageAwareStyling::NONE,
             false,
             Highlights::default(),
         )
@@ -4284,10 +4281,7 @@ mod tests {
                 let actual_text = blocks_snapshot
                     .chunks(
                         BlockRow(start_row as u32)..BlockRow(end_row as u32),
-                        LanguageAwareStyling {
-                            tree_sitter: false,
-                            diagnostics: false,
-                        },
+                        LanguageAwareStyling::NONE,
                         false,
                         Highlights::default(),
                     )

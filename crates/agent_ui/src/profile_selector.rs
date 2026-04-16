@@ -90,7 +90,7 @@ impl ProfileSelector {
 
         if let Some((next_profile_id, _)) = profiles.get_index(next_index) {
             self.provider.set_profile(next_profile_id.clone(), cx);
-            // Shift+Tab 순환 시 버튼이 즉시 재렌더되도록 알림 (업스트림 #53126)
+            // Shift+Tab 순환 시 버튼이 즉시 재렌더되도록 알림
             cx.notify();
         }
     }

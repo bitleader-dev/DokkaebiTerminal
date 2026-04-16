@@ -19,7 +19,7 @@ pub enum MentionUri {
     File {
         abs_path: PathBuf,
     },
-    // 붙여넣은 이미지에 원본 파일명 보존 (업스트림 #52995)
+    // 붙여넣은 이미지에 원본 파일명 보존
     PastedImage {
         name: String,
     },

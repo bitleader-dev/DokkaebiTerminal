@@ -145,7 +145,6 @@ impl PickerDelegate for IconThemeSelectorDelegate {
     type ListItem = ui::ListItem;
 
     fn placeholder_text(&self, _window: &mut Window, cx: &mut App) -> Arc<str> {
-        // 아이콘 테마 선택기 placeholder i18n 치환
         Arc::from(i18n::t("icon_theme_selector.placeholder", cx).as_ref())
     }
 
@@ -312,7 +311,6 @@ impl PickerDelegate for IconThemeSelectorDelegate {
                 .border_t_1()
                 .border_color(cx.theme().colors().border_variant)
                 .child(
-                    // 하단 버튼 라벨 i18n 치환
                     Button::new("docs", i18n::t("icon_theme_selector.view_docs", cx))
                         .end_icon(
                             Icon::new(IconName::ArrowUpRight)

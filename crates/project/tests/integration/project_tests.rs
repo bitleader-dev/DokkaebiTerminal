@@ -4384,10 +4384,7 @@ fn chunks_with_diagnostics<T: ToOffset + ToPoint>(
     let mut chunks: Vec<(String, Option<DiagnosticSeverity>)> = Vec::new();
     for chunk in buffer.snapshot().chunks(
         range,
-        LanguageAwareStyling {
-            tree_sitter: true,
-            diagnostics: true,
-        },
+        LanguageAwareStyling::ALL,
     ) {
         if chunks
             .last()

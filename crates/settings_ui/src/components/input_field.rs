@@ -109,7 +109,7 @@ impl RenderOnce for SettingsInputField {
             ..Default::default()
         };
 
-        // 최초 렌더 시점의 initial_text를 보존해서 blur 기반 저장과 reconcile을 안전하게 처리 (업스트림 #53036)
+        // 최초 렌더 시점의 initial_text를 보존해서 blur 기반 저장과 reconcile을 안전하게 처리
         let first_render_initial_text = window.use_state(cx, |_, _| self.initial_text.clone());
 
         let editor = if let Some(id) = self.id {

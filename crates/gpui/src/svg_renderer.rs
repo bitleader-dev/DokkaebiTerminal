@@ -105,7 +105,7 @@ pub enum SvgSize {
 impl SvgRenderer {
     /// Creates a new SVG renderer with the provided asset source.
     pub fn new(asset_source: Arc<dyn AssetSource>) -> Self {
-        // 시스템 폰트만 담긴 원본 DB를 한 번만 로드해 두고 (업스트림 #51623)
+        // 시스템 폰트만 담긴 원본 DB를 한 번만 로드해 두고
         static SYSTEM_FONT_DB: LazyLock<Arc<usvg::fontdb::Database>> = LazyLock::new(|| {
             let mut db = usvg::fontdb::Database::new();
             db.load_system_fonts();
@@ -247,7 +247,7 @@ impl SvgRenderer {
 }
 
 // 번들 폰트(IBM Plex Sans, Lilex)를 fontdb에 등록해 시스템 폰트 부재 환경에서도
-// Mermaid 다이어그램 등 SVG 텍스트가 렌더링되도록 보장한다. (업스트림 #51623)
+// Mermaid 다이어그램 등 SVG 텍스트가 렌더링되도록 보장한다.
 fn load_bundled_fonts(asset_source: &dyn AssetSource, db: &mut usvg::fontdb::Database) {
     let font_paths = [
         "fonts/ibm-plex-sans/IBMPlexSans-Regular.ttf",
@@ -263,7 +263,7 @@ fn load_bundled_fonts(asset_source: &dyn AssetSource, db: &mut usvg::fontdb::Dat
 }
 
 // fontdb 기본값이 Microsoft 폰트(Arial/Times New Roman)라 Linux 환경에서 generic family 조회가
-// 실패하는 문제를 방지. IBM Plex Sans / Lilex로 매핑한다. (업스트림 #51623)
+// 실패하는 문제를 방지. IBM Plex Sans / Lilex로 매핑한다.
 fn fix_generic_font_families(db: &mut usvg::fontdb::Database) {
     use usvg::fontdb::{Family, Query};
 

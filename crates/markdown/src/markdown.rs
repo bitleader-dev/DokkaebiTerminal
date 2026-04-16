@@ -994,7 +994,7 @@ impl MarkdownElement {
         builder: &mut MarkdownElementBuilder,
         range: &Range<usize>,
         markdown_end: usize,
-        // HTML <p align="..."> / style="text-align: ..." 전파를 위해 override 추가 (업스트림 #53196)
+        // HTML <p align="..."> / style="text-align: ..." 전파를 위해 override 추가
         text_align_override: Option<TextAlign>,
     ) {
         let align = text_align_override.unwrap_or(self.style.base_text_style.text_align);
@@ -1026,7 +1026,7 @@ impl MarkdownElement {
         level: pulldown_cmark::HeadingLevel,
         range: &Range<usize>,
         markdown_end: usize,
-        // HTML 헤딩의 text-align override (업스트림 #53196)
+        // HTML 헤딩의 text-align override
         text_align_override: Option<TextAlign>,
     ) {
         let align = text_align_override.unwrap_or(self.style.base_text_style.text_align);
@@ -1772,7 +1772,6 @@ impl Element for MarkdownElement {
                         current_img_block_range.take();
                     }
                     MarkdownTagEnd::Paragraph => {
-                        // text_align 스타일을 함께 pop (업스트림 #53196)
                         self.pop_markdown_paragraph(&mut builder);
                     }
                     MarkdownTagEnd::Heading(_) => {

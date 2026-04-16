@@ -13528,10 +13528,7 @@ fn resolve_word_completion(snapshot: &BufferSnapshot, completion: &mut Completio
     let mut offset = 0;
     for chunk in snapshot.chunks(
         word_range.clone(),
-        LanguageAwareStyling {
-            tree_sitter: true,
-            diagnostics: true,
-        },
+        LanguageAwareStyling::ALL,
     ) {
         let end_offset = offset + chunk.text.len();
         if let Some(highlight_id) = chunk.syntax_highlight_id {

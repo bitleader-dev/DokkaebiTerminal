@@ -1109,7 +1109,7 @@ fn stem_and_extension(filename: &str) -> (Option<&str>, Option<&str>) {
     }
 }
 
-/// 파일·폴더 이름을 비교할 때 대소문자·유니코드 처리 방식을 결정한다. (업스트림 #50221)
+/// 파일·폴더 이름을 비교할 때 대소문자·유니코드 처리 방식을 결정한다.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum SortOrder {
     /// 대소문자 무관 자연 정렬. 타이 상황에서는 소문자를 선호한다.
@@ -1126,7 +1126,7 @@ pub enum SortOrder {
     Unicode,
 }
 
-/// 파일과 디렉터리의 상대 정렬 순서를 결정한다. (업스트림 #50221)
+/// 파일과 디렉터리의 상대 정렬 순서를 결정한다.
 #[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
 pub enum SortMode {
     /// 같은 레벨에서 디렉터리를 파일보다 먼저 표시.
@@ -1189,7 +1189,7 @@ pub fn compare_rel_paths(
     )
 }
 
-/// `SortMode`와 `SortOrder`를 명시해 상대 경로 2개를 비교한다. (업스트림 #50221)
+/// `SortMode`와 `SortOrder`를 명시해 상대 경로 2개를 비교한다.
 pub fn compare_rel_paths_by(
     (path_a, a_is_file): (&RelPath, bool),
     (path_b, b_is_file): (&RelPath, bool),

@@ -278,6 +278,8 @@ pub struct OpenAiCompatibleAvailableModel {
     pub max_tokens: u64,
     pub max_output_tokens: Option<u64>,
     pub max_completion_tokens: Option<u64>,
+    // OpenAI 호환 모델의 reasoning_effort 설정 (업스트림 #50582)
+    pub reasoning_effort: Option<OpenAiReasoningEffort>,
     #[serde(default)]
     pub capabilities: OpenAiCompatibleModelCapabilities,
 }

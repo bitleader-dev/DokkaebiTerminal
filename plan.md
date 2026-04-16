@@ -1,61 +1,39 @@
-# 업스트림 Zed v0.232.2 선별 백포트 (2026-04-16)
+# Zed v0.232.2 추가 백포트 (2026-04-16, 2차)
 
 ## 목표
-Zed v0.232.2 릴리즈 노트에서 추출한 3개 고우선 PR을 Dokkaebi에 백포트하고, 그 후 C 카테고리(다수 PR) 상세 조사를 진행한다.
+직전 이식한 버그 fix 4건(#53114, #53359, #53126, #53264)에 **소규모 Features 2건** 추가 이식 후 커밋·푸시. 이어서 중규모 Features 5건 별도 plan으로 진행.
 
 ## 사전 조사 결과 (확정 사실)
-- **#53563**: `crates/project_symbols/src/project_symbols.rs` L288 근처에 `ceil_char_boundary` 미사용, UTF-8 패닉 위험 있음
-- **#53036**: `crates/settings_ui/src/components/input_field.rs`에 `first_render_initial_text`/`on_focus_out` 없음. 구조체 필드 `confirm`/`display_confirm_button`/`display_clear_button`/`clear_on_confirm` 전부 존재 → 패치 이식 가능
-- **#51756**:
-  - `crates/ui/src/components/label/spinner_label.rs:7` `SpinnerVariant::{Dots, DotsVariant, Sand}` 존재, `SpinnerLabel::with_variant` 존재 → 선행 의존 OK
-  - `crates/agent_ui/src/conversation_view.rs:54` use 문에만 `SpinnerLabel` 포함, 본문 사용 0건 → 제거 안전
-  - `crates/agent_ui/src/conversation_view/thread_view.rs:5106, 5118` 스피너 호출 2곳 상류와 일치
-  - L7457(subagent diff 아이콘) `SpinnerLabel::new()`는 업스트림 패치 범위 외 → 그대로 둔다
-  - L4275 `pub(crate) fn render_entries` — 업스트림은 `fn`으로 변경했지만 visibility 변경은 필수 아님. 현 visibility 유지
+- **#53103 SSH nickname**: `crates/remote/src/remote_client.rs:1285` `display_name()` match arm 중 `Ssh(opts)` → `opts.host.to_string()` 현재. 상류는 `opts.nickname.clone().unwrap_or_else(|| opts.host.to_string())`로 교체.
+- **#52995 PastedImage name**: `crates/acp_thread/src/mention.rs` `MentionUri::PastedImage` variant가 unit 형태 → struct `PastedImage { name: String }`로 변경. 호출처 업데이트 필요 (agent/thread.rs, message_editor.rs, mention_set.rs, mention_crease.rs, thread_view.rs). 상류 patch의 모든 호출처 Dokkaebi에 존재 여부 확인 후 이식.
 
 ## 범위 (수정 대상)
-### PR #53563 — project_symbols UTF-8 패닉 수정
-- `crates/project_symbols/src/project_symbols.rs` L288 근처: `(*pos..pos + 1, ...)` → `(*pos..label.ceil_char_boundary(pos + 1), ...)`
-- `StyledText::new(label)` → `StyledText::new(&label)` (같은 PR 내 소소한 borrow 변경)
-- 테스트 추가(+100줄 근방)는 본 작업에서는 **생략**(Dokkaebi 테스트 스위트 부담 최소화)
+### PR #53103 — SSH nickname 표시
+- `crates/remote/src/remote_client.rs:1285-1288` match arm `Ssh(opts)` 내부 3줄 교체
+- 테스트 `#[cfg(test)] mod tests`(+30줄) **생략**
 
-### PR #53036 — 설정 입력 blur 저장
-- `crates/settings_ui/src/components/input_field.rs`:
-  - `first_render_initial_text` useState 추가
-  - id 분기/no-id 분기 양쪽에 `on_focus_out` 등록 블록 추가
-  - reconcile 블록을 `first_initial` 비교 + `window.defer(...)` 패턴으로 교체
-
-### PR #51756 — agent spinner GPU 감소
-- `crates/agent_ui/src/conversation_view.rs:54-57` use 문에서 `SpinnerLabel,` 제거, 포맷 재정렬
-- `crates/agent_ui/src/conversation_view/thread_view.rs`:
-  - use 문에 `SpinnerLabel, SpinnerVariant` 포함되도록 조정
-  - `ThreadFeedbackState` 아래(L164 근처)에 `GeneratingSpinner`/`GeneratingSpinnerElement` 구조체 및 impl 추가
-  - L5106 `SpinnerLabel::sand().size(LabelSize::Small)` → `h_flex().w_2().justify_center().child(GeneratingSpinnerElement::new(SpinnerVariant::Sand))`
-  - L5118 `SpinnerLabel::new().size(LabelSize::Small)` → `h_flex().w_2().justify_center().child(GeneratingSpinnerElement::new(SpinnerVariant::Dots))`
-  - L7457 `SpinnerLabel::new()` (subagent diff 아이콘, 범위 외) 그대로
+### PR #52995 — PastedImage에 이름 필드 추가
+- `crates/acp_thread/src/mention.rs` `MentionUri::PastedImage` → `PastedImage { name: String }`
+- `MentionUri::parse_str` 분기에서 `name` query param 파싱
+- `MentionUri::to_uri()` 등 직렬화 경로 업데이트
+- 호출처: agent/thread.rs, agent_ui/message_editor.rs, mention_set.rs, ui/mention_crease.rs, conversation_view/thread_view.rs
+- Dokkaebi 호출처에 `PastedImage` 패턴 매칭 있는지 grep로 전수 확인 후 모두 수정
 
 ## 수정 제외 (가드레일)
-- 상류 패치의 테스트 코드 추가는 생략(안정성 개선과 무관한 부분)
-- 상류 패치의 함수 visibility 변경(`pub(crate) fn` → `fn` 등) 미수용(호출처 영향 최소화)
-- C 카테고리 조사 단계는 본 plan 적용 **이후** 별도 진행, 코드 수정 없음(조사만)
+- 테스트 추가 생략
+- visibility/시그너처 추가 변경 없음
+- 중규모 Features 5건(#50582, #53033, #53194, #50221, #49881)은 본 plan **이후** 별도 plan으로 진행
 
 ## 작업 단계
-- [x] 1. PR #53563 project_symbols 이식
-- [x] 2. `cargo check -p project_symbols` 빌드 검증 (44.53s, exit 0)
-- [x] 3. PR #53036 input_field 이식
-- [x] 4. `cargo check -p settings_ui` 빌드 검증 (28.03s, exit 0)
-- [x] 5. PR #51756 spinner 이식 (ui import + GeneratingSpinner 구조체 + 2곳 교체)
-- [x] 6. `cargo check -p agent_ui` 빌드 검증 (2m 36s, exit 0)
-- [x] 7. 전체 `cargo check -p Dokkaebi` 최종 검증 (28.51s, exit 0, 신규 경고 0건)
-- [x] 8. `notes.md` 갱신
-- [x] 9. C 카테고리 PR 일괄 상세 조사 (파일 부재 11건 식별, 잔여 PR은 개별 심층 대조 필요로 분류)
-- [x] 10. 조사 결과 요약 보고 (본 보고서)
-- [x] 11. CLAUDE.md에 업스트림 백포트 절차·주의사항 추가
+- [ ] 1. PR #53103 이식 + `cargo check -p remote`
+- [ ] 2. PR #52995 호출처 grep + 이식 + `cargo check -p acp_thread -p agent_ui -p agent`
+- [ ] 3. 전체 `cargo check -p Dokkaebi` 최종 검증
+- [ ] 4. `notes.md` 갱신
+- [ ] 5. git commit + push
+- [ ] 6. 중규모 5건 개별 plan.md 재작성 후 순차 진행
 
 ## 검증 방법
-- 각 단계마다 개별 crate 빌드 → 최종 전체 Dokkaebi 빌드
-- `cargo check -p Dokkaebi` exit 0, 신규 경고 0건
+- 각 단계마다 빌드 통과 확인, exit 0, 신규 경고 0건
 
 ## 승인 필요 사항
-- 사용자가 "즉시 적용 권장 작업후 C 카테고리 상세 조사"로 승인 완료
-- 의존성 추가/구조 변경 없음
+- 사용자 "a" 선택으로 승인 완료

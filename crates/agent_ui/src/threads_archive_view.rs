@@ -79,14 +79,18 @@ impl TimeBucket {
 }
 
 fn fuzzy_match_positions(query: &str, text: &str) -> Option<Vec<usize>> {
-    let query = query.to_lowercase();
-    let text_lower = text.to_lowercase();
+    // 한국어·이모지 등 멀티바이트 문자 포함 제목에서 HighlightedLabel이 byte-index를
+    // 기대하므로 char_indices로 byte-index 반환 (업스트림 #53114, UTF-8 패닉 방지)
     let mut positions = Vec::new();
     let mut query_chars = query.chars().peekable();
-    for (i, c) in text_lower.chars().enumerate() {
-        if query_chars.peek() == Some(&c) {
-            positions.push(i);
-            query_chars.next();
+    for (byte_idx, candidate_char) in text.char_indices() {
+        if let Some(&query_char) = query_chars.peek() {
+            if candidate_char.eq_ignore_ascii_case(&query_char) {
+                positions.push(byte_idx);
+                query_chars.next();
+            }
+        } else {
+            break;
         }
     }
     if query_chars.peek().is_none() {

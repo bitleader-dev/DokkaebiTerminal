@@ -1285,7 +1285,11 @@ pub enum RemoteConnectionOptions {
 impl RemoteConnectionOptions {
     pub fn display_name(&self) -> String {
         match self {
-            RemoteConnectionOptions::Ssh(opts) => opts.host.to_string(),
+            // SSH 설정 nickname이 있으면 호스트명 대신 nickname 표시 (업스트림 #53103)
+            RemoteConnectionOptions::Ssh(opts) => opts
+                .nickname
+                .clone()
+                .unwrap_or_else(|| opts.host.to_string()),
             RemoteConnectionOptions::Wsl(opts) => opts.distro_name.clone(),
             RemoteConnectionOptions::Docker(opts) => {
                 if opts.use_podman {

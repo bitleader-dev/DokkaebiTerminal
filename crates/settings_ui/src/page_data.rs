@@ -1613,7 +1613,8 @@ fn editor_page() -> SettingsPage {
                 title: "settings_page.item.delay",
                 description: "settings_page.desc.hover_popover.delay",
                 field: Box::new(SettingField {
-                    json_path: Some("hover_popover_enabled"),
+                    // delay 설정의 json_path 오타 수정 (업스트림 #53359)
+                    json_path: Some("hover_popover_delay"),
                     pick: |settings_content| settings_content.editor.hover_popover_delay.as_ref(),
                     write: |settings_content, value| {
                         settings_content.editor.hover_popover_delay = value;

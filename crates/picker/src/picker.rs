@@ -121,6 +121,10 @@ pub trait PickerDelegate: Sized + 'static {
     ) -> bool {
         true
     }
+    // hover 시 항목을 자동 선택할지 여부 (업스트림 #53264)
+    fn select_on_hover(&self) -> bool {
+        true
+    }
 
     // Allows binding some optional effect to when the selection changes.
     fn selected_index_changed(
@@ -788,12 +792,14 @@ impl<D: PickerDelegate> Picker<D> {
                     this.handle_click(ix, event.modifiers.platform, window, cx)
                 }),
             )
-            .on_hover(cx.listener(move |this, hovered: &bool, window, cx| {
-                if *hovered {
-                    this.set_selected_index(ix, None, false, window, cx);
-                    cx.notify();
-                }
-            }))
+            .when(self.delegate.select_on_hover(), |this| {
+                this.on_hover(cx.listener(move |this, hovered: &bool, window, cx| {
+                    if *hovered {
+                        this.set_selected_index(ix, None, false, window, cx);
+                        cx.notify();
+                    }
+                }))
+            })
             .children(self.delegate.render_match(
                 ix,
                 ix == self.delegate.selected_index(),

@@ -263,7 +263,7 @@ async fn resolve_pasted_context_items(
 ) -> (Vec<ResolvedPastedContextItem>, Vec<Entity<Worktree>>) {
     let mut items = Vec::new();
     let mut added_worktrees = Vec::new();
-    let default_image_name: SharedString = MentionUri::PastedImage.name().into();
+    let default_image_name: SharedString = "Image".into();
 
     for entry in entries {
         match entry {
@@ -815,7 +815,9 @@ impl MessageEditor {
                                 )
                                 .uri(match uri {
                                     MentionUri::File { .. } => Some(uri.to_uri().to_string()),
-                                    MentionUri::PastedImage => None,
+                                    MentionUri::PastedImage { .. } => {
+                                        Some(uri.to_uri().to_string())
+                                    }
                                     other => {
                                         debug_panic!(
                                             "unexpected mention uri for image: {:?}",
@@ -1705,7 +1707,9 @@ impl MessageEditor {
                     let mention_uri = if let Some(uri) = uri {
                         MentionUri::parse(&uri, path_style)
                     } else {
-                        Ok(MentionUri::PastedImage)
+                        Ok(MentionUri::PastedImage {
+                            name: "Image".to_string(),
+                        })
                     };
                     let Some(mention_uri) = mention_uri.log_err() else {
                         continue;
@@ -4159,7 +4163,11 @@ mod tests {
         }
         .to_uri()
         .to_string();
-        let expected_image_uri = MentionUri::PastedImage.to_uri().to_string();
+        let expected_image_uri = MentionUri::PastedImage {
+            name: "Image".to_string(),
+        }
+        .to_uri()
+        .to_string();
 
         editor.update(&mut cx, |editor, cx| {
             assert_eq!(
@@ -4172,7 +4180,7 @@ mod tests {
 
         assert_eq!(contents.len(), 2);
         assert!(contents.iter().any(|(uri, mention)| {
-            *uri == MentionUri::PastedImage && matches!(mention, Mention::Image(_))
+            matches!(uri, MentionUri::PastedImage { .. }) && matches!(mention, Mention::Image(_))
         }));
         assert!(contents.iter().any(|(uri, mention)| {
             *uri == MentionUri::File {

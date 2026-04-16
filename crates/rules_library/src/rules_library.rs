@@ -230,6 +230,11 @@ impl PickerDelegate for RulePickerDelegate {
         }
     }
 
+    // 사이드바 hover 시 활성 rule이 바뀌지 않도록 자동 선택 비활성화 (업스트림 #53264)
+    fn select_on_hover(&self) -> bool {
+        false
+    }
+
     fn placeholder_text(&self, _window: &mut Window, _cx: &mut App) -> Arc<str> {
         "Search…".into()
     }

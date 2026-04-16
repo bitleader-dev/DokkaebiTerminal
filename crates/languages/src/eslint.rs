@@ -7,8 +7,10 @@ use http_client::{
 };
 use language::{LspAdapter, LspAdapterDelegate, LspInstaller, Toolchain};
 use lsp::{CodeActionKind, LanguageServerBinary, LanguageServerName, Uri};
-use node_runtime::NodeRuntime;
+use node_runtime::{NodeRuntime, read_package_installed_version};
+use project::Fs;
 use project::lsp_store::language_server_settings_for;
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use settings::SettingsLocation;
@@ -31,11 +33,14 @@ fn eslint_server_binary_arguments(server_path: &Path) -> Vec<OsString> {
 
 pub struct EsLintLspAdapter {
     node: NodeRuntime,
+    // ESLint 설치 버전 탐지용 파일 시스템 (업스트림 #52886)
+    fs: Arc<dyn Fs>,
 }
 
 impl EsLintLspAdapter {
-    const CURRENT_VERSION: &'static str = "2.4.4";
-    const CURRENT_VERSION_TAG_NAME: &'static str = "release/2.4.4";
+    // ESLint LSP 바이너리 버전 (업스트림 #52886: 2.4.4 → 3.0.24)
+    const CURRENT_VERSION: &'static str = "3.0.24";
+    const CURRENT_VERSION_TAG_NAME: &'static str = "release/3.0.24";
 
     #[cfg(not(windows))]
     const GITHUB_ASSET_KIND: AssetKind = AssetKind::TarGz;
@@ -45,7 +50,13 @@ impl EsLintLspAdapter {
     const SERVER_PATH: &'static str = "vscode-eslint/server/out/eslintServer.js";
     const SERVER_NAME: LanguageServerName = LanguageServerName::new_static("eslint");
 
-    const FLAT_CONFIG_FILE_NAMES: &'static [&'static str] = &[
+    // ESLint 8.21-8.56: eslint.config.js만 flat config로 인정
+    const FLAT_CONFIG_FILE_NAMES_V8_21: &'static [&'static str] = &["eslint.config.js"];
+    // ESLint 8.57+/9.x: mjs, cjs도 인정
+    const FLAT_CONFIG_FILE_NAMES_V8_57: &'static [&'static str] =
+        &["eslint.config.js", "eslint.config.mjs", "eslint.config.cjs"];
+    // ESLint 10+: TypeScript 변형까지 인정
+    const FLAT_CONFIG_FILE_NAMES_V10: &'static [&'static str] = &[
         "eslint.config.js",
         "eslint.config.mjs",
         "eslint.config.cjs",
@@ -53,9 +64,17 @@ impl EsLintLspAdapter {
         "eslint.config.cts",
         "eslint.config.mts",
     ];
+    const LEGACY_CONFIG_FILE_NAMES: &'static [&'static str] = &[
+        ".eslintrc",
+        ".eslintrc.js",
+        ".eslintrc.cjs",
+        ".eslintrc.yaml",
+        ".eslintrc.yml",
+        ".eslintrc.json",
+    ];
 
-    pub fn new(node: NodeRuntime) -> Self {
-        EsLintLspAdapter { node }
+    pub fn new(node: NodeRuntime, fs: Arc<dyn Fs>) -> Self {
+        EsLintLspAdapter { node, fs }
     }
 
     fn build_destination_path(container_dir: &Path) -> PathBuf {
@@ -72,8 +91,9 @@ impl LspInstaller for EsLintLspAdapter {
         _: bool,
         _: &mut AsyncApp,
     ) -> Result<GitHubLspBinaryVersion> {
+        // 업스트림 microsoft/vscode-eslint 직접 사용 (업스트림 #52886)
         let url = build_asset_url(
-            "zed-industries/vscode-eslint",
+            "microsoft/vscode-eslint",
             Self::CURRENT_VERSION_TAG_NAME,
             Self::GITHUB_ASSET_KIND,
         )?;
@@ -156,6 +176,44 @@ impl LspInstaller for EsLintLspAdapter {
     }
 }
 
+// ESLint 프로젝트 config 유형 (업스트림 #52886)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EslintConfigKind {
+    Flat,
+    Legacy,
+}
+
+// vscode-eslint 3.x가 자체 discovery를 하므로 Zed는 두 깨진 케이스에만 override 전송
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct EslintSettingsOverrides {
+    use_flat_config: Option<bool>,
+    experimental_use_flat_config: Option<bool>,
+}
+
+impl EslintSettingsOverrides {
+    fn apply_to(self, workspace_configuration: &mut Value) {
+        if let Some(use_flat_config) = self.use_flat_config
+            && let Some(workspace_configuration) = workspace_configuration.as_object_mut()
+        {
+            workspace_configuration.insert("useFlatConfig".to_string(), json!(use_flat_config));
+        }
+
+        if let Some(experimental_use_flat_config) = self.experimental_use_flat_config
+            && let Some(workspace_configuration) = workspace_configuration.as_object_mut()
+        {
+            let experimental = workspace_configuration
+                .entry("experimental")
+                .or_insert_with(|| json!({}));
+            if let Some(experimental) = experimental.as_object_mut() {
+                experimental.insert(
+                    "useFlatConfig".to_string(),
+                    json!(experimental_use_flat_config),
+                );
+            }
+        }
+    }
+}
+
 #[async_trait(?Send)]
 impl LspAdapter for EsLintLspAdapter {
     fn code_action_kinds(&self) -> Option<Vec<CodeActionKind>> {
@@ -173,9 +231,28 @@ impl LspAdapter for EsLintLspAdapter {
         cx: &mut AsyncApp,
     ) -> Result<Value> {
         let worktree_root = delegate.worktree_root_path();
-        let use_flat_config = Self::FLAT_CONFIG_FILE_NAMES
-            .iter()
-            .any(|file| worktree_root.join(file).is_file());
+        // 요청된 파일의 절대 경로를 worktree 기준으로 분리 (업스트림 #52886)
+        let requested_file_path = requested_uri
+            .as_ref()
+            .filter(|uri| uri.scheme() == "file")
+            .and_then(|uri| uri.to_file_path().ok())
+            .filter(|path| path.starts_with(worktree_root));
+        // 설치된 ESLint 버전·config 종류 탐지 → 버전별 flat config 플래그 결정
+        let eslint_version = find_eslint_version(
+            delegate.as_ref(),
+            worktree_root,
+            requested_file_path.as_deref(),
+        )
+        .await?;
+        let config_kind = find_eslint_config_kind(
+            worktree_root,
+            requested_file_path.as_deref(),
+            eslint_version.as_ref(),
+            self.fs.as_ref(),
+        )
+        .await;
+        let eslint_settings_overrides =
+            eslint_settings_overrides_for(eslint_version.as_ref(), config_kind);
 
         let mut default_workspace_configuration = json!({
             "validate": "on",
@@ -205,27 +282,15 @@ impl LspAdapter for EsLintLspAdapter {
                 "showDocumentation": {
                     "enable": true
                 }
-            },
-            "experimental": {
-                "useFlatConfig": use_flat_config,
             }
         });
+        // ESLint 8.21-8.56 flat config / ESLint 9 legacy config 특수 케이스만 override
+        eslint_settings_overrides.apply_to(&mut default_workspace_configuration);
 
-        let file_path = requested_uri
+        let file_path = requested_file_path
             .as_ref()
-            .and_then(|uri| {
-                (uri.scheme() == "file")
-                    .then(|| uri.to_file_path().ok())
-                    .flatten()
-            })
-            .and_then(|abs_path| {
-                abs_path
-                    .strip_prefix(&worktree_root)
-                    .ok()
-                    .map(ToOwned::to_owned)
-            });
-        let file_path = file_path
-            .and_then(|p| RelPath::unix(&p).ok().map(ToOwned::to_owned))
+            .and_then(|abs_path| abs_path.strip_prefix(worktree_root).ok())
+            .and_then(|p| RelPath::unix(p).ok().map(ToOwned::to_owned))
             .unwrap_or_else(|| RelPath::empty().to_owned());
         let override_options = cx.update(|cx| {
             language_server_settings_for(
@@ -273,6 +338,108 @@ impl LspAdapter for EsLintLspAdapter {
 
 /// On Windows, converts Unix-style separators (/) to Windows-style (\).
 /// On Unix, returns the path unchanged
+// 요청된 파일부터 worktree 루트까지 조상 디렉터리를 가까운 순으로 반환 (업스트림 #52886)
+fn ancestor_directories<'a>(
+    worktree_root: &'a Path,
+    requested_file: Option<&'a Path>,
+) -> impl Iterator<Item = &'a Path> + 'a {
+    let start = requested_file
+        .filter(|file| file.starts_with(worktree_root))
+        .and_then(Path::parent)
+        .unwrap_or(worktree_root);
+
+    start
+        .ancestors()
+        .take_while(move |dir| dir.starts_with(worktree_root))
+}
+
+// ESLint 버전별 flat config 파일명 세트를 반환
+fn flat_config_file_names(version: Option<&Version>) -> &'static [&'static str] {
+    match version {
+        Some(version) if version.major >= 10 => EsLintLspAdapter::FLAT_CONFIG_FILE_NAMES_V10,
+        Some(version) if version.major == 9 => EsLintLspAdapter::FLAT_CONFIG_FILE_NAMES_V8_57,
+        Some(version) if version.major == 8 && version.minor >= 57 => {
+            EsLintLspAdapter::FLAT_CONFIG_FILE_NAMES_V8_57
+        }
+        Some(version) if version.major == 8 && version.minor >= 21 => {
+            EsLintLspAdapter::FLAT_CONFIG_FILE_NAMES_V8_21
+        }
+        _ => &[],
+    }
+}
+
+// 요청 파일 근처의 flat/legacy config 파일을 찾아 config 종류 결정
+async fn find_eslint_config_kind(
+    worktree_root: &Path,
+    requested_file: Option<&Path>,
+    version: Option<&Version>,
+    fs: &dyn Fs,
+) -> Option<EslintConfigKind> {
+    let flat_config_file_names = flat_config_file_names(version);
+
+    for directory in ancestor_directories(worktree_root, requested_file) {
+        for file_name in flat_config_file_names {
+            if fs.is_file(&directory.join(file_name)).await {
+                return Some(EslintConfigKind::Flat);
+            }
+        }
+
+        for file_name in EsLintLspAdapter::LEGACY_CONFIG_FILE_NAMES {
+            if fs.is_file(&directory.join(file_name)).await {
+                return Some(EslintConfigKind::Legacy);
+            }
+        }
+    }
+
+    None
+}
+
+// 버전/config 조합이 vscode-eslint 3.x의 기본 discovery로 안 되는 두 깨진 케이스에만 override 반환
+fn eslint_settings_overrides_for(
+    version: Option<&Version>,
+    config_kind: Option<EslintConfigKind>,
+) -> EslintSettingsOverrides {
+    let Some(version) = version else {
+        return EslintSettingsOverrides::default();
+    };
+
+    match config_kind {
+        // ESLint 8.21-8.56 flat config → experimental.useFlatConfig = true
+        Some(EslintConfigKind::Flat) if version.major == 8 && (21..57).contains(&version.minor) => {
+            EslintSettingsOverrides {
+                use_flat_config: None,
+                experimental_use_flat_config: Some(true),
+            }
+        }
+        // ESLint 9 legacy config → useFlatConfig = false
+        Some(EslintConfigKind::Legacy) if version.major == 9 => EslintSettingsOverrides {
+            use_flat_config: Some(false),
+            experimental_use_flat_config: None,
+        },
+        _ => EslintSettingsOverrides::default(),
+    }
+}
+
+// 워크트리 조상 디렉터리들의 node_modules/eslint 버전을 찾거나 npm 전역 패키지 버전으로 폴백
+async fn find_eslint_version(
+    delegate: &dyn LspAdapterDelegate,
+    worktree_root: &Path,
+    requested_file: Option<&Path>,
+) -> Result<Option<Version>> {
+    for directory in ancestor_directories(worktree_root, requested_file) {
+        if let Some(version) =
+            read_package_installed_version(directory.join("node_modules"), "eslint").await?
+        {
+            return Ok(Some(version));
+        }
+    }
+
+    Ok(delegate
+        .npm_package_installed_version("eslint")
+        .await?
+        .map(|(_, version)| version))
+}
+
 fn normalize_path_separators(path: &str) -> String {
     #[cfg(windows)]
     {

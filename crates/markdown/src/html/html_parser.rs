@@ -1,6 +1,6 @@
 use std::{cell::RefCell, collections::HashMap, mem, ops::Range};
 
-use gpui::{DefiniteLength, FontWeight, SharedString, px, relative};
+use gpui::{DefiniteLength, FontWeight, SharedString, TextAlign, px, relative};
 use html5ever::{
     Attribute, LocalName, ParseOpts, local_name, parse_document, tendril::TendrilSink,
 };
@@ -24,8 +24,16 @@ pub(crate) enum ParsedHtmlElement {
     List(ParsedHtmlList),
     Table(ParsedHtmlTable),
     BlockQuote(ParsedHtmlBlockQuote),
-    Paragraph(HtmlParagraph),
+    // text_align을 함께 보존하기 위해 struct variant로 확장 (업스트림 #53196)
+    Paragraph(ParsedHtmlParagraph),
     Image(HtmlImage),
+}
+
+#[derive(Debug, Clone)]
+#[cfg_attr(test, derive(PartialEq))]
+pub(crate) struct ParsedHtmlParagraph {
+    pub text_align: Option<TextAlign>,
+    pub contents: HtmlParagraph,
 }
 
 impl ParsedHtmlElement {
@@ -35,7 +43,7 @@ impl ParsedHtmlElement {
             Self::List(list) => list.source_range.clone(),
             Self::Table(table) => table.source_range.clone(),
             Self::BlockQuote(block_quote) => block_quote.source_range.clone(),
-            Self::Paragraph(text) => match text.first()? {
+            Self::Paragraph(paragraph) => match paragraph.contents.first()? {
                 HtmlParagraphChunk::Text(text) => text.source_range.clone(),
                 HtmlParagraphChunk::Image(image) => image.source_range.clone(),
             },
@@ -83,6 +91,8 @@ pub(crate) struct ParsedHtmlHeading {
     pub source_range: Range<usize>,
     pub level: HeadingLevel,
     pub contents: HtmlParagraph,
+    // HTML 헤딩의 text-align 스타일 보존 (업스트림 #53196)
+    pub text_align: Option<TextAlign>,
 }
 
 #[derive(Debug, Clone)]
@@ -236,20 +246,22 @@ fn parse_html_node(
             consume_children(source_range, node, elements, context);
         }
         NodeData::Text { contents } => {
-            elements.push(ParsedHtmlElement::Paragraph(vec![
-                HtmlParagraphChunk::Text(ParsedHtmlText {
+            elements.push(ParsedHtmlElement::Paragraph(ParsedHtmlParagraph {
+                text_align: None,
+                contents: vec![HtmlParagraphChunk::Text(ParsedHtmlText {
                     source_range,
                     highlights: Vec::default(),
                     links: Vec::default(),
                     contents: contents.borrow().to_string().into(),
-                }),
-            ]));
+                })],
+            }));
         }
         NodeData::Comment { .. } => {}
         NodeData::Element { name, attrs, .. } => {
-            let mut styles = if let Some(styles) =
-                html_style_from_html_styles(extract_styles_from_attributes(attrs))
-            {
+            // HTML style/align 속성에서 text-align 값 미리 추출 (업스트림 #53196)
+            let styles_map = extract_styles_from_attributes(attrs);
+            let text_align = text_align_from_attributes(attrs, &styles_map);
+            let mut styles = if let Some(styles) = html_style_from_html_styles(styles_map) {
                 vec![styles]
             } else {
                 Vec::default()
@@ -270,7 +282,10 @@ fn parse_html_node(
                 );
 
                 if !paragraph.is_empty() {
-                    elements.push(ParsedHtmlElement::Paragraph(paragraph));
+                    elements.push(ParsedHtmlElement::Paragraph(ParsedHtmlParagraph {
+                        text_align,
+                        contents: paragraph,
+                    }));
                 }
             } else if matches!(
                 name.local,
@@ -303,6 +318,7 @@ fn parse_html_node(
                             _ => unreachable!(),
                         },
                         contents: paragraph,
+                        text_align,
                     }));
                 }
             } else if name.local == local_name!("ul") || name.local == local_name!("ol") {
@@ -589,6 +605,32 @@ fn html_style_from_html_styles(styles: HashMap<String, String>) -> Option<HtmlHi
     }
 }
 
+// text-align 값 파서 (style="text-align: ..." / align="..." 모두 지원, 업스트림 #53196)
+fn parse_text_align(value: &str) -> Option<TextAlign> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "left" => Some(TextAlign::Left),
+        "center" => Some(TextAlign::Center),
+        "right" => Some(TextAlign::Right),
+        _ => None,
+    }
+}
+
+fn text_align_from_styles(styles: &HashMap<String, String>) -> Option<TextAlign> {
+    styles
+        .get("text-align")
+        .and_then(|value| parse_text_align(value))
+}
+
+fn text_align_from_attributes(
+    attrs: &RefCell<Vec<Attribute>>,
+    styles: &HashMap<String, String>,
+) -> Option<TextAlign> {
+    // style의 text-align을 우선시하고, 없으면 HTML4 align 속성으로 폴백
+    text_align_from_styles(styles).or_else(|| {
+        attr_value(attrs, local_name!("align")).and_then(|value| parse_text_align(&value))
+    })
+}
+
 fn extract_styles_from_attributes(attrs: &RefCell<Vec<Attribute>>) -> HashMap<String, String> {
     let mut styles = HashMap::new();
 
@@ -783,7 +825,7 @@ mod tests {
         let ParsedHtmlElement::Paragraph(paragraph) = &parsed.children[0] else {
             panic!("expected paragraph");
         };
-        let HtmlParagraphChunk::Text(text) = &paragraph[0] else {
+        let HtmlParagraphChunk::Text(text) = &paragraph.contents[0] else {
             panic!("expected text chunk");
         };
 
@@ -851,7 +893,7 @@ mod tests {
         let ParsedHtmlElement::Paragraph(paragraph) = &first_item.content[0] else {
             panic!("expected first item paragraph");
         };
-        let HtmlParagraphChunk::Text(text) = &paragraph[0] else {
+        let HtmlParagraphChunk::Text(text) = &paragraph.contents[0] else {
             panic!("expected first item text");
         };
         assert_eq!(text.contents.as_ref(), "parent");
@@ -866,7 +908,7 @@ mod tests {
         else {
             panic!("expected nested item paragraph");
         };
-        let HtmlParagraphChunk::Text(nested_text) = &nested_paragraph[0] else {
+        let HtmlParagraphChunk::Text(nested_text) = &nested_paragraph.contents[0] else {
             panic!("expected nested item text");
         };
         assert_eq!(nested_text.contents.as_ref(), "child");
@@ -875,7 +917,7 @@ mod tests {
         let ParsedHtmlElement::Paragraph(second_paragraph) = &second_item.content[0] else {
             panic!("expected second item paragraph");
         };
-        let HtmlParagraphChunk::Text(second_text) = &second_paragraph[0] else {
+        let HtmlParagraphChunk::Text(second_text) = &second_paragraph.contents[0] else {
             panic!("expected second item text");
         };
         assert_eq!(second_text.contents.as_ref(), "sibling");

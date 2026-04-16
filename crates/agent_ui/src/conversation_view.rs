@@ -790,9 +790,10 @@ impl ConversationView {
         cx: &mut Context<Self>,
     ) -> Entity<ThreadView> {
         let agent_id = self.agent.agent_id();
+        // 복원된 스레드의 slash command 목록을 초기 세션 용량에 반영 (업스트림 #53209)
         let session_capabilities = Arc::new(RwLock::new(SessionCapabilities::new(
             thread.read(cx).prompt_capabilities(),
-            vec![],
+            thread.read(cx).available_commands().to_vec(),
         )));
 
         let action_log = thread.read(cx).action_log().clone();

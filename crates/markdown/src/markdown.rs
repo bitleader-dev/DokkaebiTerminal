@@ -36,8 +36,8 @@ use gpui::{
     FocusHandle, Focusable, FontStyle, FontWeight, GlobalElementId, Hitbox, Hsla, Image,
     ImageFormat, ImageSource, KeyContext, Length, MouseButton, MouseDownEvent, MouseEvent,
     MouseMoveEvent, MouseUpEvent, Point, ScrollHandle, Stateful, StrikethroughStyle,
-    StyleRefinement, StyledText, Task, TextLayout, TextRun, TextStyle, TextStyleRefinement,
-    actions, img, point, quad,
+    StyleRefinement, StyledText, Task, TextAlign, TextLayout, TextRun, TextStyle,
+    TextStyleRefinement, actions, img, point, quad,
 };
 use language::{CharClassifier, Language, LanguageRegistry, Rope};
 use parser::CodeBlockMetadata;
@@ -994,14 +994,30 @@ impl MarkdownElement {
         builder: &mut MarkdownElementBuilder,
         range: &Range<usize>,
         markdown_end: usize,
+        // HTML <p align="..."> / style="text-align: ..." 전파를 위해 override 추가 (업스트림 #53196)
+        text_align_override: Option<TextAlign>,
     ) {
-        builder.push_div(
-            div().when(!self.style.height_is_multiple_of_line_height, |el| {
-                el.mb_2().line_height(rems(1.3))
-            }),
-            range,
-            markdown_end,
-        );
+        let align = text_align_override.unwrap_or(self.style.base_text_style.text_align);
+        let mut paragraph = div().when(!self.style.height_is_multiple_of_line_height, |el| {
+            el.mb_2().line_height(rems(1.3))
+        });
+
+        paragraph = match align {
+            TextAlign::Center => paragraph.text_center(),
+            TextAlign::Left => paragraph.text_left(),
+            TextAlign::Right => paragraph.text_right(),
+        };
+
+        builder.push_text_style(TextStyleRefinement {
+            text_align: Some(align),
+            ..Default::default()
+        });
+        builder.push_div(paragraph, range, markdown_end);
+    }
+
+    fn pop_markdown_paragraph(&self, builder: &mut MarkdownElementBuilder) {
+        builder.pop_div();
+        builder.pop_text_style();
     }
 
     fn push_markdown_heading(
@@ -1010,15 +1026,27 @@ impl MarkdownElement {
         level: pulldown_cmark::HeadingLevel,
         range: &Range<usize>,
         markdown_end: usize,
+        // HTML 헤딩의 text-align override (업스트림 #53196)
+        text_align_override: Option<TextAlign>,
     ) {
+        let align = text_align_override.unwrap_or(self.style.base_text_style.text_align);
         let mut heading = div().mb_2();
         heading = apply_heading_style(heading, level, self.style.heading_level_styles.as_ref());
+
+        heading = match align {
+            TextAlign::Center => heading.text_center(),
+            TextAlign::Left => heading.text_left(),
+            TextAlign::Right => heading.text_right(),
+        };
 
         let mut heading_style = self.style.heading.clone();
         let heading_text_style = heading_style.text_style().clone();
         heading.style().refine(&heading_style);
 
-        builder.push_text_style(heading_text_style);
+        builder.push_text_style(TextStyleRefinement {
+            text_align: Some(align),
+            ..heading_text_style
+        });
         builder.push_div(heading, range, markdown_end);
     }
 
@@ -1478,10 +1506,16 @@ impl Element for MarkdownElement {
                             }
                         }
                         MarkdownTag::Paragraph => {
-                            self.push_markdown_paragraph(&mut builder, range, markdown_end);
+                            self.push_markdown_paragraph(&mut builder, range, markdown_end, None);
                         }
                         MarkdownTag::Heading { level, .. } => {
-                            self.push_markdown_heading(&mut builder, *level, range, markdown_end);
+                            self.push_markdown_heading(
+                                &mut builder,
+                                *level,
+                                range,
+                                markdown_end,
+                                None,
+                            );
                         }
                         MarkdownTag::BlockQuote => {
                             self.push_markdown_block_quote(&mut builder, range, markdown_end);
@@ -1738,7 +1772,8 @@ impl Element for MarkdownElement {
                         current_img_block_range.take();
                     }
                     MarkdownTagEnd::Paragraph => {
-                        builder.pop_div();
+                        // text_align 스타일을 함께 pop (업스트림 #53196)
+                        self.pop_markdown_paragraph(&mut builder);
                     }
                     MarkdownTagEnd::Heading(_) => {
                         self.pop_markdown_heading(&mut builder);

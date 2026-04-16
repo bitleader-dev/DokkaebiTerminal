@@ -384,7 +384,9 @@ impl ThreadView {
     ) -> Self {
         let id = thread.read(cx).session_id().clone();
 
-        let placeholder = placeholder_text(agent_display_name.as_ref(), false, cx);
+        // 복원된 스레드에 명령 목록이 있으면 placeholder에 반영 (업스트림 #53209)
+        let has_commands = !session_capabilities.read().available_commands().is_empty();
+        let placeholder = placeholder_text(agent_display_name.as_ref(), has_commands, cx);
 
         let history_subscription = history.as_ref().map(|h| {
             cx.observe(h, |this, history, cx| {

@@ -2280,7 +2280,13 @@ impl Render for KeymapEditor {
 
                                     let source = binding
                                         .keybind_source()
-                                        .map(|source| source.name())
+                                        .map(|source| {
+                                            let key = format!(
+                                                "keymap_editor.source.{}",
+                                                source.name().to_lowercase()
+                                            );
+                                            t(&key, cx)
+                                        })
                                         .unwrap_or_default()
                                         .into_any_element();
 

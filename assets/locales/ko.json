@@ -3212,5 +3212,10 @@
   "action.zeta::PreviousEdit": "예측 편집: 이전",
   "action.zeta::ThumbsDownActivePrediction": "예측 편집: 싫어요",
   "action.zeta::ThumbsUpActivePrediction": "예측 편집: 좋아요",
-  "action.activity_indicator::DismissMessage": "활동 표시기: 메시지 닫기"
+  "action.activity_indicator::DismissMessage": "활동 표시기: 메시지 닫기",
+  "keymap_editor.source.user": "사용자",
+  "keymap_editor.source.default": "기본",
+  "keymap_editor.source.base": "기본(베이스)",
+  "keymap_editor.source.vim": "Vim",
+  "keymap_editor.source.unknown": "알 수 없음"
 }

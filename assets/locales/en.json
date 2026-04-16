@@ -3212,5 +3212,10 @@
   "action.zeta::PreviousEdit": "Zeta: Previous Edit",
   "action.zeta::ThumbsDownActivePrediction": "Zeta: Thumbs Down Active Prediction",
   "action.zeta::ThumbsUpActivePrediction": "Zeta: Thumbs Up Active Prediction",
-  "action.activity_indicator::DismissMessage": "Activity Indicator: Dismiss Message"
+  "action.activity_indicator::DismissMessage": "Activity Indicator: Dismiss Message",
+  "keymap_editor.source.user": "User",
+  "keymap_editor.source.default": "Default",
+  "keymap_editor.source.base": "Base",
+  "keymap_editor.source.vim": "Vim",
+  "keymap_editor.source.unknown": "Unknown"
 }

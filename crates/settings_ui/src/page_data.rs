@@ -6716,6 +6716,29 @@ fn ai_page(cx: &App) -> SettingsPage {
                 metadata: None,
                 files: USER,
             }),
+            // 상태바 병합 충돌 indicator 표시 여부 (업스트림 #53033)
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "settings_page.item.show_merge_conflict_indicator",
+                description: "settings_page.desc.agent.show_merge_conflict_indicator",
+                field: Box::new(SettingField {
+                    json_path: Some("agent.show_merge_conflict_indicator"),
+                    pick: |settings_content| {
+                        settings_content
+                            .agent
+                            .as_ref()?
+                            .show_merge_conflict_indicator
+                            .as_ref()
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .agent
+                            .get_or_insert_default()
+                            .show_merge_conflict_indicator = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
         ]);
 
         items.into_boxed_slice()

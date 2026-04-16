@@ -49,6 +49,9 @@ pub mod stash_picker;
 pub mod text_diff_view;
 pub mod worktree_picker;
 
+// 상태바 병합 충돌 indicator 뷰 export (업스트림 #53033)
+pub use conflict_view::MergeConflictIndicator;
+
 pub fn init(cx: &mut App) {
     // Git Panel 설정 등록
     GitPanelSettings::register(cx);
@@ -67,7 +70,6 @@ pub fn init(cx: &mut App) {
         git_panel::register(workspace);
         repository_selector::register(workspace);
         git_picker::register(workspace);
-        conflict_view::register_conflict_notification(workspace, cx);
 
         let project = workspace.project().read(cx);
         if project.is_read_only(cx) {

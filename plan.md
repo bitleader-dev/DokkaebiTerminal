@@ -1,51 +1,62 @@
-# PR #50221 project_panel sort_order 백포트 (2026-04-16)
+# Zed v0.232.2 PR #53033 show_merge_conflict_indicator 백포트 (2026-04-16)
 
 ## 목표
-`util::paths::compare_rel_paths_by` 선행 이식 요구를 포함한 단일 PR #50221 전체 백포트.
+병합 충돌 알림을 우측 하단 팝업에서 **상태바 indicator**로 대체. 새 설정 `show_merge_conflict_indicator`로 토글 가능. 11개 파일 변경.
 
-## 사전 조사 결과
-- PR #50221은 단일 커밋(`320cef37`)으로 아래 파일을 모두 수정:
-  - `crates/util/src/paths.rs` (+482/-156) — **`SortMode`/`SortOrder` enum + `compare_rel_paths_by` + 헬퍼 + 기존 함수 삭제**
-  - `crates/settings_content/src/workspace.rs` (+58/-0) — `ProjectPanelSortOrder` enum + 설정 필드
-  - `crates/settings/src/vscode_import.rs` (+13/-1) — VSCode 설정 import
-  - `crates/settings/src/settings_store.rs` (+24/-0) — 테스트만, **생략**
-  - `crates/settings_ui/src/page_data.rs` (+19/-1) — Sort Order UI 항목 추가 (배열 크기 28→29)
-  - `crates/settings_ui/src/settings_ui.rs` (+1/-0) — 관련 변경 1줄
-  - `crates/project_panel/src/project_panel_settings.rs` (+4/-2) — `sort_order` 필드
-  - `crates/project_panel/src/project_panel.rs` (+24/-28) — 호출처 교체 및 `cmp_*` 통합
-  - `crates/project_panel/benches/sorting.rs` (+27/-33) — 벤치마크 재구성
-  - `assets/settings/default.json` (+15/-0) — 기본값 및 주석
-  - `docs/*` — **이식 대상 아님**
+## 사전 조사 결과 (Dokkaebi 현재 상태)
+- `crates/git_ui/src/conflict_view.rs:522` `register_conflict_notification` **존재** (이전 세션 i18n 한글화로 `i18n::t_args("conflict_view.unresolved_*", ...)` 사용 중)
+- `crates/git_ui/src/git_ui.rs:70` `register_conflict_notification` 호출 **존재**
+- `crates/workspace/src/workspace.rs:8175` `merge_conflict_notification_id()` **존재**
+- `crates/agent_ui/src/conversation_view/thread_view.rs:816,883,891` suppress/unsuppress 호출 **존재** (L816은 #51756 백포트와 얽혀 있음)
+- `IconName::GitMergeConflict` L153 **존재** (사용 가능)
+- `IconName::DokkaebiAssistant` L279 **존재** (상류 `ZedAssistant` 대응, Dokkaebi 리네이밍 완료)
+- 기존 `show_turn_stats` 필드 이미 `agent_settings.rs:54`, `settings_content/agent.rs:176`에 존재 → 유사 위치에 `show_merge_conflict_indicator` 추가
 
-- Dokkaebi 기존 사용처: `compare_rel_paths_mixed`/`_files_first` 호출은 `project_panel.rs:7450,7455` + util 내부 테스트 12건 → project_panel 호출 2곳은 patch로 교체됨, util 테스트는 `compare_rel_paths_by(...)` 시그너처로 migrate 필요
+## 추가 고려 사항 — i18n
+상류 patch의 `MergeConflictIndicator::render` 본문은 4개 영문 리터럴:
+- `"Resolve Merge Conflict{s} with Agent"` (단/복수)
+- `"Found {count} conflict{s} across the codebase"` (단/복수)
+- `"Click to Resolve with Agent"` (tooltip meta)
 
-## 범위 (수정 대상 파일)
-1. `crates/util/src/paths.rs` — 전체 변경 반영. 단 **새 테스트 3건**(`compare_rel_paths_upper/lower/unicode`, +320줄)은 **생략**. 기존 테스트 호출 시그너처만 migrate. `compare_rel_paths_mixed_same_name_different_case` 예상 결과값 변경도 이식.
-2. `crates/settings_content/src/workspace.rs` — `ProjectPanelSortOrder` enum + `sort_order` 필드 + `From<_>` impl 2개 추가
-3. `crates/settings/src/vscode_import.rs` — `sort_mode`/`sort_order` 파싱 확장
-4. `crates/settings_ui/src/page_data.rs` — Sort Order UI 항목 + 배열 크기
-5. `crates/settings_ui/src/settings_ui.rs` — 1줄 추가 (export 등)
-6. `crates/project_panel/src/project_panel_settings.rs` — `sort_order` 필드 2곳
-7. `crates/project_panel/src/project_panel.rs` — `cmp_*` 4개 함수 통합, `par_sort_worktree_entries_with_mode` → `par_sort_worktree_entries`, 관찰자·빌더 코드 업데이트
-8. `crates/project_panel/benches/sorting.rs` — 벤치마크 재구성 (이식 가능하지만 필수 아님)
-9. `assets/settings/default.json` — `sort_order` 기본값 + 주석 추가
+Dokkaebi 정책상 UI 문자열은 i18n 필수. 이식 시 `i18n::t`/`i18n::t_args`로 치환하며 키 추가:
+- `conflict_view.indicator.resolve_single` / `resolve_multi`
+- `conflict_view.indicator.tooltip_single` / `tooltip_multi` (`{count}` placeholder)
+- `conflict_view.indicator.tooltip_meta`
+
+이전 세션에서 추가한 `conflict_view.unresolved_single|multi|resolve_with_agent` 3개 키는 `register_conflict_notification` 삭제와 함께 **고아 키** 됨 → ko/en.json에서 제거.
+
+## 범위 (수정 대상 11개 파일)
+1. `crates/settings_content/src/agent.rs` — `show_merge_conflict_indicator: Option<bool>` 필드 추가 (show_turn_stats 바로 뒤)
+2. `crates/agent_settings/src/agent_settings.rs` — `AgentSettings` struct 필드 + `from_settings` 매핑
+3. `crates/agent/src/tool_permissions.rs` — 테스트용 AgentSettings 빌더에 필드 추가 (1줄)
+4. `crates/agent_ui/src/agent_ui.rs` — 테스트용 AgentSettings 빌더에 필드 추가 (1줄)
+5. `crates/agent_ui/src/conversation_view/thread_view.rs` — `suppress_merge_conflict_notification`/`unsuppress_merge_conflict_notification` 메서드 + 호출 제거 (L816, L830, L845 근처)
+6. `crates/workspace/src/workspace.rs:8175` — `merge_conflict_notification_id()` 함수 삭제 (5줄)
+7. `crates/git_ui/src/conflict_view.rs` — `register_conflict_notification` 함수 + 관련 use (`RefCell`, `Rc`, `MessageNotification`, `notification_panel` 등) 제거, `MergeConflictIndicator` struct + Render + StatusItemView impl 신규 추가 (i18n 치환 포함)
+8. `crates/git_ui/src/git_ui.rs` — `pub use conflict_view::MergeConflictIndicator;` 추가, `register_conflict_notification(workspace, cx)` 호출 제거
+9. `crates/zed/src/zed.rs:initialize_workspace` — `MergeConflictIndicator::new(workspace, cx)` 생성 + `status_bar.add_left_item(...)` 추가
+10. `crates/settings_ui/src/page_data.rs` — AI 설정 페이지에 "Show Merge Conflict Indicator" SettingItem 추가 (기존 배열 크기 +1, 위치 확인 필요)
+11. `assets/settings/default.json` — `show_merge_conflict_indicator: true` 추가 + 주석
+12. `assets/locales/ko.json`, `en.json` — 신규 5개 키 추가, 고아 3개 키 제거
 
 ## 수정 제외 (가드레일)
-- 업스트림 테스트 추가(+320줄, 3개 새 테스트) 생략
-- `settings/src/settings_store.rs` 테스트 추가(+24줄) 생략
-- `docs/*` 업데이트 대상 아님
+- `IconName::ZedAssistant` → 이미 Dokkaebi는 `DokkaebiAssistant` 쓰지만 해당 함수 자체 삭제되므로 참조 정리
+- 상류의 다른 코드 스타일 변경 최소 반영
 
 ## 작업 단계
-- [ ] 1. util/paths.rs 이식 + 기존 테스트 migrate + `cargo check -p util`
-- [ ] 2. settings_content/workspace.rs 이식 + `cargo check -p settings_content`
-- [ ] 3. settings/vscode_import.rs 이식 + `cargo check -p settings`
-- [ ] 4. settings_ui 2파일 이식 + `cargo check -p settings_ui`
-- [ ] 5. project_panel_settings.rs 이식 + `cargo check -p project_panel`
-- [ ] 6. project_panel.rs 이식 + 빌드 재검증
-- [ ] 7. benches/sorting.rs 이식 (선택)
-- [ ] 8. default.json 업데이트
-- [ ] 9. 전체 `cargo check -p Dokkaebi` 최종 검증
-- [ ] 10. `notes.md` 갱신 + git commit + push
+- [ ] 1. settings_content/agent.rs 이식
+- [ ] 2. agent_settings 이식 (필드 + from_settings)
+- [ ] 3. tool_permissions.rs + agent_ui.rs 테스트 빌더 수정 + `cargo check -p agent_settings -p agent -p agent_ui`
+- [ ] 4. workspace/src/workspace.rs `merge_conflict_notification_id` 제거
+- [ ] 5. thread_view.rs suppress/unsuppress 관련 제거
+- [ ] 6. git_ui/git_ui.rs 호출 제거 + pub use 추가
+- [ ] 7. conflict_view.rs 대규모 재작성 (register_conflict_notification 삭제 + MergeConflictIndicator 추가)
+- [ ] 8. ko/en.json i18n 키 교체 (신규 5개 + 고아 3개 제거)
+- [ ] 9. zed/src/zed.rs 상태바 항목 추가
+- [ ] 10. settings_ui/page_data.rs 설정 UI 항목 추가
+- [ ] 11. default.json 기본값 추가
+- [ ] 12. `cargo check -p Dokkaebi` 최종 검증
+- [ ] 13. notes.md 갱신 + git commit + push
 
 ## 승인 필요 사항
-- 사용자 "b" 선택으로 승인 완료
+- 사용자 "a" 선택으로 승인 완료

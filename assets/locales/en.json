@@ -3144,5 +3144,7 @@
   "settings_page.desc.project_panel.sort_order": "Whether to sort file and folder names case-sensitively in the project panel.",
   "Upper": "Upper",
   "Lower": "Lower",
-  "Unicode": "Unicode"
+  "Unicode": "Unicode",
+  "Directories First": "Directories First",
+  "Files First": "Files First"
 }

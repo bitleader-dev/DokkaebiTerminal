@@ -3135,5 +3135,7 @@
   "extensions.menu.install_another_version": "다른 버전 설치...",
   "extensions.menu.copy_extension_id": "확장 ID 복사",
   "extensions.menu.copy_author_info": "작성자 정보 복사",
-  "list.no_items": "항목 없음"
+  "list.no_items": "항목 없음",
+  "settings_page.item.sort_order": "정렬 순서",
+  "settings_page.desc.project_panel.sort_order": "프로젝트 패널에서 파일·폴더 이름을 대소문자 기준으로 어떻게 정렬할지 결정합니다."
 }

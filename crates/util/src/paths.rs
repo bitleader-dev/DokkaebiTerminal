@@ -1109,67 +1109,96 @@ fn stem_and_extension(filename: &str) -> (Option<&str>, Option<&str>) {
     }
 }
 
+/// 파일·폴더 이름을 비교할 때 대소문자·유니코드 처리 방식을 결정한다. (업스트림 #50221)
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum SortOrder {
+    /// 대소문자 무관 자연 정렬. 타이 상황에서는 소문자를 선호한다.
+    /// 파일명 내 숫자는 수치로 비교한다 (예: `file2` < `file10`).
+    #[default]
+    Default,
+    /// 대문자로 시작하는 이름을 먼저, 그 안에서 대소문자 무관 자연 정렬.
+    /// 점(`.`)으로 시작하는 이름은 두 그룹 모두보다 먼저 정렬.
+    Upper,
+    /// 소문자로 시작하는 이름을 먼저, 그 안에서 대소문자 무관 자연 정렬.
+    /// 점(`.`)으로 시작하는 이름은 두 그룹 모두보다 먼저 정렬.
+    Lower,
+    /// 순수 유니코드 코드포인트 비교. 케이스 폴딩과 자연 정렬을 수행하지 않는다.
+    Unicode,
+}
+
+/// 파일과 디렉터리의 상대 정렬 순서를 결정한다. (업스트림 #50221)
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq)]
+pub enum SortMode {
+    /// 같은 레벨에서 디렉터리를 파일보다 먼저 표시.
+    #[default]
+    DirectoriesFirst,
+    /// 파일과 디렉터리를 이름 순으로 섞어서 표시.
+    Mixed,
+    /// 같은 레벨에서 파일을 디렉터리보다 먼저 표시.
+    FilesFirst,
+}
+
+// Upper/Lower 정렬에서 대소문자 그룹 구분용 키. 다른 Order는 구분하지 않음.
+fn case_group_key(name: &str, order: SortOrder) -> u8 {
+    let first = match name.chars().next() {
+        Some(c) => c,
+        None => return 0,
+    };
+    match order {
+        SortOrder::Upper => {
+            if first.is_lowercase() {
+                1
+            } else {
+                0
+            }
+        }
+        SortOrder::Lower => {
+            if first.is_uppercase() {
+                1
+            } else {
+                0
+            }
+        }
+        _ => 0,
+    }
+}
+
+fn compare_strings(a: &str, b: &str, order: SortOrder) -> Ordering {
+    match order {
+        SortOrder::Unicode => a.cmp(b),
+        _ => natural_sort(a, b),
+    }
+}
+
+fn compare_strings_no_tiebreak(a: &str, b: &str, order: SortOrder) -> Ordering {
+    match order {
+        SortOrder::Unicode => a.cmp(b),
+        _ => natural_sort_no_tiebreak(a, b),
+    }
+}
+
 pub fn compare_rel_paths(
     (path_a, a_is_file): (&RelPath, bool),
     (path_b, b_is_file): (&RelPath, bool),
 ) -> Ordering {
-    let mut components_a = path_a.components();
-    let mut components_b = path_b.components();
-    loop {
-        match (components_a.next(), components_b.next()) {
-            (Some(component_a), Some(component_b)) => {
-                let a_is_file = a_is_file && components_a.rest().is_empty();
-                let b_is_file = b_is_file && components_b.rest().is_empty();
-
-                let ordering = a_is_file.cmp(&b_is_file).then_with(|| {
-                    let (a_stem, a_extension) = a_is_file
-                        .then(|| stem_and_extension(component_a))
-                        .unwrap_or_default();
-                    let path_string_a = if a_is_file { a_stem } else { Some(component_a) };
-
-                    let (b_stem, b_extension) = b_is_file
-                        .then(|| stem_and_extension(component_b))
-                        .unwrap_or_default();
-                    let path_string_b = if b_is_file { b_stem } else { Some(component_b) };
-
-                    let compare_components = match (path_string_a, path_string_b) {
-                        (Some(a), Some(b)) => natural_sort(&a, &b),
-                        (Some(_), None) => Ordering::Greater,
-                        (None, Some(_)) => Ordering::Less,
-                        (None, None) => Ordering::Equal,
-                    };
-
-                    compare_components.then_with(|| {
-                        if a_is_file && b_is_file {
-                            let ext_a = a_extension.unwrap_or_default();
-                            let ext_b = b_extension.unwrap_or_default();
-                            ext_a.cmp(ext_b)
-                        } else {
-                            Ordering::Equal
-                        }
-                    })
-                });
-
-                if !ordering.is_eq() {
-                    return ordering;
-                }
-            }
-            (Some(_), None) => break Ordering::Greater,
-            (None, Some(_)) => break Ordering::Less,
-            (None, None) => break Ordering::Equal,
-        }
-    }
+    compare_rel_paths_by(
+        (path_a, a_is_file),
+        (path_b, b_is_file),
+        SortMode::DirectoriesFirst,
+        SortOrder::Default,
+    )
 }
 
-/// Compare two relative paths with mixed files and directories using
-/// case-insensitive natural sorting. For example, "Apple", "aardvark.txt",
-/// and "Zebra" would be sorted as: aardvark.txt, Apple, Zebra
-/// (case-insensitive alphabetical).
-pub fn compare_rel_paths_mixed(
+/// `SortMode`와 `SortOrder`를 명시해 상대 경로 2개를 비교한다. (업스트림 #50221)
+pub fn compare_rel_paths_by(
     (path_a, a_is_file): (&RelPath, bool),
     (path_b, b_is_file): (&RelPath, bool),
+    mode: SortMode,
+    order: SortOrder,
 ) -> Ordering {
-    let original_paths_equal = std::ptr::eq(path_a, path_b) || path_a == path_b;
+    let needs_final_tiebreak =
+        mode != SortMode::DirectoriesFirst && !(std::ptr::eq(path_a, path_b) || path_a == path_b);
+
     let mut components_a = path_a.components();
     let mut components_b = path_b.components();
 
@@ -1179,79 +1208,15 @@ pub fn compare_rel_paths_mixed(
                 let a_leaf_file = a_is_file && components_a.rest().is_empty();
                 let b_leaf_file = b_is_file && components_b.rest().is_empty();
 
-                let (a_stem, a_ext) = a_leaf_file
-                    .then(|| stem_and_extension(component_a))
-                    .unwrap_or_default();
-                let (b_stem, b_ext) = b_leaf_file
-                    .then(|| stem_and_extension(component_b))
-                    .unwrap_or_default();
-                let a_key = if a_leaf_file {
-                    a_stem
-                } else {
-                    Some(component_a)
-                };
-                let b_key = if b_leaf_file {
-                    b_stem
-                } else {
-                    Some(component_b)
+                let file_dir_ordering = match mode {
+                    SortMode::DirectoriesFirst => a_leaf_file.cmp(&b_leaf_file),
+                    SortMode::FilesFirst => b_leaf_file.cmp(&a_leaf_file),
+                    SortMode::Mixed => Ordering::Equal,
                 };
 
-                let ordering = match (a_key, b_key) {
-                    (Some(a), Some(b)) => natural_sort_no_tiebreak(a, b)
-                        .then_with(|| match (a_leaf_file, b_leaf_file) {
-                            (true, false) if a.eq_ignore_ascii_case(b) => Ordering::Greater,
-                            (false, true) if a.eq_ignore_ascii_case(b) => Ordering::Less,
-                            _ => Ordering::Equal,
-                        })
-                        .then_with(|| {
-                            if a_leaf_file && b_leaf_file {
-                                let a_ext_str = a_ext.unwrap_or_default().to_lowercase();
-                                let b_ext_str = b_ext.unwrap_or_default().to_lowercase();
-                                b_ext_str.cmp(&a_ext_str)
-                            } else {
-                                Ordering::Equal
-                            }
-                        }),
-                    (Some(_), None) => Ordering::Greater,
-                    (None, Some(_)) => Ordering::Less,
-                    (None, None) => Ordering::Equal,
-                };
-
-                if !ordering.is_eq() {
-                    return ordering;
+                if !file_dir_ordering.is_eq() {
+                    return file_dir_ordering;
                 }
-            }
-            (Some(_), None) => return Ordering::Greater,
-            (None, Some(_)) => return Ordering::Less,
-            (None, None) => {
-                // Deterministic tie-break: use natural sort to prefer lowercase when paths
-                // are otherwise equal but still differ in casing.
-                if !original_paths_equal {
-                    return natural_sort(path_a.as_unix_str(), path_b.as_unix_str());
-                }
-                return Ordering::Equal;
-            }
-        }
-    }
-}
-
-/// Compare two relative paths with files before directories using
-/// case-insensitive natural sorting. At each directory level, all files
-/// are sorted before all directories, with case-insensitive alphabetical
-/// ordering within each group.
-pub fn compare_rel_paths_files_first(
-    (path_a, a_is_file): (&RelPath, bool),
-    (path_b, b_is_file): (&RelPath, bool),
-) -> Ordering {
-    let original_paths_equal = std::ptr::eq(path_a, path_b) || path_a == path_b;
-    let mut components_a = path_a.components();
-    let mut components_b = path_b.components();
-
-    loop {
-        match (components_a.next(), components_b.next()) {
-            (Some(component_a), Some(component_b)) => {
-                let a_leaf_file = a_is_file && components_a.rest().is_empty();
-                let b_leaf_file = b_is_file && components_b.rest().is_empty();
 
                 let (a_stem, a_ext) = a_leaf_file
                     .then(|| stem_and_extension(component_a))
@@ -1272,21 +1237,39 @@ pub fn compare_rel_paths_files_first(
 
                 let ordering = match (a_key, b_key) {
                     (Some(a), Some(b)) => {
-                        if a_leaf_file && !b_leaf_file {
-                            Ordering::Less
-                        } else if !a_leaf_file && b_leaf_file {
-                            Ordering::Greater
-                        } else {
-                            natural_sort_no_tiebreak(a, b).then_with(|| {
-                                if a_leaf_file && b_leaf_file {
-                                    let a_ext_str = a_ext.unwrap_or_default().to_lowercase();
-                                    let b_ext_str = b_ext.unwrap_or_default().to_lowercase();
-                                    a_ext_str.cmp(&b_ext_str)
-                                } else {
-                                    Ordering::Equal
-                                }
+                        let name_cmp = case_group_key(a, order)
+                            .cmp(&case_group_key(b, order))
+                            .then_with(|| match mode {
+                                SortMode::DirectoriesFirst => compare_strings(a, b, order),
+                                _ => compare_strings_no_tiebreak(a, b, order),
+                            });
+
+                        let name_cmp = if mode == SortMode::Mixed {
+                            name_cmp.then_with(|| match (a_leaf_file, b_leaf_file) {
+                                (true, false) if a.eq_ignore_ascii_case(b) => Ordering::Greater,
+                                (false, true) if a.eq_ignore_ascii_case(b) => Ordering::Less,
+                                _ => Ordering::Equal,
                             })
-                        }
+                        } else {
+                            name_cmp
+                        };
+
+                        name_cmp.then_with(|| {
+                            if a_leaf_file && b_leaf_file {
+                                match order {
+                                    SortOrder::Unicode => {
+                                        a_ext.unwrap_or_default().cmp(b_ext.unwrap_or_default())
+                                    }
+                                    _ => {
+                                        let a_ext_str = a_ext.unwrap_or_default().to_lowercase();
+                                        let b_ext_str = b_ext.unwrap_or_default().to_lowercase();
+                                        a_ext_str.cmp(&b_ext_str)
+                                    }
+                                }
+                            } else {
+                                Ordering::Equal
+                            }
+                        })
                     }
                     (Some(_), None) => Ordering::Greater,
                     (None, Some(_)) => Ordering::Less,
@@ -1300,10 +1283,8 @@ pub fn compare_rel_paths_files_first(
             (Some(_), None) => return Ordering::Greater,
             (None, Some(_)) => return Ordering::Less,
             (None, None) => {
-                // Deterministic tie-break: use natural sort to prefer lowercase when paths
-                // are otherwise equal but still differ in casing.
-                if !original_paths_equal {
-                    return natural_sort(path_a.as_unix_str(), path_b.as_unix_str());
+                if needs_final_tiebreak {
+                    return compare_strings(path_a.as_unix_str(), path_b.as_unix_str(), order);
                 }
                 return Ordering::Equal;
             }
@@ -1715,7 +1696,7 @@ mod tests {
             (RelPath::unix("Carrot").unwrap(), false),
             (RelPath::unix("aardvark.txt").unwrap(), true),
         ];
-        paths.sort_by(|&a, &b| compare_rel_paths_mixed(a, b));
+        paths.sort_by(|&a, &b| compare_rel_paths_by(a, b, SortMode::Mixed, SortOrder::Default));
         // Case-insensitive: aardvark < Apple < banana < Carrot < zebra
         assert_eq!(
             paths,
@@ -1739,7 +1720,8 @@ mod tests {
             (RelPath::unix("Carrot").unwrap(), false),
             (RelPath::unix("aardvark.txt").unwrap(), true),
         ];
-        paths.sort_by(|&a, &b| compare_rel_paths_files_first(a, b));
+        paths
+            .sort_by(|&a, &b| compare_rel_paths_by(a, b, SortMode::FilesFirst, SortOrder::Default));
         // Files first (case-insensitive), then directories (case-insensitive)
         assert_eq!(
             paths,
@@ -1763,7 +1745,8 @@ mod tests {
             (RelPath::unix("carrot").unwrap(), false),
             (RelPath::unix("Aardvark.txt").unwrap(), true),
         ];
-        paths.sort_by(|&a, &b| compare_rel_paths_files_first(a, b));
+        paths
+            .sort_by(|&a, &b| compare_rel_paths_by(a, b, SortMode::FilesFirst, SortOrder::Default));
         assert_eq!(
             paths,
             vec![
@@ -1786,7 +1769,8 @@ mod tests {
             (RelPath::unix("dir10").unwrap(), false),
             (RelPath::unix("file1.txt").unwrap(), true),
         ];
-        paths.sort_by(|&a, &b| compare_rel_paths_files_first(a, b));
+        paths
+            .sort_by(|&a, &b| compare_rel_paths_by(a, b, SortMode::FilesFirst, SortOrder::Default));
         assert_eq!(
             paths,
             vec![
@@ -1807,14 +1791,15 @@ mod tests {
             (RelPath::unix("readme.txt").unwrap(), true),
             (RelPath::unix("ReadMe.rs").unwrap(), true),
         ];
-        paths.sort_by(|&a, &b| compare_rel_paths_mixed(a, b));
+        paths.sort_by(|&a, &b| compare_rel_paths_by(a, b, SortMode::Mixed, SortOrder::Default));
         // All "readme" variants should group together, sorted by extension
+        // (업스트림 #50221: Mixed 모드 확장자 오름차순 정렬로 변경)
         assert_eq!(
             paths,
             vec![
-                (RelPath::unix("readme.txt").unwrap(), true),
-                (RelPath::unix("ReadMe.rs").unwrap(), true),
                 (RelPath::unix("README.md").unwrap(), true),
+                (RelPath::unix("ReadMe.rs").unwrap(), true),
+                (RelPath::unix("readme.txt").unwrap(), true),
             ]
         );
     }
@@ -1828,7 +1813,7 @@ mod tests {
             (RelPath::unix("file1.txt").unwrap(), true),
             (RelPath::unix("dir2").unwrap(), false),
         ];
-        paths.sort_by(|&a, &b| compare_rel_paths_mixed(a, b));
+        paths.sort_by(|&a, &b| compare_rel_paths_by(a, b, SortMode::Mixed, SortOrder::Default));
         // Case-insensitive: dir1, dir2, file1, file2 (all mixed)
         assert_eq!(
             paths,
@@ -1847,7 +1832,7 @@ mod tests {
             (RelPath::unix("Hello.txt").unwrap(), true),
             (RelPath::unix("hello").unwrap(), false),
         ];
-        paths.sort_by(|&a, &b| compare_rel_paths_mixed(a, b));
+        paths.sort_by(|&a, &b| compare_rel_paths_by(a, b, SortMode::Mixed, SortOrder::Default));
         assert_eq!(
             paths,
             vec![
@@ -1860,7 +1845,7 @@ mod tests {
             (RelPath::unix("hello").unwrap(), false),
             (RelPath::unix("Hello.txt").unwrap(), true),
         ];
-        paths.sort_by(|&a, &b| compare_rel_paths_mixed(a, b));
+        paths.sort_by(|&a, &b| compare_rel_paths_by(a, b, SortMode::Mixed, SortOrder::Default));
         assert_eq!(
             paths,
             vec![
@@ -1879,7 +1864,7 @@ mod tests {
             (RelPath::unix("src").unwrap(), false),
             (RelPath::unix("target").unwrap(), false),
         ];
-        paths.sort_by(|&a, &b| compare_rel_paths_mixed(a, b));
+        paths.sort_by(|&a, &b| compare_rel_paths_by(a, b, SortMode::Mixed, SortOrder::Default));
         assert_eq!(
             paths,
             vec![
@@ -1900,7 +1885,8 @@ mod tests {
             (RelPath::unix("src").unwrap(), false),
             (RelPath::unix("tests").unwrap(), false),
         ];
-        paths.sort_by(|&a, &b| compare_rel_paths_files_first(a, b));
+        paths
+            .sort_by(|&a, &b| compare_rel_paths_by(a, b, SortMode::FilesFirst, SortOrder::Default));
         assert_eq!(
             paths,
             vec![
@@ -1921,7 +1907,7 @@ mod tests {
             (RelPath::unix(".github").unwrap(), false),
             (RelPath::unix("src").unwrap(), false),
         ];
-        paths.sort_by(|&a, &b| compare_rel_paths_mixed(a, b));
+        paths.sort_by(|&a, &b| compare_rel_paths_by(a, b, SortMode::Mixed, SortOrder::Default));
         assert_eq!(
             paths,
             vec![
@@ -1942,7 +1928,8 @@ mod tests {
             (RelPath::unix(".github").unwrap(), false),
             (RelPath::unix("src").unwrap(), false),
         ];
-        paths.sort_by(|&a, &b| compare_rel_paths_files_first(a, b));
+        paths
+            .sort_by(|&a, &b| compare_rel_paths_by(a, b, SortMode::FilesFirst, SortOrder::Default));
         assert_eq!(
             paths,
             vec![
@@ -1962,13 +1949,14 @@ mod tests {
             (RelPath::unix("file.md").unwrap(), true),
             (RelPath::unix("file.txt").unwrap(), true),
         ];
-        paths.sort_by(|&a, &b| compare_rel_paths_mixed(a, b));
+        paths.sort_by(|&a, &b| compare_rel_paths_by(a, b, SortMode::Mixed, SortOrder::Default));
+        // (업스트림 #50221: Mixed 모드 확장자 오름차순 정렬로 변경)
         assert_eq!(
             paths,
             vec![
-                (RelPath::unix("file.txt").unwrap(), true),
-                (RelPath::unix("file.rs").unwrap(), true),
                 (RelPath::unix("file.md").unwrap(), true),
+                (RelPath::unix("file.rs").unwrap(), true),
+                (RelPath::unix("file.txt").unwrap(), true),
             ]
         );
     }
@@ -1981,7 +1969,8 @@ mod tests {
             (RelPath::unix("main.c").unwrap(), true),
             (RelPath::unix("main").unwrap(), false),
         ];
-        paths.sort_by(|&a, &b| compare_rel_paths_files_first(a, b));
+        paths
+            .sort_by(|&a, &b| compare_rel_paths_by(a, b, SortMode::FilesFirst, SortOrder::Default));
         assert_eq!(
             paths,
             vec![
@@ -2001,7 +1990,7 @@ mod tests {
             (RelPath::unix("a.txt").unwrap(), true),
             (RelPath::unix("A.txt").unwrap(), true),
         ];
-        paths.sort_by(|&a, &b| compare_rel_paths_mixed(a, b));
+        paths.sort_by(|&a, &b| compare_rel_paths_by(a, b, SortMode::Mixed, SortOrder::Default));
         assert_eq!(
             paths,
             vec![

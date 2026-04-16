@@ -3135,5 +3135,7 @@
   "extensions.menu.install_another_version": "Install Another Version...",
   "extensions.menu.copy_extension_id": "Copy Extension ID",
   "extensions.menu.copy_author_info": "Copy Author Info",
-  "list.no_items": "No items"
+  "list.no_items": "No items",
+  "settings_page.item.sort_order": "Sort Order",
+  "settings_page.desc.project_panel.sort_order": "Whether to sort file and folder names case-sensitively in the project panel."
 }

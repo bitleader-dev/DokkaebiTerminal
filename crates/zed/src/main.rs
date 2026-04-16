@@ -718,7 +718,6 @@ fn main() {
             cx,
         );
 
-        repl::init(app_state.fs.clone(), cx);
         recent_projects::init(cx);
         dev_container::init(cx);
 
@@ -755,7 +754,6 @@ fn main() {
         let t_phase = Instant::now();
         editor::init(cx);
         image_viewer::init(cx);
-        repl::notebook::init(cx);
         diagnostics::init(cx);
 
         audio::init(cx);

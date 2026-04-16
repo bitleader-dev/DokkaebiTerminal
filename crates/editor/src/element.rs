@@ -53,7 +53,10 @@ use gpui::{
     transparent_black,
 };
 use itertools::Itertools;
-use language::{HighlightedText, IndentGuideSettings, language_settings::ShowWhitespaceSetting};
+use language::{
+    HighlightedText, IndentGuideSettings, LanguageAwareStyling,
+    language_settings::ShowWhitespaceSetting,
+};
 use markdown::Markdown;
 use multi_buffer::{
     Anchor, ExcerptId, ExcerptInfo, ExpandExcerptDirection, ExpandInfo, MultiBufferPoint,
@@ -3655,7 +3658,12 @@ impl EditorElement {
         } else {
             let use_tree_sitter = !snapshot.semantic_tokens_enabled
                 || snapshot.use_tree_sitter_for_syntax(rows.start, cx);
-            let chunks = snapshot.highlighted_chunks(rows.clone(), use_tree_sitter, style);
+            // tree_sitter 하이라이트는 semantic_tokens=full 시 꺼질 수 있지만 진단은 유지 (업스트림 #53008)
+            let language_aware = LanguageAwareStyling {
+                tree_sitter: use_tree_sitter,
+                diagnostics: true,
+            };
+            let chunks = snapshot.highlighted_chunks(rows.clone(), language_aware, style);
             LineWithInvisibles::from_chunks(
                 chunks,
                 style,
@@ -11926,7 +11934,11 @@ pub fn layout_line(
 ) -> LineWithInvisibles {
     let use_tree_sitter =
         !snapshot.semantic_tokens_enabled || snapshot.use_tree_sitter_for_syntax(row, cx);
-    let chunks = snapshot.highlighted_chunks(row..row + DisplayRow(1), use_tree_sitter, style);
+    let language_aware = LanguageAwareStyling {
+        tree_sitter: use_tree_sitter,
+        diagnostics: true,
+    };
+    let chunks = snapshot.highlighted_chunks(row..row + DisplayRow(1), language_aware, style);
     LineWithInvisibles::from_chunks(
         chunks,
         style,

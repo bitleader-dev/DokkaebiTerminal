@@ -2321,8 +2321,14 @@ impl ProjectPanel {
             let file_name = entry.path.file_name()?.to_string();
 
             let answer = if !action.skip_prompt {
-                let prompt = format!("Discard changes to {}?", file_name);
-                Some(window.prompt(PromptLevel::Info, &prompt, None, &["Restore", "Cancel"], cx))
+                let prompt = i18n::t_args(
+                    "project_panel.dialog.discard_changes",
+                    &[("name", &file_name)],
+                    cx,
+                );
+                let restore = i18n::t("project_panel.dialog.restore", cx).to_string();
+                let cancel = i18n::t("project_panel.dialog.cancel", cx).to_string();
+                Some(window.prompt(PromptLevel::Info, &prompt, None, &[restore.as_str(), cancel.as_str()], cx))
             } else {
                 None
             };
@@ -2416,18 +2422,22 @@ impl ProjectPanel {
                 return None;
             }
             let answer = if !skip_prompt {
-                let operation = if trash { "Trash" } else { "Delete" };
-                let message_start = if trash {
-                    "Do you want to trash"
+                let operation = if trash {
+                    i18n::t("project_panel.dialog.trash", cx).to_string()
                 } else {
-                    "Are you sure you want to permanently delete"
+                    i18n::t("project_panel.dialog.delete", cx).to_string()
+                };
+                let message_start = if trash {
+                    i18n::t("project_panel.dialog.trash_prompt", cx).to_string()
+                } else {
+                    i18n::t("project_panel.dialog.delete_prompt", cx).to_string()
                 };
                 let prompt = match file_paths.first() {
                     Some((_, path)) if file_paths.len() == 1 => {
                         let unsaved_warning = if dirty_buffers > 0 {
-                            "\n\nIt has unsaved changes, which will be lost."
+                            format!("\n\n{}", i18n::t("project_panel.dialog.unsaved_single", cx))
                         } else {
-                            ""
+                            String::new()
                         };
 
                         format!("{message_start} {path}?{unsaved_warning}")
@@ -2442,38 +2452,47 @@ impl ProjectPanel {
                                 .take(CUTOFF_POINT)
                                 .collect::<Vec<_>>();
                             paths.truncate(CUTOFF_POINT);
-                            if truncated_path_counts == 1 {
-                                paths.push(".. 1 file not shown".into());
-                            } else {
-                                paths.push(format!(".. {} files not shown", truncated_path_counts));
-                            }
+                            let hidden_msg = i18n::t_args(
+                                "project_panel.dialog.files_not_shown",
+                                &[("count", &truncated_path_counts.to_string())],
+                                cx,
+                            );
+                            paths.push(hidden_msg);
                             paths
                         } else {
                             file_paths.iter().map(|(_, path)| path.clone()).collect()
                         };
                         let unsaved_warning = if dirty_buffers == 0 {
                             String::new()
-                        } else if dirty_buffers == 1 {
-                            "\n\n1 of these has unsaved changes, which will be lost.".to_string()
                         } else {
                             format!(
-                                "\n\n{dirty_buffers} of these have unsaved changes, which will be lost."
+                                "\n\n{}",
+                                i18n::t_args(
+                                    "project_panel.dialog.unsaved_multi",
+                                    &[("count", &dirty_buffers.to_string())],
+                                    cx,
+                                )
                             )
                         };
 
+                        let files_msg = i18n::t_args(
+                            "project_panel.dialog.files_count",
+                            &[("count", &file_paths.len().to_string())],
+                            cx,
+                        );
                         format!(
-                            "{message_start} the following {} files?\n{}{unsaved_warning}",
-                            file_paths.len(),
+                            "{message_start} {files_msg}\n{}{unsaved_warning}",
                             names.join("\n")
                         )
                     }
                 };
-                let detail = (!trash).then_some("This cannot be undone.");
+                let detail = (!trash).then(|| i18n::t("project_panel.dialog.cannot_undo", cx).to_string());
+                let cancel = i18n::t("project_panel.dialog.cancel", cx).to_string();
                 Some(window.prompt(
                     PromptLevel::Info,
                     &prompt,
-                    detail,
-                    &[operation, "Cancel"],
+                    detail.as_deref(),
+                    &[operation.as_str(), cancel.as_str()],
                     cx,
                 ))
             } else {
@@ -4388,21 +4407,23 @@ impl ProjectPanel {
         cx.spawn_in(window, async move |this, cx| {
             async move {
                 for (filename, original_path) in &paths_to_replace {
-                    let prompt_message = format!(
-                        concat!(
-                            "A file or folder with name {} ",
-                            "already exists in the destination folder. ",
-                            "Do you want to replace it?"
-                        ),
-                        filename
-                    );
+                    let (prompt_message, replace_label, cancel_label) = cx.update(|_, cx| {
+                        let msg = i18n::t_args(
+                            "project_panel.dialog.replace_existing",
+                            &[("name", filename.as_str())],
+                            cx,
+                        );
+                        let replace = i18n::t("project_panel.dialog.replace", cx).to_string();
+                        let cancel = i18n::t("project_panel.dialog.cancel", cx).to_string();
+                        (msg, replace, cancel)
+                    })?;
                     let answer = cx
                         .update(|window, cx| {
                             window.prompt(
                                 PromptLevel::Info,
                                 &prompt_message,
                                 None,
-                                &["Replace", "Cancel"],
+                                &[replace_label.as_str(), cancel_label.as_str()],
                                 cx,
                             )
                         })?

@@ -1398,17 +1398,23 @@ impl GitPanel {
             let prompt = if skip_prompt {
                 Task::ready(Ok(0))
             } else {
+                let file_name = entry
+                    .repo_path
+                    .file_name()
+                    .unwrap_or(entry.repo_path.display(path_style).as_ref())
+                    .to_string();
+                let msg = i18n::t_args(
+                    "git_panel.dialog.discard_changes",
+                    &[("name", &file_name)],
+                    cx,
+                );
+                let discard = i18n::t("git_panel.dialog.discard", cx).to_string();
+                let cancel = i18n::t("git_panel.dialog.cancel", cx).to_string();
                 let prompt = window.prompt(
                     PromptLevel::Warning,
-                    &format!(
-                        "Are you sure you want to discard changes to {}?",
-                        entry
-                            .repo_path
-                            .file_name()
-                            .unwrap_or(entry.repo_path.display(path_style).as_ref()),
-                    ),
+                    &msg,
                     None,
-                    &["Discard Changes", "Cancel"],
+                    &[discard.as_str(), cancel.as_str()],
                     cx,
                 );
                 cx.background_spawn(prompt)

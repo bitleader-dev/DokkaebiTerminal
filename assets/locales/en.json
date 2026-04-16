@@ -3217,5 +3217,22 @@
   "keymap_editor.source.default": "Default",
   "keymap_editor.source.base": "Base",
   "keymap_editor.source.vim": "Vim",
-  "keymap_editor.source.unknown": "Unknown"
+  "keymap_editor.source.unknown": "Unknown",
+  "project_panel.dialog.trash": "Trash",
+  "project_panel.dialog.delete": "Delete",
+  "project_panel.dialog.trash_prompt": "Do you want to trash",
+  "project_panel.dialog.delete_prompt": "Are you sure you want to permanently delete",
+  "project_panel.dialog.unsaved_single": "It has unsaved changes, which will be lost.",
+  "project_panel.dialog.unsaved_multi": "{count} of these have unsaved changes, which will be lost.",
+  "project_panel.dialog.files_not_shown": ".. {count} files not shown",
+  "project_panel.dialog.files_count": "the following {count} files?",
+  "project_panel.dialog.cannot_undo": "This cannot be undone.",
+  "project_panel.dialog.cancel": "Cancel",
+  "project_panel.dialog.discard_changes": "Discard changes to {name}?",
+  "project_panel.dialog.restore": "Restore",
+  "project_panel.dialog.replace_existing": "A file or folder with name {name} already exists in the destination folder. Do you want to replace it?",
+  "project_panel.dialog.replace": "Replace",
+  "git_panel.dialog.discard_changes": "Are you sure you want to discard changes to {name}?",
+  "git_panel.dialog.discard": "Discard Changes",
+  "git_panel.dialog.cancel": "Cancel"
 }

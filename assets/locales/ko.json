@@ -3217,5 +3217,22 @@
   "keymap_editor.source.default": "기본",
   "keymap_editor.source.base": "기본(베이스)",
   "keymap_editor.source.vim": "Vim",
-  "keymap_editor.source.unknown": "알 수 없음"
+  "keymap_editor.source.unknown": "알 수 없음",
+  "project_panel.dialog.trash": "휴지통 이동",
+  "project_panel.dialog.delete": "삭제",
+  "project_panel.dialog.trash_prompt": "휴지통으로 이동하시겠습니까?",
+  "project_panel.dialog.delete_prompt": "영구 삭제하시겠습니까?",
+  "project_panel.dialog.unsaved_single": "저장되지 않은 변경사항이 있으며 삭제 시 유실됩니다.",
+  "project_panel.dialog.unsaved_multi": "이 중 {count}개에 저장되지 않은 변경사항이 있으며 삭제 시 유실됩니다.",
+  "project_panel.dialog.files_not_shown": ".. 파일 {count}개 미표시",
+  "project_panel.dialog.files_count": "다음 {count}개 파일을",
+  "project_panel.dialog.cannot_undo": "이 작업은 되돌릴 수 없습니다.",
+  "project_panel.dialog.cancel": "취소",
+  "project_panel.dialog.discard_changes": "{name}의 변경사항을 폐기하시겠습니까?",
+  "project_panel.dialog.restore": "복원",
+  "project_panel.dialog.replace_existing": "대상 폴더에 이름이 {name}인 파일 또는 폴더가 이미 있습니다. 교체하시겠습니까?",
+  "project_panel.dialog.replace": "교체",
+  "git_panel.dialog.discard_changes": "{name}의 변경사항을 폐기하시겠습니까?",
+  "git_panel.dialog.discard": "변경사항 폐기",
+  "git_panel.dialog.cancel": "취소"
 }

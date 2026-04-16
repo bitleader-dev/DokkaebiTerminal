@@ -559,13 +559,20 @@ pub(crate) fn register_conflict_notification(
             let file_count = paths.len();
             workspace.show_notification(notification_id, cx, |cx| {
                 cx.new(|cx| {
-                    let message = format!(
-                        "{file_count} file{} have unresolved merge conflicts",
-                        if file_count == 1 { "" } else { "s" }
+                    // 병합 충돌 알림 본문/버튼 i18n 치환 (단수/복수 분리)
+                    let key = if file_count == 1 {
+                        "conflict_view.unresolved_single"
+                    } else {
+                        "conflict_view.unresolved_multi"
+                    };
+                    let message = i18n::t_args(
+                        key,
+                        &[("count", &file_count.to_string())],
+                        cx,
                     );
-
+                    let resolve = i18n::t("conflict_view.resolve_with_agent", cx);
                     MessageNotification::new(message, cx)
-                        .primary_message("Resolve with Agent")
+                        .primary_message(resolve)
                         .primary_icon(IconName::DokkaebiAssistant)
                         .primary_icon_color(Color::Muted)
                         .primary_on_click({

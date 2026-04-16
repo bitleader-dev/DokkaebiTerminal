@@ -686,7 +686,7 @@ impl ExtensionsPage {
                                 }),
                             )
                             .child(
-                                Button::new(extension_button_id(&extension.id, ExtensionOperation::Remove), "Uninstall")
+                                Button::new(extension_button_id(&extension.id, ExtensionOperation::Remove), t("extensions.button.uninstall", cx))
                                     .color(Color::Accent)
                                     .disabled(matches!(status, ExtensionStatus::Removing))
                                     .on_click({
@@ -862,9 +862,11 @@ impl ExtensionsPage {
                             .truncate()
                     }))
                     .child(
-                        Label::new(format!(
-                            "Downloads: {}",
-                            extension.download_count.to_formatted_string(&Locale::en)
+                        // 다운로드 수 라벨 i18n 치환
+                        Label::new(t_arg(
+                            "extensions.downloads",
+                            &extension.download_count.to_formatted_string(&Locale::en),
+                            cx,
                         ))
                         .size(LabelSize::Small),
                     ),
@@ -956,10 +958,11 @@ impl ExtensionsPage {
         window: &mut Window,
         cx: &mut App,
     ) -> Entity<ContextMenu> {
-        ContextMenu::build(window, cx, |context_menu, window, _| {
+        ContextMenu::build(window, cx, |context_menu, window, cx| {
+            // 확장 카드 컨텍스트 메뉴 항목 i18n 치환
             context_menu
                 .entry(
-                    "Install Another Version...",
+                    t("extensions.menu.install_another_version", cx),
                     None,
                     window.handler_for(this, {
                         let extension_id = extension_id.clone();
@@ -968,13 +971,13 @@ impl ExtensionsPage {
                         }
                     }),
                 )
-                .entry("Copy Extension ID", None, {
+                .entry(t("extensions.menu.copy_extension_id", cx), None, {
                     let extension_id = extension_id.clone();
                     move |_, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(extension_id.to_string()));
                     }
                 })
-                .entry("Copy Author Info", None, {
+                .entry(t("extensions.menu.copy_author_info", cx), None, {
                     let authors = authors.clone();
                     move |_, cx| {
                         cx.write_to_clipboard(ClipboardItem::new_string(authors.join(", ")));
@@ -1038,7 +1041,7 @@ impl ExtensionsPage {
             return ExtensionCardButtons {
                 install_or_uninstall: Button::new(
                     extension_button_id(&extension.id, ExtensionOperation::Install),
-                    "Install",
+                    t("extensions.button.install", cx),
                 ),
                 configure: None,
                 upgrade: None,
@@ -1054,7 +1057,7 @@ impl ExtensionsPage {
             ExtensionStatus::NotInstalled => ExtensionCardButtons {
                 install_or_uninstall: Button::new(
                     extension_button_id(&extension.id, ExtensionOperation::Install),
-                    "Install",
+                    t("extensions.button.install", cx),
                 )
                 .style(ButtonStyle::Tinted(ui::TintColor::Accent))
                 .start_icon(
@@ -1077,7 +1080,7 @@ impl ExtensionsPage {
             ExtensionStatus::Installing => ExtensionCardButtons {
                 install_or_uninstall: Button::new(
                     extension_button_id(&extension.id, ExtensionOperation::Install),
-                    "Install",
+                    t("extensions.button.install", cx),
                 )
                 .style(ButtonStyle::Tinted(ui::TintColor::Accent))
                 .start_icon(
@@ -1092,7 +1095,7 @@ impl ExtensionsPage {
             ExtensionStatus::Upgrading => ExtensionCardButtons {
                 install_or_uninstall: Button::new(
                     extension_button_id(&extension.id, ExtensionOperation::Remove),
-                    "Uninstall",
+                    t("extensions.button.uninstall", cx),
                 )
                 .style(ButtonStyle::OutlinedGhost)
                 .disabled(true),
@@ -1114,7 +1117,7 @@ impl ExtensionsPage {
             ExtensionStatus::Installed(installed_version) => ExtensionCardButtons {
                 install_or_uninstall: Button::new(
                     extension_button_id(&extension.id, ExtensionOperation::Remove),
-                    "Uninstall",
+                    t("extensions.button.uninstall", cx),
                 )
                 .style(ButtonStyle::OutlinedGhost)
                 .on_click({
@@ -1193,7 +1196,7 @@ impl ExtensionsPage {
             ExtensionStatus::Removing => ExtensionCardButtons {
                 install_or_uninstall: Button::new(
                     extension_button_id(&extension.id, ExtensionOperation::Remove),
-                    "Uninstall",
+                    t("extensions.button.uninstall", cx),
                 )
                 .style(ButtonStyle::OutlinedGhost)
                 .disabled(true),

@@ -81,11 +81,12 @@ pub fn suggest_on_worktree_updated(
 
         workspace.show_notification(notification_id, cx, |cx| {
             cx.new(move |cx| {
-                MessageNotification::new(
-                    "This project contains a Dev Container configuration file. Would you like to re-open it in a container?",
-                    cx,
-                )
-                .primary_message("Yes, Open in Container")
+                // Dev Container 제안 팝업 본문/버튼 i18n 치환
+                let prompt = i18n::t("dev_container_suggest.prompt", cx);
+                let accept = i18n::t("dev_container_suggest.accept", cx);
+                let dismiss = i18n::t("dev_container_suggest.dismiss", cx);
+                MessageNotification::new(prompt, cx)
+                .primary_message(accept)
                 .primary_icon(IconName::Check)
                 .primary_icon_color(Color::Success)
                 .primary_on_click({
@@ -93,7 +94,7 @@ pub fn suggest_on_worktree_updated(
                         window.dispatch_action(Box::new(zed_actions::OpenDevContainer), cx);
                     }
                 })
-                .secondary_message("Don't Show Again")
+                .secondary_message(dismiss)
                 .secondary_icon(IconName::Close)
                 .secondary_icon_color(Color::Error)
                 .secondary_on_click({

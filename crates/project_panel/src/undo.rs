@@ -193,10 +193,13 @@ impl UndoManager {
 
                 workspace.show_notification(notification_id, cx, move |cx| {
                     cx.new(|cx| {
+                        // 프로젝트 패널 되돌리기 실패 알림 제목 i18n 치환
                         if let [err] = messages.as_slice() {
+                            let title = i18n::t("project_panel.undo_failed_single", cx);
                             MessageNotification::new(err.to_string(), cx)
-                                .with_title("Failed to undo Project Panel Operation")
+                                .with_title(title)
                         } else {
+                            let title = i18n::t("project_panel.undo_failed_multi", cx);
                             MessageNotification::new_from_builder(cx, move |_, _| {
                                 v_flex()
                                     .gap_1()
@@ -207,7 +210,7 @@ impl UndoManager {
                                     )
                                     .into_any_element()
                             })
-                            .with_title("Failed to undo Project Panel Operations")
+                            .with_title(title)
                         }
                     })
                 })

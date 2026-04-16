@@ -1563,8 +1563,15 @@ fn notify_settings_errors(result: settings::SettingsParseResult, is_user: bool, 
             } else {
                 show_app_notification(id, cx, move |cx| {
                     cx.new(|cx| {
-                        MessageNotification::new(format!("Invalid user settings file\n{error}"), cx)
-                            .primary_message("Open Settings File")
+                        // 잘못된 사용자 설정 파일 알림 i18n 치환
+                        let message = i18n::t_args(
+                            "settings.invalid_user_file",
+                            &[("error", &error.to_string())],
+                            cx,
+                        );
+                        let button = i18n::t("settings.open_settings_file", cx);
+                        MessageNotification::new(message, cx)
+                            .primary_message(button)
                             .primary_icon(IconName::Settings)
                             .primary_on_click(|window, cx| {
                                 window.dispatch_action(
@@ -1593,14 +1600,15 @@ fn notify_settings_errors(result: settings::SettingsParseResult, is_user: bool, 
             if !showed_parse_error {
                 show_app_notification(id, cx, move |cx| {
                     cx.new(|cx| {
-                        MessageNotification::new(
-                            format!(
-                                "Failed to migrate settings\n\
-                                {err}"
-                            ),
+                        // 설정 마이그레이션 실패 알림 i18n 치환
+                        let message = i18n::t_args(
+                            "settings.migration_failed",
+                            &[("error", &err.to_string())],
                             cx,
-                        )
-                        .primary_message("Open Settings File")
+                        );
+                        let button = i18n::t("settings.open_settings_file", cx);
+                        MessageNotification::new(message, cx)
+                        .primary_message(button)
                         .primary_icon(IconName::Settings)
                         .primary_on_click(|window, cx| {
                             window.dispatch_action(zed_actions::OpenSettingsFile.boxed_clone(), cx);
@@ -1795,12 +1803,18 @@ fn show_keymap_file_json_error(
     error: &anyhow::Error,
     cx: &mut App,
 ) {
-    let message: SharedString =
-        format!("JSON parse error in keymap file. Bindings not reloaded.\n\n{error}").into();
+    // 키맵 JSON 파싱 오류 알림 i18n 치환
+    let message: SharedString = i18n::t_args(
+        "keymap.json_parse_error",
+        &[("error", &error.to_string())],
+        cx,
+    )
+    .into();
     show_app_notification(notification_id, cx, move |cx| {
         cx.new(|cx| {
+            let button = i18n::t("keymap.open_file", cx);
             MessageNotification::new(message.clone(), cx)
-                .primary_message("Open Keymap File")
+                .primary_message(button)
                 .primary_icon(IconName::Settings)
                 .primary_on_click(|window, cx| {
                     window.dispatch_action(zed_actions::OpenKeymapFile.boxed_clone(), cx);
@@ -1815,10 +1829,12 @@ fn show_keymap_file_load_error(
     error_message: MarkdownString,
     cx: &mut App,
 ) {
+    // 키맵 파일 열기 버튼 라벨 i18n 치환
+    let button = i18n::t("keymap.open_file", cx);
     show_markdown_app_notification(
         notification_id,
         error_message,
-        "Open Keymap File".into(),
+        button,
         |window, cx| {
             window.dispatch_action(zed_actions::OpenKeymapFile.boxed_clone(), cx);
             cx.emit(DismissEvent);

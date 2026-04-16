@@ -1277,24 +1277,26 @@ impl Render for LspButton {
             }
         }
 
+        // LSP 툴팁 상태 문구 i18n 치환
         let (indicator, description) = if has_errors {
             (
                 Some(Indicator::dot().color(Color::Error)),
-                "Server with errors",
+                i18n::t("lsp_button.tooltip.errors", cx),
             )
         } else if has_warnings {
             (
                 Some(Indicator::dot().color(Color::Warning)),
-                "Server with warnings",
+                i18n::t("lsp_button.tooltip.warnings", cx),
             )
         } else if has_other_notifications {
             (
                 Some(Indicator::dot().color(Color::Modified)),
-                "Server with notifications",
+                i18n::t("lsp_button.tooltip.notifications", cx),
             )
         } else {
-            (None, "All Servers Operational")
+            (None, i18n::t("lsp_button.tooltip.operational", cx))
         };
+        let tooltip_title = i18n::t("lsp_button.tooltip.title", cx);
 
         let lsp_button = cx.weak_entity();
 
@@ -1324,7 +1326,12 @@ impl Render for LspButton {
                         .icon_size(IconSize::Small)
                         .indicator_border_color(Some(cx.theme().colors().status_bar_background)),
                     move |_window, cx| {
-                        Tooltip::with_meta("Language Servers", Some(&ToggleMenu), description, cx)
+                        Tooltip::with_meta(
+                            tooltip_title.clone(),
+                            Some(&ToggleMenu),
+                            description.clone(),
+                            cx,
+                        )
                     },
                 ),
         )

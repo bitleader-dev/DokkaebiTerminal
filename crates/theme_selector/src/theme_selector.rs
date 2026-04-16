@@ -339,8 +339,9 @@ fn retain_original_opposing_theme(
 impl PickerDelegate for ThemeSelectorDelegate {
     type ListItem = ui::ListItem;
 
-    fn placeholder_text(&self, _window: &mut Window, _cx: &mut App) -> Arc<str> {
-        "Select Theme...".into()
+    fn placeholder_text(&self, _window: &mut Window, cx: &mut App) -> Arc<str> {
+        // 테마 선택기 placeholder i18n 치환
+        Arc::from(i18n::t("theme_selector.placeholder", cx).as_ref())
     }
 
     fn match_count(&self) -> usize {
@@ -501,7 +502,8 @@ impl PickerDelegate for ThemeSelectorDelegate {
                 .border_t_1()
                 .border_color(cx.theme().colors().border_variant)
                 .child(
-                    Button::new("docs", "View Theme Docs")
+                    // 하단 버튼 라벨 i18n 치환
+                    Button::new("docs", i18n::t("theme_selector.view_docs", cx))
                         .end_icon(
                             Icon::new(IconName::ArrowUpRight)
                                 .size(IconSize::Small)
@@ -512,7 +514,7 @@ impl PickerDelegate for ThemeSelectorDelegate {
                         })),
                 )
                 .child(
-                    Button::new("more-themes", "Install Themes").on_click(cx.listener({
+                    Button::new("more-themes", i18n::t("theme_selector.install_themes", cx)).on_click(cx.listener({
                         move |_, _, window, cx| {
                             window.dispatch_action(
                                 Box::new(Extensions {

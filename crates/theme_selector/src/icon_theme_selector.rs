@@ -144,8 +144,9 @@ impl IconThemeSelectorDelegate {
 impl PickerDelegate for IconThemeSelectorDelegate {
     type ListItem = ui::ListItem;
 
-    fn placeholder_text(&self, _window: &mut Window, _cx: &mut App) -> Arc<str> {
-        "Select Icon Theme...".into()
+    fn placeholder_text(&self, _window: &mut Window, cx: &mut App) -> Arc<str> {
+        // 아이콘 테마 선택기 placeholder i18n 치환
+        Arc::from(i18n::t("icon_theme_selector.placeholder", cx).as_ref())
     }
 
     fn match_count(&self) -> usize {
@@ -311,7 +312,8 @@ impl PickerDelegate for IconThemeSelectorDelegate {
                 .border_t_1()
                 .border_color(cx.theme().colors().border_variant)
                 .child(
-                    Button::new("docs", "View Icon Theme Docs")
+                    // 하단 버튼 라벨 i18n 치환
+                    Button::new("docs", i18n::t("icon_theme_selector.view_docs", cx))
                         .end_icon(
                             Icon::new(IconName::ArrowUpRight)
                                 .size(IconSize::Small)
@@ -322,7 +324,7 @@ impl PickerDelegate for IconThemeSelectorDelegate {
                         }),
                 )
                 .child(
-                    Button::new("more-icon-themes", "Install Icon Themes").on_click(
+                    Button::new("more-icon-themes", i18n::t("icon_theme_selector.install_themes", cx)).on_click(
                         move |_event, window, cx| {
                             window.dispatch_action(
                                 Box::new(Extensions {

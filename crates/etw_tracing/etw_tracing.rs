@@ -81,13 +81,16 @@ fn show_etw_notification_with_action(
 }
 
 fn show_etw_status_notification(cx: &mut App, status: Result<StatusMessage>, output_path: PathBuf) {
+    // ETW 상태 알림 본문을 i18n으로 치환
     match status {
         Ok(StatusMessage::Stopped) => {
             let display_path = output_path.display().to_string();
+            let message = i18n::t_args("etw_tracing.saved", &[("path", &display_path)], cx);
+            let button = i18n::t("etw_tracing.show_in_file_manager", cx);
             show_etw_notification_with_action(
                 cx,
-                format!("ETW trace saved to {display_path}"),
-                "Show in File Manager",
+                message,
+                button,
                 move |_window, cx| {
                     cx.reveal_path(&output_path);
                     cx.emit(DismissEvent);
@@ -96,10 +99,12 @@ fn show_etw_status_notification(cx: &mut App, status: Result<StatusMessage>, out
         }
         Ok(StatusMessage::TimedOut) => {
             let display_path = output_path.display().to_string();
+            let message = i18n::t_args("etw_tracing.timed_out_saved", &[("path", &display_path)], cx);
+            let button = i18n::t("etw_tracing.show_in_file_manager", cx);
             show_etw_notification_with_action(
                 cx,
-                format!("ETW recording timed out. Trace saved to {display_path}"),
-                "Show in File Manager",
+                message,
+                button,
                 move |_window, cx| {
                     cx.reveal_path(&output_path);
                     cx.emit(DismissEvent);
@@ -107,13 +112,20 @@ fn show_etw_status_notification(cx: &mut App, status: Result<StatusMessage>, out
             );
         }
         Ok(StatusMessage::Cancelled) => {
-            show_etw_notification(cx, "ETW recording cancelled");
+            let message = i18n::t("etw_tracing.cancelled", cx);
+            show_etw_notification(cx, message);
         }
         Ok(_) => {
-            show_etw_notification(cx, "ETW recording ended unexpectedly");
+            let message = i18n::t("etw_tracing.ended_unexpectedly", cx);
+            show_etw_notification(cx, message);
         }
         Err(error) => {
-            show_etw_notification(cx, format!("Failed to complete ETW recording: {error:#}"));
+            let message = i18n::t_args(
+                "etw_tracing.complete_failed",
+                &[("error", &format!("{error:#}"))],
+                cx,
+            );
+            show_etw_notification(cx, message);
         }
     }
 }
@@ -130,41 +142,59 @@ pub fn init(cx: &mut App) {
     });
 
     cx.on_action(|_: &SaveEtwTrace, cx: &mut App| {
+        // 저장 액션 알림 i18n 치환
         let session = cx.global_mut::<GlobalEtwSession>().0.as_mut();
         let Some(session) = session else {
-            show_etw_notification(cx, "No active ETW recording to stop");
+            let message = i18n::t("etw_tracing.no_active_to_stop", cx);
+            show_etw_notification(cx, message);
             return;
         };
         match send_json(&mut session.writer, &Command::Save) {
             Ok(()) => {
-                show_etw_notification(cx, "Stopping ETW recording...");
+                let message = i18n::t("etw_tracing.stopping", cx);
+                show_etw_notification(cx, message);
             }
             Err(error) => {
-                show_etw_notification(cx, format!("Failed to stop ETW recording: {error:#}"));
+                let message = i18n::t_args(
+                    "etw_tracing.stop_failed",
+                    &[("error", &format!("{error:#}"))],
+                    cx,
+                );
+                show_etw_notification(cx, message);
             }
         }
     });
 
     cx.on_action(|_: &CancelEtwTrace, cx: &mut App| {
+        // 취소 액션 알림 i18n 치환
         let session = cx.global_mut::<GlobalEtwSession>().0.as_mut();
         let Some(session) = session else {
-            show_etw_notification(cx, "No active ETW recording to cancel");
+            let message = i18n::t("etw_tracing.no_active_to_cancel", cx);
+            show_etw_notification(cx, message);
             return;
         };
         match send_json(&mut session.writer, &Command::Cancel) {
             Ok(()) => {
-                show_etw_notification(cx, "Cancelling ETW recording...");
+                let message = i18n::t("etw_tracing.cancelling", cx);
+                show_etw_notification(cx, message);
             }
             Err(error) => {
-                show_etw_notification(cx, format!("Failed to cancel ETW recording: {error:#}"));
+                let message = i18n::t_args(
+                    "etw_tracing.cancel_failed",
+                    &[("error", &format!("{error:#}"))],
+                    cx,
+                );
+                show_etw_notification(cx, message);
             }
         }
     });
 }
 
 fn start_etw_recording(cx: &mut App, heap_pid: Option<u32>) {
+    // ETW 녹화 시작 알림 i18n 치환
     if has_active_etw_session(cx) {
-        show_etw_notification(cx, "ETW recording is already in progress");
+        let message = i18n::t("etw_tracing.already_in_progress", cx);
+        show_etw_notification(cx, message);
         return;
     }
     let save_dialog = cx.prompt_for_new_path(&PathBuf::default(), Some("zed-trace.etl"));
@@ -174,7 +204,12 @@ fn start_etw_recording(cx: &mut App, heap_pid: Option<u32>) {
             Ok(Ok(None)) => return,
             Ok(Err(error)) => {
                 cx.update(|cx| {
-                    show_etw_notification(cx, format!("Failed to pick save location: {error:#}"));
+                    let message = i18n::t_args(
+                        "etw_tracing.pick_location_failed",
+                        &[("error", &format!("{error:#}"))],
+                        cx,
+                    );
+                    show_etw_notification(cx, message);
                 });
                 return;
             }
@@ -194,7 +229,13 @@ fn start_etw_recording(cx: &mut App, heap_pid: Option<u32>) {
             Ok(session) => session,
             Err(error) => {
                 cx.update(|cx| {
-                    show_etw_notification(cx, format!("Failed to start ETW recording: {error:#}"));
+                    // 녹화 시작 실패 알림 i18n 치환
+                    let message = i18n::t_args(
+                        "etw_tracing.start_failed",
+                        &[("error", &format!("{error:#}"))],
+                        cx,
+                    );
+                    show_etw_notification(cx, message);
                 });
                 return;
             }
@@ -222,7 +263,9 @@ fn start_etw_recording(cx: &mut App, heap_pid: Option<u32>) {
                 _listener: listener,
                 socket_path,
             });
-            show_etw_notification(cx, "ETW recording started");
+            // 녹화 시작 알림 i18n 치환
+            let message = i18n::t("etw_tracing.started", cx);
+            show_etw_notification(cx, message);
         });
     })
     .detach();

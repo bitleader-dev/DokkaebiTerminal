@@ -12,8 +12,8 @@ pub enum EmptyMessage {
 #[derive(IntoElement, RegisterComponent)]
 pub struct List {
     /// Message to display when the list is empty
-    /// Defaults to "No items"
-    empty_message: EmptyMessage,
+    /// 기본값 미지정 시 render 시점에 i18n 키 `list.no_items`로 치환된다.
+    empty_message: Option<EmptyMessage>,
     header: Option<ListHeader>,
     toggle: Option<bool>,
     children: SmallVec<[AnyElement; 2]>,
@@ -28,7 +28,7 @@ impl Default for List {
 impl List {
     pub fn new() -> Self {
         Self {
-            empty_message: EmptyMessage::Text("No items".into()),
+            empty_message: None,
             header: None,
             toggle: None,
             children: SmallVec::new(),
@@ -36,7 +36,7 @@ impl List {
     }
 
     pub fn empty_message(mut self, message: impl Into<EmptyMessage>) -> Self {
-        self.empty_message = message.into();
+        self.empty_message = Some(message.into());
         self
     }
 
@@ -84,12 +84,18 @@ impl RenderOnce for List {
             .map(|this| match (self.children.is_empty(), self.toggle) {
                 (false, _) => this.children(self.children),
                 (true, Some(false)) => this,
-                (true, _) => match self.empty_message {
-                    EmptyMessage::Text(text) => {
-                        this.px_2().child(Label::new(text).color(Color::Muted))
+                (true, _) => {
+                    // 기본 empty_message 미설정 시 i18n 기본 문구 사용
+                    let empty_message = self
+                        .empty_message
+                        .unwrap_or_else(|| EmptyMessage::Text(i18n::t("list.no_items", cx)));
+                    match empty_message {
+                        EmptyMessage::Text(text) => {
+                            this.px_2().child(Label::new(text).color(Color::Muted))
+                        }
+                        EmptyMessage::Element(element) => this.child(element),
                     }
-                    EmptyMessage::Element(element) => this.child(element),
-                },
+                }
             })
     }
 }

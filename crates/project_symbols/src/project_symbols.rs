@@ -276,10 +276,11 @@ impl PickerDelegate for ProjectSymbolsDelegate {
             background_color: Some(cx.theme().colors().text_accent.alpha(0.3)),
             ..Default::default()
         };
+        // UTF-8 문자 경계를 넘는 하이라이트 range로 인한 패닉 방지 (업스트림 #53563)
         let custom_highlights = string_match
             .positions
             .iter()
-            .map(|pos| (*pos..pos + 1, highlight_style));
+            .map(|pos| (*pos..label.ceil_char_boundary(pos + 1), highlight_style));
 
         let highlights = gpui::combine_highlights(custom_highlights, syntax_runs);
 
@@ -290,9 +291,12 @@ impl PickerDelegate for ProjectSymbolsDelegate {
                 .toggle_state(selected)
                 .child(
                     v_flex()
-                        .child(LabelLike::new().child(
-                            StyledText::new(label).with_default_highlights(&text_style, highlights),
-                        ))
+                        .child(
+                            LabelLike::new().child(
+                                StyledText::new(&label)
+                                    .with_default_highlights(&text_style, highlights),
+                            ),
+                        )
                         .child(
                             h_flex()
                                 .child(Label::new(path).size(LabelSize::Small).color(Color::Muted))

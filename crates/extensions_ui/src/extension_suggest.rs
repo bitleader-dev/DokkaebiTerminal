@@ -170,14 +170,19 @@ pub(crate) fn suggest(buffer: Entity<Buffer>, window: &mut Window, cx: &mut Cont
 
         workspace.show_notification(notification_id, cx, |cx| {
             cx.new(move |cx| {
-                MessageNotification::new(
-                    format!(
-                        "Do you want to install the recommended '{}' extension for '{}' files?",
-                        extension_id, file_name_or_extension
-                    ),
+                // 확장 설치 제안 팝업 본문/버튼을 i18n으로 치환
+                let prompt = i18n::t_args(
+                    "extension_suggest.prompt",
+                    &[
+                        ("id", extension_id.as_ref()),
+                        ("ext", file_name_or_extension.as_ref()),
+                    ],
                     cx,
-                )
-                .primary_message("Yes, install extension")
+                );
+                let accept = i18n::t("extension_suggest.accept", cx);
+                let dismiss = i18n::t("extension_suggest.dismiss", cx);
+                MessageNotification::new(prompt, cx)
+                .primary_message(accept)
                 .primary_icon(IconName::Check)
                 .primary_icon_color(Color::Success)
                 .primary_on_click({
@@ -190,7 +195,7 @@ pub(crate) fn suggest(buffer: Entity<Buffer>, window: &mut Window, cx: &mut Cont
                         });
                     }
                 })
-                .secondary_message("No, don't install it")
+                .secondary_message(dismiss)
                 .secondary_icon(IconName::Close)
                 .secondary_icon_color(Color::Error)
                 .secondary_on_click(move |_window, cx| {

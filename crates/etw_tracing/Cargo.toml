@@ -11,6 +11,7 @@ path = "etw_tracing.rs"
 [dependencies]
 anyhow.workspace = true
 gpui.workspace = true
+i18n.workspace = true
 log.workspace = true
 net.workspace = true
 serde.workspace = true

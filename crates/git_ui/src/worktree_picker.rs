@@ -19,10 +19,13 @@ use remote_connection::{RemoteConnectionModal, connect};
 use settings::Settings;
 use std::{path::PathBuf, sync::Arc};
 use ui::{HighlightedLabel, KeyBinding, ListItem, ListItemSpacing, Tooltip, prelude::*};
-use util::{ResultExt, debug_panic};
+use util::{ResultExt, debug_panic, paths::PathExt};
 use workspace::{ModalView, MultiWorkspace, Workspace, notifications::DetachAndPromptErr};
 
 use crate::git_panel::show_error_toast;
+
+// 메인 worktree 표시 이름 (업스트림 #53351)
+const MAIN_WORKTREE_DISPLAY_NAME: &str = "main";
 
 actions!(
     git,
@@ -271,6 +274,8 @@ pub struct WorktreeListDelegate {
     focus_handle: FocusHandle,
     default_branch: Option<SharedString>,
     forbidden_deletion_path: Option<PathBuf>,
+    // 현재 활성 worktree 경로를 기억해 체크마크 표시 (업스트림 #53351)
+    current_worktree_path: Option<PathBuf>,
 }
 
 impl WorktreeListDelegate {
@@ -280,6 +285,10 @@ impl WorktreeListDelegate {
         _window: &mut Window,
         cx: &mut Context<WorktreeList>,
     ) -> Self {
+        let current_worktree_path = repo
+            .as_ref()
+            .map(|r| r.read(cx).work_directory_abs_path.to_path_buf());
+
         Self {
             matches: vec![],
             all_worktrees: None,
@@ -291,6 +300,7 @@ impl WorktreeListDelegate {
             focus_handle: cx.focus_handle(),
             default_branch: None,
             forbidden_deletion_path: None,
+            current_worktree_path,
         }
     }
 
@@ -687,7 +697,15 @@ impl PickerDelegate for WorktreeListDelegate {
                 let candidates = all_worktrees
                     .iter()
                     .enumerate()
-                    .map(|(ix, worktree)| StringMatchCandidate::new(ix, worktree.display_name()))
+                    .map(|(ix, worktree)| {
+                        // 메인 worktree는 "main"으로 표기해 검색 가능하도록 (업스트림 #53351)
+                        let name = if worktree.is_main {
+                            MAIN_WORKTREE_DISPLAY_NAME
+                        } else {
+                            worktree.display_name()
+                        };
+                        StringMatchCandidate::new(ix, name)
+                    })
                     .collect::<Vec<StringMatchCandidate>>();
                 fuzzy::match_strings(
                     &candidates,
@@ -710,9 +728,14 @@ impl PickerDelegate for WorktreeListDelegate {
             picker
                 .update(cx, |picker, _| {
                     if !query.is_empty()
-                        && !matches
-                            .first()
-                            .is_some_and(|entry| entry.worktree.display_name() == query)
+                        && !matches.first().is_some_and(|entry| {
+                            let name = if entry.worktree.is_main {
+                                MAIN_WORKTREE_DISPLAY_NAME
+                            } else {
+                                entry.worktree.display_name()
+                            };
+                            name == query
+                        })
                     {
                         let query = query.replace(' ', "-");
                         matches.push(WorktreeEntry {
@@ -765,7 +788,8 @@ impl PickerDelegate for WorktreeListDelegate {
         cx: &mut Context<Picker<Self>>,
     ) -> Option<Self::ListItem> {
         let entry = &self.matches.get(ix)?;
-        let path = entry.worktree.path.to_string_lossy().to_string();
+        // 긴 절대 경로는 홈 디렉터리 기준으로 축약 (업스트림 #53351)
+        let path = entry.worktree.path.compact().to_string_lossy().to_string();
         let sha = entry
             .worktree
             .sha
@@ -788,17 +812,22 @@ impl PickerDelegate for WorktreeListDelegate {
                 ),
             )
         } else {
-            let branch = entry.worktree.display_name();
-            let branch_first_line = branch.lines().next().unwrap_or(branch);
+            // 메인 worktree는 "main"으로 표기 (업스트림 #53351)
+            let display_name = if entry.worktree.is_main {
+                MAIN_WORKTREE_DISPLAY_NAME
+            } else {
+                entry.worktree.display_name()
+            };
+            let first_line = display_name.lines().next().unwrap_or(display_name);
             let positions: Vec<_> = entry
                 .positions
                 .iter()
                 .copied()
-                .filter(|&pos| pos < branch_first_line.len())
+                .filter(|&pos| pos < first_line.len())
                 .collect();
 
             (
-                HighlightedLabel::new(branch_first_line.to_owned(), positions)
+                HighlightedLabel::new(first_line.to_owned(), positions)
                     .truncate()
                     .into_any_element(),
                 path,
@@ -820,8 +849,17 @@ impl PickerDelegate for WorktreeListDelegate {
                 }))
         };
 
+        // 현재 활성 worktree 식별 (업스트림 #53351)
+        let is_current = !entry.is_new
+            && self
+                .current_worktree_path
+                .as_ref()
+                .is_some_and(|current| *current == entry.worktree.path);
+
         let entry_icon = if entry.is_new {
             IconName::Plus
+        } else if is_current {
+            IconName::Check
         } else {
             IconName::GitWorktree
         };
@@ -837,7 +875,11 @@ impl PickerDelegate for WorktreeListDelegate {
                         .gap_2p5()
                         .child(
                             Icon::new(entry_icon)
-                                .color(Color::Muted)
+                                .color(if is_current {
+                                    Color::Accent
+                                } else {
+                                    Color::Muted
+                                })
                                 .size(IconSize::Small),
                         )
                         .child(v_flex().w_full().child(branch_name).map(|this| {

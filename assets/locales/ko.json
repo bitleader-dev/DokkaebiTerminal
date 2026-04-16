@@ -2062,7 +2062,7 @@
   "security.btn.trust_continue": "신뢰하고 계속",
   "security.desc.restricted_mode": "신뢰할 수 없는 프로젝트는 시스템 보호를 위해 제한 모드에서 열립니다.",
   "security.desc.review_settings": ".zed/settings.json에서 이 프로젝트에 설정된 확장 또는 명령을 검토하세요.",
-  "security.header.multiple": "인식하지 못한 프로젝트들",
+  "security.header.multiple": "인식하지 못한 프로젝트들 ({count})",
   "security.header.single": "인식하지 못한 프로젝트",
   "security.restricted_prevents": "제한 모드가 방지하는 것:",
   "security.restricts.language_servers": "언어 서버 실행",

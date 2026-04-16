@@ -105,18 +105,38 @@ pub enum SvgSize {
 impl SvgRenderer {
     /// Creates a new SVG renderer with the provided asset source.
     pub fn new(asset_source: Arc<dyn AssetSource>) -> Self {
-        static FONT_DB: LazyLock<Arc<usvg::fontdb::Database>> = LazyLock::new(|| {
+        // 시스템 폰트만 담긴 원본 DB를 한 번만 로드해 두고 (업스트림 #51623)
+        static SYSTEM_FONT_DB: LazyLock<Arc<usvg::fontdb::Database>> = LazyLock::new(|| {
             let mut db = usvg::fontdb::Database::new();
             db.load_system_fonts();
             Arc::new(db)
         });
+
+        // 번들된 IBM Plex Sans·Lilex 폰트를 추가하고 CSS generic family 기본값을 보정
+        let fontdb = {
+            let mut db = (**SYSTEM_FONT_DB).clone();
+            load_bundled_fonts(&*asset_source, &mut db);
+            fix_generic_font_families(&mut db);
+            Arc::new(db)
+        };
+
         let default_font_resolver = usvg::FontResolver::default_font_selector();
         let font_resolver = Box::new(
             move |font: &usvg::Font, db: &mut Arc<usvg::fontdb::Database>| {
                 if db.is_empty() {
-                    *db = FONT_DB.clone();
+                    *db = fontdb.clone();
                 }
-                default_font_resolver(font, db)
+                if let Some(id) = default_font_resolver(font, db) {
+                    return Some(id);
+                }
+                // fontdb는 "system-ui" 같은 CSS 키워드를 인식하지 못하므로
+                // 모든 face를 순회하기 전에 sans-serif로 먼저 폴백한다.
+                let sans_query = usvg::fontdb::Query {
+                    families: &[usvg::fontdb::Family::SansSerif],
+                    ..Default::default()
+                };
+                db.query(&sans_query)
+                    .or_else(|| db.faces().next().map(|f| f.id))
             },
         );
         let default_fallback_selection = usvg::FontResolver::default_fallback_selector();
@@ -223,6 +243,53 @@ impl SvgRenderer {
         resvg::render(&tree, transform, &mut pixmap.as_mut());
 
         Ok(pixmap)
+    }
+}
+
+// 번들 폰트(IBM Plex Sans, Lilex)를 fontdb에 등록해 시스템 폰트 부재 환경에서도
+// Mermaid 다이어그램 등 SVG 텍스트가 렌더링되도록 보장한다. (업스트림 #51623)
+fn load_bundled_fonts(asset_source: &dyn AssetSource, db: &mut usvg::fontdb::Database) {
+    let font_paths = [
+        "fonts/ibm-plex-sans/IBMPlexSans-Regular.ttf",
+        "fonts/lilex/Lilex-Regular.ttf",
+    ];
+    for path in font_paths {
+        match asset_source.load(path) {
+            Ok(Some(data)) => db.load_font_data(data.into_owned()),
+            Ok(None) => log::warn!("Bundled font not found: {path}"),
+            Err(error) => log::warn!("Failed to load bundled font {path}: {error}"),
+        }
+    }
+}
+
+// fontdb 기본값이 Microsoft 폰트(Arial/Times New Roman)라 Linux 환경에서 generic family 조회가
+// 실패하는 문제를 방지. IBM Plex Sans / Lilex로 매핑한다. (업스트림 #51623)
+fn fix_generic_font_families(db: &mut usvg::fontdb::Database) {
+    use usvg::fontdb::{Family, Query};
+
+    let families_and_fallbacks: &[(Family<'_>, &str)] = &[
+        (Family::SansSerif, "IBM Plex Sans"),
+        (Family::Serif, "IBM Plex Sans"),
+        (Family::Monospace, "Lilex"),
+        (Family::Cursive, "IBM Plex Sans"),
+        (Family::Fantasy, "IBM Plex Sans"),
+    ];
+
+    for (family, fallback_name) in families_and_fallbacks {
+        let query = Query {
+            families: &[*family],
+            ..Default::default()
+        };
+        if db.query(&query).is_none() {
+            match family {
+                Family::SansSerif => db.set_sans_serif_family(*fallback_name),
+                Family::Serif => db.set_serif_family(*fallback_name),
+                Family::Monospace => db.set_monospace_family(*fallback_name),
+                Family::Cursive => db.set_cursive_family(*fallback_name),
+                Family::Fantasy => db.set_fantasy_family(*fallback_name),
+                _ => {}
+            }
+        }
     }
 }
 

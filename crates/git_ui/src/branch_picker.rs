@@ -890,7 +890,10 @@ impl PickerDelegate for BranchListDelegate {
                 IconName::Plus
             }
             Entry::Branch { branch, .. } => {
-                if branch.is_remote() {
+                // HEAD 브랜치 체크마크 강조 (업스트림 #53351)
+                if branch.is_head {
+                    IconName::Check
+                } else if branch.is_remote() {
                     IconName::Screen
                 } else {
                     IconName::GitBranchAlt
@@ -975,7 +978,11 @@ impl PickerDelegate for BranchListDelegate {
                         .flex_grow()
                         .child(
                             Icon::new(entry_icon)
-                                .color(Color::Muted)
+                                .color(if is_head_branch {
+                                    Color::Accent
+                                } else {
+                                    Color::Muted
+                                })
                                 .size(IconSize::Small),
                         )
                         .child(

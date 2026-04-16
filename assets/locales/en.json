@@ -226,7 +226,7 @@
   "dialog.restore": "Restore",
   "dialog.replace": "Replace",
   "security.header.single": "Unrecognized Project",
-  "security.header.multiple": "Unrecognized Projects",
+  "security.header.multiple": "Unrecognized Projects ({count})",
   "security.desc.restricted_mode": "Untrusted projects are opened in Restricted Mode to protect your system.",
   "security.desc.review_settings": "Review .zed/settings.json for any extensions or commands configured by this project.",
   "security.restricted_prevents": "Restricted Mode prevents:",

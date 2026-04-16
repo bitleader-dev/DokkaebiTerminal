@@ -3884,7 +3884,7 @@ fn window_and_layout_page() -> SettingsPage {
 }
 
 fn panels_page() -> SettingsPage {
-    fn project_panel_section() -> [SettingsPageItem; 24] {
+    fn project_panel_section() -> [SettingsPageItem; 26] {
         [
             SettingsPageItem::SectionHeader("settings_page.section.project_panel"),
             SettingsPageItem::SettingItem(SettingItem {
@@ -4382,10 +4382,47 @@ fn panels_page() -> SettingsPage {
                 metadata: None,
                 files: USER,
             }),
+            // 정렬 모드·순서를 Project Panel 섹션 끝에 노출 (업스트림 #50221)
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "settings_page.item.sort_mode",
+                description: "settings_page.desc.auto_open_files.sort_mode",
+                field: Box::new(SettingField {
+                    pick: |settings_content| {
+                        settings_content.project_panel.as_ref()?.sort_mode.as_ref()
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .project_panel
+                            .get_or_insert_default()
+                            .sort_mode = value;
+                    },
+                    json_path: Some("project_panel.sort_mode"),
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "settings_page.item.sort_order",
+                description: "settings_page.desc.project_panel.sort_order",
+                field: Box::new(SettingField {
+                    pick: |settings_content| {
+                        settings_content.project_panel.as_ref()?.sort_order.as_ref()
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .project_panel
+                            .get_or_insert_default()
+                            .sort_order = value;
+                    },
+                    json_path: Some("project_panel.sort_order"),
+                }),
+                metadata: None,
+                files: USER,
+            }),
         ]
     }
 
-    fn auto_open_files_section() -> [SettingsPageItem; 6] {
+    fn auto_open_files_section() -> [SettingsPageItem; 4] {
         [
             SettingsPageItem::SectionHeader("settings_page.section.auto_open_files"),
             SettingsPageItem::SettingItem(SettingItem {
@@ -4462,43 +4499,6 @@ fn panels_page() -> SettingsPage {
                             .get_or_insert_default()
                             .on_drop = value;
                     },
-                }),
-                metadata: None,
-                files: USER,
-            }),
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "settings_page.item.sort_mode",
-                description: "settings_page.desc.auto_open_files.sort_mode",
-                field: Box::new(SettingField {
-                    pick: |settings_content| {
-                        settings_content.project_panel.as_ref()?.sort_mode.as_ref()
-                    },
-                    write: |settings_content, value| {
-                        settings_content
-                            .project_panel
-                            .get_or_insert_default()
-                            .sort_mode = value;
-                    },
-                    json_path: Some("project_panel.sort_mode"),
-                }),
-                metadata: None,
-                files: USER,
-            }),
-            // 파일·폴더 이름 정렬 순서 설정 (업스트림 #50221)
-            SettingsPageItem::SettingItem(SettingItem {
-                title: "settings_page.item.sort_order",
-                description: "settings_page.desc.project_panel.sort_order",
-                field: Box::new(SettingField {
-                    pick: |settings_content| {
-                        settings_content.project_panel.as_ref()?.sort_order.as_ref()
-                    },
-                    write: |settings_content, value| {
-                        settings_content
-                            .project_panel
-                            .get_or_insert_default()
-                            .sort_order = value;
-                    },
-                    json_path: Some("project_panel.sort_order"),
                 }),
                 metadata: None,
                 files: USER,

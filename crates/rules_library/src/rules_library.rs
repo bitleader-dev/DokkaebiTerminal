@@ -4,9 +4,9 @@ use i18n::t;
 use editor::{CompletionProvider, SelectionEffects};
 use editor::{CurrentLineHighlight, Editor, EditorElement, EditorEvent, EditorStyle, actions::Tab};
 use gpui::{
-    App, Bounds, DEFAULT_ADDITIONAL_WINDOW_SIZE, Entity, EventEmitter, Focusable, PromptLevel,
-    Subscription, Task, TextStyle, Tiling, TitlebarOptions, WindowBounds, WindowHandle,
-    WindowOptions, actions, point, size, transparent_black,
+    App, Bounds, DEFAULT_ADDITIONAL_WINDOW_SIZE, Entity, EventEmitter, Focusable, PromptButton,
+    PromptLevel, Subscription, Task, TextStyle, Tiling, TitlebarOptions, WindowBounds,
+    WindowHandle, WindowOptions, actions, point, size, transparent_black,
 };
 use language::{Buffer, LanguageRegistry, language_settings::SoftWrap};
 use language_model::{
@@ -205,8 +205,8 @@ impl PickerDelegate for RulePickerDelegate {
         self.filtered_entries.len()
     }
 
-    fn no_matches_text(&self, _window: &mut Window, _cx: &mut App) -> Option<SharedString> {
-        Some("No rules found matching your search.".into())
+    fn no_matches_text(&self, _window: &mut Window, cx: &mut App) -> Option<SharedString> {
+        Some(t("rules_library.no_results", cx))
     }
 
     fn selected_index(&self) -> usize {
@@ -857,14 +857,12 @@ impl RulesLibrary {
         cx: &mut Context<Self>,
     ) {
         if let Some(metadata) = self.store.read(cx).metadata(prompt_id) {
+            let title = metadata.title.unwrap_or("Untitled".into());
             let confirmation = window.prompt(
                 PromptLevel::Warning,
-                &format!(
-                    "Are you sure you want to delete {}",
-                    metadata.title.unwrap_or("Untitled".into())
-                ),
+                &i18n::t_args("rules_library.dialog.delete_confirm", &[("title", title.as_ref())], cx),
                 None,
-                &["Delete", "Cancel"],
+                &[PromptButton::new(i18n::t("rules_library.dialog.delete", cx)), PromptButton::cancel(i18n::t("dialog.cancel", cx))],
                 cx,
             );
 

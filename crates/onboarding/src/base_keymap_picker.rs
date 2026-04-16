@@ -1,4 +1,5 @@
 use fuzzy::{StringMatch, StringMatchCandidate, match_strings};
+use i18n::t;
 use gpui::{
     App, Context, DismissEvent, Entity, EventEmitter, Focusable, Render, Task, WeakEntity, Window,
     actions,
@@ -102,8 +103,8 @@ impl BaseKeymapSelectorDelegate {
 impl PickerDelegate for BaseKeymapSelectorDelegate {
     type ListItem = ui::ListItem;
 
-    fn placeholder_text(&self, _window: &mut Window, _cx: &mut App) -> Arc<str> {
-        "Select a base keymap...".into()
+    fn placeholder_text(&self, _window: &mut Window, cx: &mut App) -> Arc<str> {
+        Arc::from(t("base_keymap_picker.placeholder", cx).as_ref())
     }
 
     fn match_count(&self) -> usize {

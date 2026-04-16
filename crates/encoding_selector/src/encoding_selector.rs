@@ -3,6 +3,7 @@ pub use active_buffer_encoding::ActiveBufferEncoding;
 
 use editor::Editor;
 use encoding_rs::Encoding;
+use i18n::t;
 use fuzzy::{StringMatch, StringMatchCandidate, match_strings};
 use gpui::{
     App, AppContext, Context, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable,
@@ -221,8 +222,8 @@ fn available_encodings() -> Vec<&'static Encoding> {
 impl PickerDelegate for EncodingSelectorDelegate {
     type ListItem = ListItem;
 
-    fn placeholder_text(&self, _window: &mut Window, _cx: &mut App) -> Arc<str> {
-        "Reopen with encoding...".into()
+    fn placeholder_text(&self, _window: &mut Window, cx: &mut App) -> Arc<str> {
+        Arc::from(t("encoding_selector.placeholder", cx).as_ref())
     }
 
     fn match_count(&self) -> usize {

@@ -1,5 +1,6 @@
 use anyhow::Context as _;
 use collections::HashSet;
+use i18n::t;
 use fuzzy::StringMatchCandidate;
 
 use git::repository::Worktree as GitWorktree;
@@ -656,8 +657,8 @@ async fn open_remote_worktree(
 impl PickerDelegate for WorktreeListDelegate {
     type ListItem = ListItem;
 
-    fn placeholder_text(&self, _window: &mut Window, _cx: &mut App) -> Arc<str> {
-        "Select worktree…".into()
+    fn placeholder_text(&self, _window: &mut Window, cx: &mut App) -> Arc<str> {
+        Arc::from(t("worktree_picker.placeholder2", cx).as_ref())
     }
 
     fn editor_position(&self) -> PickerEditorPosition {
@@ -925,8 +926,8 @@ impl PickerDelegate for WorktreeListDelegate {
         )
     }
 
-    fn no_matches_text(&self, _window: &mut Window, _cx: &mut App) -> Option<SharedString> {
-        Some("No worktrees found".into())
+    fn no_matches_text(&self, _window: &mut Window, cx: &mut App) -> Option<SharedString> {
+        Some(t("worktree_picker.no_worktrees", cx))
     }
 
     fn render_footer(&self, _: &mut Window, cx: &mut Context<Picker<Self>>) -> Option<AnyElement> {

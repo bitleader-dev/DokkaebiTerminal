@@ -1074,12 +1074,12 @@ impl TextThreadEditor {
 
                         let (label, spinner, note) = match message.role {
                             Role::User => (
-                                Label::new("You").color(Color::Default).into_any_element(),
+                                Label::new(t("label.you", cx)).color(Color::Default).into_any_element(),
                                 None,
                                 None,
                             ),
                             Role::Assistant => {
-                                let base_label = Label::new("Agent").color(Color::Info);
+                                let base_label = Label::new(t("label.agent", cx)).color(Color::Info);
                                 let mut spinner = None;
                                 let mut note = None;
                                 let animated_label = if llm_loading {
@@ -1108,7 +1108,7 @@ impl TextThreadEditor {
                                 (animated_label, spinner, note)
                             }
                             Role::System => (
-                                Label::new("System")
+                                Label::new(t("label.system", cx))
                                     .color(Color::Warning)
                                     .into_any_element(),
                                 None,
@@ -2177,7 +2177,7 @@ impl TextThreadEditor {
             None => (ButtonStyle::Filled, None),
         };
 
-        Button::new("send_button", "Send")
+        Button::new("send_button", t("button.send", cx))
             .label_size(LabelSize::Small)
             .disabled(self.sending_disabled(cx))
             .style(style)

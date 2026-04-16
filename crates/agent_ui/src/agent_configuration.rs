@@ -598,7 +598,7 @@ impl AgentConfiguration {
                                     .border_color(cx.theme().colors().border.opacity(0.6))
                                     .rounded_sm()
                                     .child(
-                                        Label::new("No MCP servers added yet.")
+                                        Label::new(t("label.no_mcp_servers", cx))
                                             .color(Color::Muted)
                                             .size(LabelSize::Small),
                                     ),
@@ -706,7 +706,7 @@ impl AgentConfiguration {
                 IconButton::new("context-server-config-menu", IconName::Settings)
                     .icon_color(Color::Muted)
                     .icon_size(IconSize::Small),
-                Tooltip::text("Configure MCP Server"),
+                Tooltip::text(t("tooltip.configure_mcp_server", cx)),
             )
             .anchor(Corner::TopRight)
             .menu({
@@ -1155,7 +1155,7 @@ impl AgentConfiguration {
             .disabled(connection_status == AgentConnectionStatus::Connecting)
             .icon_color(Color::Muted)
             .icon_size(IconSize::Small)
-            .tooltip(Tooltip::text("Restart Agent Connection"))
+            .tooltip(Tooltip::text(t("tooltip.restart_agent", cx)))
             .on_click(cx.listener({
                 let agent = agent.clone();
                 move |this, _, _window, cx| {
@@ -1176,7 +1176,7 @@ impl AgentConfiguration {
                 )
                 .icon_color(Color::Muted)
                 .icon_size(IconSize::Small)
-                .tooltip(Tooltip::text("Uninstall Agent Extension"))
+                .tooltip(Tooltip::text(t("tooltip.uninstall_agent", cx)))
                 .on_click(cx.listener(move |this, _, _window, cx| {
                     let agent_name = agent_server_name.clone();
 
@@ -1198,7 +1198,7 @@ impl AgentConfiguration {
                     )
                     .icon_color(Color::Muted)
                     .icon_size(IconSize::Small)
-                    .tooltip(Tooltip::text("Remove Registry Agent"))
+                    .tooltip(Tooltip::text(t("tooltip.remove_registry_agent", cx)))
                     .on_click(cx.listener(move |_, _, _window, cx| {
                         let agent_name = agent_server_name.clone();
                         update_settings_file(fs.clone(), cx, move |settings, _| {
@@ -1226,7 +1226,7 @@ impl AgentConfiguration {
                     )
                     .icon_color(Color::Muted)
                     .icon_size(IconSize::Small)
-                    .tooltip(Tooltip::text("Remove Custom Agent"))
+                    .tooltip(Tooltip::text(t("tooltip.remove_custom_agent", cx)))
                     .on_click(cx.listener(move |_, _, _window, cx| {
                         let agent_name = agent_server_name.clone();
                         update_settings_file(fs.clone(), cx, move |settings, _| {

@@ -3,6 +3,7 @@ mod active_toolchain;
 pub use active_toolchain::ActiveToolchain;
 use anyhow::Context as _;
 use convert_case::Casing as _;
+use i18n::t;
 use editor::Editor;
 use futures::channel::oneshot;
 use fuzzy::{StringMatch, StringMatchCandidate, match_strings};
@@ -864,7 +865,7 @@ impl ToolchainSelectorDelegate {
                 Some(())
             }
         });
-        let placeholder_text = "Select a toolchain…".to_string().into();
+        let placeholder_text = Arc::from(t("toolchain_selector.placeholder", cx).as_ref());
         Self {
             toolchain_selector,
             candidates: Default::default(),

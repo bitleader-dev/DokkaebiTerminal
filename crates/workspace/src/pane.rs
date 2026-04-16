@@ -1975,7 +1975,7 @@ impl Pane {
                     let detail = Self::file_names_for_prompt(&mut dirty_items.iter(), cx);
                     window.prompt(
                         PromptLevel::Warning,
-                        "Do you want to save changes to the following files?",
+                        &t("pane.dialog.save_changes", cx),
                         Some(&detail),
                         &[
                             PromptButton::new(t("dialog.save_all", cx)),

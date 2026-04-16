@@ -1,4 +1,5 @@
 use gpui::{Action, Entity, OwnedMenu, OwnedMenuItem, actions};
+use i18n::t;
 use settings::Settings;
 
 use schemars::JsonSchema;
@@ -168,7 +169,7 @@ impl ApplicationMenu {
                         )
                         .style(ButtonStyle::Subtle)
                         .icon_size(IconSize::Small),
-                        Tooltip::text("Open Application Menu"),
+                        |window, cx| Tooltip::text(t("tooltip.open_app_menu", cx))(window, cx),
                     )
                     .with_handle(handle),
             )

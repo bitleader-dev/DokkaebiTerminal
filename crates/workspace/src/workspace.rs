@@ -10363,9 +10363,9 @@ pub fn reload(cx: &mut App) {
             .update(cx, |_, window, cx| {
                 window.prompt(
                     PromptLevel::Info,
-                    "Are you sure you want to restart?",
+                    &t("dialog.restart_confirm", cx),
                     None,
-                    &["Restart", "Cancel"],
+                    &[PromptButton::new(t("dialog.restart", cx)), PromptButton::cancel(t("dialog.cancel", cx))],
                     cx,
                 )
             })

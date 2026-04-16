@@ -1,5 +1,6 @@
 use crate::git_status_icon;
 use git::status::{FileStatus, StatusCode, TrackedStatus, UnmergedStatus, UnmergedStatusCode};
+use i18n::t;
 use gpui::{App, DismissEvent, Entity, EventEmitter, FocusHandle, Focusable, Task, WeakEntity};
 use itertools::Itertools;
 use picker::{Picker, PickerDelegate, PickerEditorPosition};
@@ -177,8 +178,8 @@ impl PickerDelegate for RepositorySelectorDelegate {
         cx.notify();
     }
 
-    fn placeholder_text(&self, _window: &mut Window, _cx: &mut App) -> Arc<str> {
-        "Select a repository...".into()
+    fn placeholder_text(&self, _window: &mut Window, cx: &mut App) -> Arc<str> {
+        Arc::from(t("repository_selector.placeholder", cx).as_ref())
     }
 
     fn editor_position(&self) -> PickerEditorPosition {

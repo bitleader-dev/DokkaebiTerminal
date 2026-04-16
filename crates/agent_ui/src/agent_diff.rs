@@ -37,6 +37,7 @@ use workspace::{
     searchable::SearchableItemHandle,
 };
 use zed_actions::assistant::ToggleFocus;
+use i18n::t;
 
 pub struct AgentDiffPane {
     multibuffer: Entity<MultiBuffer>,
@@ -677,7 +678,7 @@ impl Render for AgentDiffPane {
                         .gap_2()
                         .child("No changes to review")
                         .child(
-                            Button::new("continue-iterating", "Continue Iterating")
+                            Button::new("continue-iterating", t("button.continue_iterating", cx))
                                 .style(ButtonStyle::Filled)
                                 .start_icon(
                                     Icon::new(IconName::ForwardArrow)
@@ -1078,7 +1079,7 @@ impl Render for AgentDiffToolbar {
                         h_flex()
                             .gap_0p5()
                             .child(
-                                Button::new("reject-all", "Reject All")
+                                Button::new("reject-all", t("button.reject_all", cx))
                                     .key_binding({
                                         KeyBinding::for_action_in(
                                             &RejectAll,
@@ -1092,7 +1093,7 @@ impl Render for AgentDiffToolbar {
                                     })),
                             )
                             .child(
-                                Button::new("keep-all", "Keep All")
+                                Button::new("keep-all", t("button.keep_all", cx))
                                     .key_binding({
                                         KeyBinding::for_action_in(
                                             &KeepAll,
@@ -1174,7 +1175,7 @@ impl Render for AgentDiffToolbar {
                     .child(
                         h_group_sm()
                             .child(
-                                Button::new("reject-all", "Reject All")
+                                Button::new("reject-all", t("button.reject_all", cx))
                                     .key_binding({
                                         KeyBinding::for_action_in(&RejectAll, &focus_handle, cx)
                                             .map(|kb| kb.size(rems_from_px(12.)))
@@ -1184,7 +1185,7 @@ impl Render for AgentDiffToolbar {
                                     })),
                             )
                             .child(
-                                Button::new("keep-all", "Keep All")
+                                Button::new("keep-all", t("button.keep_all", cx))
                                     .key_binding({
                                         KeyBinding::for_action_in(&KeepAll, &focus_handle, cx)
                                             .map(|kb| kb.size(rems_from_px(12.)))

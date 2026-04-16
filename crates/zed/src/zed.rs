@@ -595,9 +595,9 @@ fn show_software_emulation_warning_if_needed(
         );
         let prompt = window.prompt(
             PromptLevel::Critical,
-            "Unsupported GPU",
+            &i18n::t("dialog.unsupported_gpu", cx),
             Some(&message),
-            &["Skip", "Quit"],
+            &[gpui::PromptButton::new(i18n::t("dialog.skip", cx)), gpui::PromptButton::new(i18n::t("dialog.quit", cx))],
             cx,
         );
         cx.spawn(async move |_, cx| {
@@ -1362,9 +1362,9 @@ fn quit(_: &Quit, cx: &mut App) {
                 .update(cx, |_, window, cx| {
                     window.prompt(
                         PromptLevel::Info,
-                        "Are you sure you want to quit?",
+                        &i18n::t("dialog.quit_confirm", cx),
                         None,
-                        &["Quit", "Cancel"],
+                        &[gpui::PromptButton::new(i18n::t("dialog.quit", cx)), gpui::PromptButton::cancel(i18n::t("dialog.cancel", cx))],
                         cx,
                     )
                 })

@@ -1,3 +1,4 @@
+use i18n::t;
 use std::ops::Range;
 use std::{cmp, sync::Arc};
 
@@ -249,8 +250,8 @@ impl OutlineViewDelegate {
 impl PickerDelegate for OutlineViewDelegate {
     type ListItem = ListItem;
 
-    fn placeholder_text(&self, _window: &mut Window, _cx: &mut App) -> Arc<str> {
-        "Search buffer symbols...".into()
+    fn placeholder_text(&self, _window: &mut Window, cx: &mut App) -> Arc<str> {
+        Arc::from(t("outline.placeholder", cx).as_ref())
     }
 
     fn match_count(&self) -> usize {

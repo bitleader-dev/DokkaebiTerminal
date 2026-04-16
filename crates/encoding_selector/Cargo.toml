@@ -15,6 +15,7 @@ doctest = false
 [dependencies]
 editor.workspace = true
 encoding_rs.workspace = true
+i18n.workspace = true
 fuzzy.workspace = true
 gpui.workspace = true
 language.workspace = true

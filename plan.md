@@ -1,39 +1,40 @@
-# wasmtime 33 → 36 업그레이드 재시도 (2026-04-16)
+# i18n 하드코딩 문자열 치환 (2026-04-16)
 
 ## 목표
-Dependabot 보안 경고(critical 2, moderate 10, low 3, rand low 1) 해결을 위해 `wasmtime 33.0.2` → `wasmtime 36.0.7+`.
-
-## 사전 조사 결과
-- Zed 상류 main은 이미 v0.232부터 wasmtime 36 사용 중(v0.231까지 33)
-- 이전 세션 메모리 "Zed 업스트림 동기화까지 대기" 전제 조건 **충족**
-- 상류 Cargo.toml의 wasmtime features는 Dokkaebi와 동일 (async, demangle, runtime, cranelift, component-model, incremental-cache, parallel-compilation)
-- 2026-04-14 실패 원인: `extension_host 761` 에러 — 구체적 원인 불명. 빌드 에러 로그 기반 대응
-
-## 전략
-1. `Cargo.toml`의 `wasmtime` / `wasmtime-wasi` 버전 `"33"` → `"36"`
-2. `cargo check -p Dokkaebi` 시도 → 에러 분석
-3. 에러 지점이 extension_host/host impl 쪽이면 상류 해당 파일과 비교해 API 변경 이식
-4. 빌드 성공 후 `cargo check --all-targets` 추가 검증
-5. 실패 지속 시 Cargo.toml 원복 후 사용자 보고
+다이얼로그(window.prompt), 툴팁(Tooltip::text), 버튼(Button::new), 라벨(Label::new)에
+하드코딩된 영문 문자열을 i18n 키 호출로 치환한다.
 
 ## 범위 (수정 대상 파일)
-- `Cargo.toml` (2줄)
-- `Cargo.lock` (자동 재생성)
-- 빌드 에러 발생 시 `crates/extension_host/src/*.rs` (상류 대응)
-- 기타 wasmtime API 사용처 (`crates/extension/*`, `crates/wasm_host/*` 등)
+### 다이얼로그
+1. `crates/workspace/src/workspace.rs` — restart 다이얼로그
+2. `crates/zed/src/zed.rs` — quit 다이얼로그, unsupported GPU 다이얼로그
+3. `crates/rules_library/src/rules_library.rs` — delete 다이얼로그 (t_args)
+4. `crates/search/src/project_search.rs` — unsaved edits 다이얼로그
+5. `crates/workspace/src/pane.rs` — save changes 다이얼로그
 
-## 수정 제외 (가드레일)
-- 기능 변경 없음, 의존성 버전업만
-- 실패 시 **즉시 원복**, 추가 시도 중단 후 사용자 승인 재요청
+### Agent UI 툴팁/버튼/라벨
+6. `crates/agent_ui/src/agent_diff.rs`
+7. `crates/agent_ui/src/conversation_view/thread_view.rs`
+8. `crates/agent_ui/src/text_thread_editor.rs`
+9. `crates/agent_ui/src/text_thread_history.rs`
+10. `crates/agent_ui/src/agent_configuration.rs`
+
+### 기타
+11. `crates/title_bar/src/application_menu.rs`
+12. `crates/settings_ui/src/components/input_field.rs`
+13. `crates/recent_projects/src/recent_projects.rs`
+
+## 수정 제외
+- `project_panel` 삭제 다이얼로그 (이미 처리됨)
+- `git_panel.rs:1401` 근처 삭제 다이얼로그 (이미 처리됨)
+- macOS/Linux 전용 코드
+- README.md
 
 ## 작업 단계
-- [ ] 1. Cargo.toml 버전 변경
-- [ ] 2. `cargo check -p Dokkaebi` 1차 시도
-- [ ] 3. 에러 로그 분석 + 상류 코드 대조
-- [ ] 4. 필요 시 extension_host 등 수정
-- [ ] 5. 재빌드 → 성공 시 `cargo check --all-targets`
-- [ ] 6. rand 0.8.5 제거 확인 (`cargo tree -i rand:0.8.5`)
-- [ ] 7. notes.md 갱신 + commit + push
+- [x] 1. 각 파일의 실제 위치 grep으로 확인
+- [x] 2. 파일별 Edit으로 치환
+- [x] 3. cargo check로 빌드 검증
+- [x] 4. notes.md 갱신
 
 ## 승인 필요 사항
-- 사용자 "재시도" 승인 완료
+- 없음 (기존 i18n 키 사용, 문자열만 치환)

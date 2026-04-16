@@ -2,6 +2,7 @@
 mod tab_switcher_tests;
 
 use collections::{HashMap, HashSet};
+use i18n::t;
 use editor::items::{
     entry_diagnostic_aware_icon_decoration_and_color, entry_git_aware_label_color,
 };
@@ -715,8 +716,8 @@ impl PickerDelegate for TabSwitcherDelegate {
         "Search all tabs…".into()
     }
 
-    fn no_matches_text(&self, _window: &mut Window, _cx: &mut App) -> Option<SharedString> {
-        Some("No tabs".into())
+    fn no_matches_text(&self, _window: &mut Window, cx: &mut App) -> Option<SharedString> {
+        Some(t("tab_switcher.no_tabs", cx))
     }
 
     fn match_count(&self) -> usize {

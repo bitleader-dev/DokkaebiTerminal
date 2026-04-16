@@ -1,4 +1,5 @@
 use crate::{RemoveHistory, RemoveSelectedThread};
+use i18n::t;
 use assistant_text_thread::{SavedTextThreadMetadata, TextThreadStore};
 use chrono::{Datelike, Local, NaiveDate, TimeDelta, Utc};
 use editor::{Editor, EditorEvent};
@@ -558,7 +559,7 @@ impl Render for TextThreadHistory {
                         .border_color(cx.theme().colors().border_variant)
                         .when(!self.confirming_delete_history, |this| {
                             this.child(
-                                Button::new("delete_history", "Delete All History")
+                                Button::new("delete_history", t("button.delete_all_history", cx))
                                     .full_width()
                                     .style(ButtonStyle::Outlined)
                                     .label_size(LabelSize::Small)

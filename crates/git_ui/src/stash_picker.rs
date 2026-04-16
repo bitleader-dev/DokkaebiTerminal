@@ -1,4 +1,5 @@
 use fuzzy::StringMatchCandidate;
+use i18n::t;
 
 use git::stash::StashEntry;
 use gpui::{
@@ -349,8 +350,8 @@ impl StashListDelegate {
 impl PickerDelegate for StashListDelegate {
     type ListItem = ListItem;
 
-    fn placeholder_text(&self, _window: &mut Window, _cx: &mut App) -> Arc<str> {
-        "Select a stash…".into()
+    fn placeholder_text(&self, _window: &mut Window, cx: &mut App) -> Arc<str> {
+        Arc::from(t("stash_picker.placeholder", cx).as_ref())
     }
 
     fn match_count(&self) -> usize {
@@ -544,8 +545,8 @@ impl PickerDelegate for StashListDelegate {
         )
     }
 
-    fn no_matches_text(&self, _window: &mut Window, _cx: &mut App) -> Option<SharedString> {
-        Some("No stashes found".into())
+    fn no_matches_text(&self, _window: &mut Window, cx: &mut App) -> Option<SharedString> {
+        Some(t("stash_picker.no_stashes", cx))
     }
 
     fn render_footer(&self, _: &mut Window, cx: &mut Context<Picker<Self>>) -> Option<AnyElement> {

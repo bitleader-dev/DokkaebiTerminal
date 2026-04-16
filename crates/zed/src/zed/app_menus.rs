@@ -77,8 +77,6 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
                     ),
                     MenuItem::separator(),
                     MenuItem::action(t("menu.zed.settings.open_keymap", cx), zed_actions::OpenKeymap),
-                    MenuItem::action(t("menu.zed.settings.open_keymap_file", cx), zed_actions::OpenKeymapFile),
-                    MenuItem::action(t("menu.zed.settings.open_default_key_bindings", cx), zed_actions::OpenDefaultKeymap),
                     MenuItem::separator(),
                     MenuItem::action(
                         t("menu.zed.settings.select_theme", cx),

@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "Dokkaebi"
-version = "0.1.0"
+version = "0.1.2"
 dependencies = [
  "acp_thread",
  "acp_tools",
@@ -4900,6 +4900,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "gpui",
+ "i18n",
  "log",
  "net",
  "serde",

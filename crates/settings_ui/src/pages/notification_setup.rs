@@ -94,7 +94,7 @@ fn set_stop_hook_bell_enabled(enabled: bool) {
         let bell_hook = serde_json::json!({
             "hooks": [{
                 "type": "command",
-                "command": "echo bell > \"${TMPDIR:-${TEMP:-/tmp}}/dokkaebi_bell_${DOKKAEBI_TERMINAL_ID}\" 2>/dev/null || true",
+                "command": "[ -n \"${DOKKAEBI_TERMINAL_ID:-}\" ] && echo bell > \"${TMPDIR:-${TEMP:-/tmp}}/dokkaebi_bell_${DOKKAEBI_TERMINAL_ID}\" 2>/dev/null || true",
                 "timeout": 2
             }]
         });

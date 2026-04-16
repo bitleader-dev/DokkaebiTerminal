@@ -1437,6 +1437,7 @@ enum SettingsUiFile {
 }
 
 impl SettingsUiFile {
+    #[allow(dead_code)] // telemetry::event! 매크로가 no-op이라 컴파일러가 인식 못함
     fn setting_type(&self) -> &'static str {
         match self {
             SettingsUiFile::User => "User",
@@ -2692,15 +2693,15 @@ impl SettingsWindow {
                                                 ))
                                         })
                                         .on_click({
-                                            let category = this.pages[entry.page_index].title;
-                                            let subcategory =
+                                            let _category = this.pages[entry.page_index].title;
+                                            let _subcategory =
                                                 (!entry.is_root).then_some(entry.title);
 
                                             cx.listener(move |this, _, window, cx| {
                                                 telemetry::event!(
                                                     "Settings Navigation Clicked",
-                                                    category = category,
-                                                    subcategory = subcategory
+                                                    category = _category,
+                                                    subcategory = _subcategory
                                                 );
 
                                                 this.open_and_scroll_to_navbar_entry(
@@ -3832,12 +3833,12 @@ fn open_user_settings_in_workspace(
 
 fn update_settings_file(
     file: SettingsUiFile,
-    file_name: Option<&'static str>,
+    _file_name: Option<&'static str>,
     window: &mut Window,
     cx: &mut App,
     update: impl 'static + Send + FnOnce(&mut SettingsContent, &App),
 ) -> Result<()> {
-    telemetry::event!("Settings Change", setting = file_name, type = file.setting_type());
+    telemetry::event!("Settings Change", setting = _file_name, r#type = file.setting_type());
 
     match file {
         SettingsUiFile::Project((worktree_id, rel_path)) => {

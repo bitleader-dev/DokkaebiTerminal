@@ -1,12 +1,11 @@
 use feature_flags::{AgentV2FeatureFlag, FeatureFlagAppExt as _};
 use gpui::{Action as _, App, PathPromptOptions, ReadGlobal as _};
-use itertools::Itertools as _;
 use settings::{
-    LanguageSettingsContent, SemanticTokens, SettingsContent, SettingsStore,
+    LanguageSettingsContent, SettingsContent, SettingsStore,
     WallpaperFitContent, WallpaperOpacity,
 };
 use std::sync::Arc;
-use strum::{EnumMessage, IntoDiscriminant as _, VariantArray};
+use strum::IntoDiscriminant as _;
 use ui::IntoElement;
 
 use crate::{
@@ -6880,7 +6879,7 @@ fn wallpaper_page() -> SettingsPage {
                         prompt: None,
                     });
                     window
-                        .spawn(cx, async move |mut cx| {
+                        .spawn(cx, async move |cx| {
                             if let Ok(Ok(Some(paths))) = receiver.await {
                                 if let Some(path) = paths.first() {
                                     let path_str = path.to_string_lossy().to_string();

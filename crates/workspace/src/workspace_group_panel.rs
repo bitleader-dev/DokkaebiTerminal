@@ -909,6 +909,8 @@ impl Render for WorkspaceGroupPanel {
             .key_context("WorkspaceGroupPanel")
             .track_focus(&self.focus_handle)
             .size_full()
+            // 좌우 세로 경계선에서 내용물이 붙어 보이지 않도록 4픽셀 패딩 부여
+            .px(px(4.))
             .bg(colors.surface_background)
             // Enter → 편집 확정, Escape → 편집 취소
             .on_action(cx.listener(|this, _: &menu::Confirm, window, cx| {
@@ -954,6 +956,8 @@ impl Render for WorkspaceGroupPanel {
                     .flex_1()
                     .overflow_y_scroll()
                     .py_1()
+                    // 항목 간 4픽셀 세로 간격
+                    .gap(px(4.))
                     .children(groups.into_iter().map(|(index, name, has_notification)| {
                         let is_active = index == active_index;
                         let is_editing = editing_index == Some(index);

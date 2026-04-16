@@ -106,6 +106,21 @@ pub fn get_windows_bash() -> Option<String> {
     }
 
     fn find_bash_in_git() -> Option<PathBuf> {
+        // PATH 스캔(`which::which("git")`)은 Windows에서 수백 ms~1초까지 걸릴 수 있으므로
+        // Git for Windows 표준 설치 경로를 먼저 stat 시도하여 일반 사용자 환경에서는 PATH 스캔을 건너뛴다.
+        let standard_paths = [
+            std::env::var_os("ProgramFiles"),
+            std::env::var_os("ProgramFiles(x86)"),
+            std::env::var_os("ProgramW6432"),
+        ];
+        for base in standard_paths.into_iter().flatten() {
+            let candidate = PathBuf::from(base).join("Git\\bin\\bash.exe");
+            if candidate.exists() {
+                return Some(candidate);
+            }
+        }
+
+        // 표준 경로에 없으면 PATH에서 git을 찾아 옆의 bash.exe를 탐색 (비표준 설치 환경 폴백).
         // /path/to/git/cmd/git.exe/../../bin/bash.exe
         let git = which::which("git").ok()?;
         let git_bash = git.parent()?.parent()?.join("bin").join("bash.exe");

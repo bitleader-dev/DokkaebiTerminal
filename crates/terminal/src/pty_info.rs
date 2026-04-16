@@ -385,27 +385,101 @@ impl PtyProcessInfo {
         self.get_child().is_some_and(|process| process.kill())
     }
 
-    /// Windows에서 PID 또는 핸들을 통해 PEB에서 CWD를 읽는다
+    /// Windows에서 PID 또는 핸들을 통해 PEB에서 CWD를 읽는다.
+    /// `pid`가 0이 아니면 해당 PID로 시도하고, 0이면 보유 핸들로 폴백한다.
     #[cfg(target_os = "windows")]
-    fn read_cwd_from_pid_or_handle(&self) -> Option<PathBuf> {
-        let shell_pid = self.pid_getter.fallback_pid;
-        if shell_pid != 0 {
-            win_peb_cwd::read_process_cwd_by_pid(shell_pid)
+    fn read_cwd_from_pid_or_handle(&self, pid: u32) -> Option<PathBuf> {
+        if pid != 0 {
+            win_peb_cwd::read_process_cwd_by_pid(pid)
         } else {
             win_peb_cwd::read_process_cwd(self.pid_getter.handle())
         }
     }
 
+    /// 셸 프로세스의 자식 중 가장 최근에 시작된 활성 PID를 반환한다.
+    /// 동작 자체는 sysinfo의 가벼운 refresh(디테일 미로드)로 모든 프로세스의
+    /// parent/start_time만 채운 뒤 부모 PID가 셸인 항목을 골라 가장 최신을 선택한다.
+    #[cfg(target_os = "windows")]
+    fn find_foreground_child_pid(&self) -> Option<Pid> {
+        let shell_pid_raw = self.pid_getter.fallback_pid;
+        if shell_pid_raw == 0 {
+            return None;
+        }
+        let shell_pid = Pid::from_u32(shell_pid_raw);
+
+        // 디테일 없이 모든 프로세스 메타만 갱신 (NtQuerySystemInformation 1회)
+        let cheap_refresh = ProcessRefreshKind::nothing();
+        self.system.write().refresh_processes_specifics(
+            sysinfo::ProcessesToUpdate::All,
+            true,
+            cheap_refresh,
+        );
+
+        let system = self.system.read();
+        let mut latest: Option<(Pid, u64)> = None;
+        for (pid, process) in system.processes() {
+            if process.parent() != Some(shell_pid) {
+                continue;
+            }
+            let t = process.start_time();
+            if latest.map_or(true, |(_, lt)| t > lt) {
+                latest = Some((*pid, t));
+            }
+        }
+        latest.map(|(p, _)| p)
+    }
+
     /// 프로세스 정보를 조회하여 반환한다. `self.current`는 갱신하지 않는다.
     fn load(&self) -> Option<ProcessInfo> {
         let pid = self.pid_getter.pid();
+
+        // Windows: 셸의 자식 프로세스(예: claude)가 살아 있으면 그것을 우선 사용한다.
+        // 자식 PID가 잡히면 해당 PID를 sysinfo에 디테일까지 refresh하여 name/argv/cwd를
+        // 자식 기준으로 채운다. 자식이 없거나 refresh 실패 시 기존 셸 흐름으로 폴백.
+        #[cfg(target_os = "windows")]
+        {
+            if let Some(child_pid) = self.find_foreground_child_pid() {
+                let refreshed = self.system.write().refresh_processes_specifics(
+                    sysinfo::ProcessesToUpdate::Some(&[child_pid]),
+                    true,
+                    self.refresh_kind,
+                ) == 1;
+                if refreshed {
+                    let system = self.system.read();
+                    if let Some(child_proc) = system.process(child_pid) {
+                        let child_pid_raw = child_pid.as_u32();
+                        let cwd = self
+                            .read_cwd_from_pid_or_handle(child_pid_raw)
+                            .unwrap_or_else(|| {
+                                child_proc
+                                    .cwd()
+                                    .map_or(PathBuf::new(), |p| p.to_owned())
+                            });
+                        if let Some(name) = child_proc.name().to_str() {
+                            let info = ProcessInfo {
+                                name: name.to_owned(),
+                                cwd,
+                                argv: child_proc
+                                    .cmd()
+                                    .iter()
+                                    .filter_map(|s| s.to_str().map(ToOwned::to_owned))
+                                    .collect(),
+                            };
+                            return Some(info);
+                        }
+                    }
+                }
+            }
+        }
+
         let process = self.refresh();
         if process.is_none() {
             log::debug!("터미널 cwd: refresh 실패 (pid={:?})", pid);
             // Windows: sysinfo refresh 실패 시에도 실제 셸 PID로 PEB에서 cwd를 읽는다
             #[cfg(target_os = "windows")]
             {
-                if let Some(cwd) = self.read_cwd_from_pid_or_handle() {
+                let shell_pid = self.pid_getter.fallback_pid;
+                if let Some(cwd) = self.read_cwd_from_pid_or_handle(shell_pid) {
                     return Some(ProcessInfo {
                         name: String::new(),
                         cwd,
@@ -422,7 +496,8 @@ impl PtyProcessInfo {
         #[cfg(target_os = "windows")]
         let cwd = {
             // 실제 셸 PID로 PEB에서 CWD를 읽는다 (sysinfo는 CWD 갱신이 안 됨)
-            self.read_cwd_from_pid_or_handle().unwrap_or_else(|| {
+            let shell_pid = self.pid_getter.fallback_pid;
+            self.read_cwd_from_pid_or_handle(shell_pid).unwrap_or_else(|| {
                 let raw_cwd = process.cwd();
                 raw_cwd.map_or(PathBuf::new(), |p| p.to_owned())
             })

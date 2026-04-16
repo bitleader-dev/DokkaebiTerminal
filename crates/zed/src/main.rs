@@ -323,6 +323,17 @@ fn main() {
     let app =
         Application::with_platform(gpui_platform::current_platform(false)).with_assets(Assets);
 
+    // Windows 셸 탐색(`get_windows_system_shell` / `get_windows_bash`)은 PATH 스캔 등으로
+    // 수백 ms~1초까지 걸릴 수 있다. 시작 흐름에서 동기로 호출되어 차단되는 것을 피하기 위해
+    // 백그라운드에서 LazyLock을 미리 채워둔다.
+    #[cfg(windows)]
+    app.background_executor()
+        .spawn(async {
+            let _ = util::shell::get_windows_system_shell();
+            let _ = util::shell::get_windows_bash();
+        })
+        .detach();
+
     let app_db = db::AppDatabase::new();
     let system_id = app.background_executor().spawn(system_id());
     let installation_id = app

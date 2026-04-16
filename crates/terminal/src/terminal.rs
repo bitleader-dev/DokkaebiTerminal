@@ -1156,6 +1156,10 @@ impl Terminal {
                     .is_some_and(|p| p.cwd == candidate);
                 drop(current);
                 if same {
+                    // cwd가 동일하더라도 "프롬프트가 cwd를 확인했다"는 신호를
+                    // 버전 카운터로 전달해야 한다. 그렇지 않으면 PEB 백그라운드
+                    // 읽기가 PowerShell의 stale PEB CWD(시작 디렉토리)로 덮어쓴다.
+                    info.mark_cwd_from_title();
                     return;
                 }
                 // 새 경로일 때만 is_dir() 검증
@@ -2373,16 +2377,8 @@ impl Terminal {
                                 .map(|name| name.to_string_lossy().into_owned())
                                 .unwrap_or_default();
 
-                            let argv = fpi.argv.as_slice();
-                            let process_name = format!(
-                                "{}{}",
-                                fpi.name,
-                                if !argv.is_empty() {
-                                    format!(" {}", (argv[1..]).join(" "))
-                                } else {
-                                    "".to_string()
-                                }
-                            );
+                            // 탭 제목에 CLI 인자는 노출하지 않고 프로세스 이름만 표시한다.
+                            let process_name = fpi.name.clone();
                             let (process_file, process_name) = if truncate {
                                 (
                                     truncate_and_trailoff(&process_file, MAX_CHARS),

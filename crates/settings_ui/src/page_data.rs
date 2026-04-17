@@ -75,7 +75,7 @@ pub(crate) fn settings_data(cx: &App) -> Vec<SettingsPage> {
 }
 
 fn general_page() -> SettingsPage {
-    fn general_settings_section() -> [SettingsPageItem; 7] {
+    fn general_settings_section() -> [SettingsPageItem; 8] {
         [
             SettingsPageItem::SectionHeader("settings_page.section.general_settings"),
             SettingsPageItem::SettingItem(SettingItem {
@@ -173,6 +173,21 @@ fn general_page() -> SettingsPage {
                     },
                     write: |settings_content, value| {
                         settings_content.workspace.system_monitoring = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            // UI 언어(로케일) 선택 — 값 변경 시 i18n::init의 settings observer가
+            // I18n 글로벌을 즉시 갱신하고 전역 리페인트를 트리거한다.
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "settings_page.item.locale",
+                description: "settings_page.desc.general_settings.locale",
+                field: Box::new(SettingField {
+                    json_path: Some("locale"),
+                    pick: |settings_content| settings_content.locale.as_ref(),
+                    write: |settings_content, value| {
+                        settings_content.locale = value;
                     },
                 }),
                 metadata: None,

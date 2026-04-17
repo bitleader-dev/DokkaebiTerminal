@@ -3,13 +3,16 @@
 
 use collections::HashMap;
 use gpui::{App, Global, SharedString};
-use settings::Settings;
+use settings::{Settings, SettingsStore};
 use settings_content::{Locale, SettingsContent};
 
 /// 번역 데이터를 보관하는 GPUI 글로벌 리소스
 pub struct I18n {
-    /// 현재 선택된 로케일
+    /// 사용자가 설정한 로케일(`System`/`En`/`Ko`). 드롭다운 상태 유지용.
     locale: Locale,
+    /// 실제 번역 lookup에 사용하는 로케일. `locale`이 `System`이면
+    /// OS 언어를 감지해 `En`/`Ko` 중 하나로 해석한 값이고, 그 외에는 `locale`과 동일하다.
+    effective_locale: Locale,
     /// 로케일별 번역 데이터 (locale -> (key -> value))
     /// 값은 SharedString으로 보관해 매 호출 시 Arc::clone만 발생하도록 한다.
     translations: HashMap<Locale, HashMap<String, SharedString>>,
@@ -48,20 +51,28 @@ settings::private::inventory::submit! {
 impl I18n {
     /// 새 I18n 인스턴스 생성
     fn new() -> Self {
+        let locale = Locale::default();
         Self {
-            locale: Locale::default(),
+            locale,
+            effective_locale: resolve_effective_locale(locale),
             translations: HashMap::default(),
         }
     }
 
-    /// 현재 로케일 반환
+    /// 사용자가 설정한 로케일(System 포함) 반환
     pub fn locale(&self) -> Locale {
         self.locale
     }
 
-    /// 로케일 변경
+    /// 실제 번역 lookup에 사용되는 로케일(System을 OS 감지값으로 해석한 결과) 반환
+    pub fn effective_locale(&self) -> Locale {
+        self.effective_locale
+    }
+
+    /// 로케일 변경. `System` 지정 시 OS 언어를 감지해 effective_locale을 함께 갱신한다.
     pub fn set_locale(&mut self, locale: Locale) {
         self.locale = locale;
+        self.effective_locale = resolve_effective_locale(locale);
     }
 
     /// JSON 바이트에서 번역 데이터 로드
@@ -75,10 +86,28 @@ impl I18n {
     /// 키에 해당하는 번역 문자열 반환. 없으면 키 자체를 반환.
     pub fn translate(&self, key: &str) -> SharedString {
         self.translations
-            .get(&self.locale)
+            .get(&self.effective_locale)
             .and_then(|map| map.get(key))
             .cloned()
             .unwrap_or_else(|| SharedString::from(key.to_owned()))
+    }
+}
+
+/// OS 언어를 감지해 `Locale::System`을 실제 번역 가능한 로케일로 해석한다.
+/// `System`이 아닌 값은 그대로 반환된다.
+fn resolve_effective_locale(locale: Locale) -> Locale {
+    match locale {
+        Locale::System => detect_os_locale(),
+        other => other,
+    }
+}
+
+/// OS의 사용자 UI 언어를 조회해 지원 로케일로 매핑한다.
+/// BCP-47 태그가 "ko"로 시작하면 `Ko`, 그 외에는 `En`으로 폴백한다.
+fn detect_os_locale() -> Locale {
+    match sys_locale::get_locale() {
+        Some(tag) if tag.to_ascii_lowercase().starts_with("ko") => Locale::Ko,
+        _ => Locale::En,
     }
 }
 
@@ -96,6 +125,18 @@ pub fn init(cx: &mut App) {
     i18n.set_locale(locale);
 
     cx.set_global(i18n);
+
+    // settings.json의 locale 값이 바뀌면 I18n 글로벌을 즉시 동기화하고
+    // 모든 윈도우를 리페인트해 UI 문자열이 재시작 없이 반영되게 한다.
+    cx.observe_global::<SettingsStore>(|cx| {
+        let new_locale = I18nSettings::get_global(cx).locale;
+        let current_locale = cx.global::<I18n>().locale();
+        if new_locale != current_locale {
+            cx.global_mut::<I18n>().set_locale(new_locale);
+            cx.refresh_windows();
+        }
+    })
+    .detach();
 }
 
 /// assets에서 번역 JSON 파일 로드

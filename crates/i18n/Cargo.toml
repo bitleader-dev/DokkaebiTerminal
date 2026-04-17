@@ -17,3 +17,4 @@ serde_json.workspace = true
 collections.workspace = true
 settings.workspace = true
 settings_content.workspace = true
+sys-locale.workspace = true

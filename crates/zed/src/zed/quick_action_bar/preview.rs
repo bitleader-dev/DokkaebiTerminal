@@ -12,6 +12,7 @@ use svg_preview::{
     OpenPreview as SvgOpenPreview, OpenPreviewToTheSide as SvgOpenPreviewToTheSide,
     svg_preview_view::SvgPreviewView,
 };
+use i18n::t;
 use ui::{Tooltip, prelude::*, text_for_keystroke};
 use workspace::Workspace;
 
@@ -51,25 +52,25 @@ impl QuickActionBar {
 
         let preview_type = preview_type?;
 
-        let (button_id, tooltip_text, open_action, open_to_side_action, open_action_for_tooltip) =
+        let (button_id, tooltip_key, open_action, open_to_side_action, open_action_for_tooltip) =
             match preview_type {
                 PreviewType::Markdown => (
                     "toggle-markdown-preview",
-                    "Preview Markdown",
+                    "tooltip.preview_markdown",
                     Box::new(MarkdownOpenPreview) as Box<dyn gpui::Action>,
                     Box::new(MarkdownOpenPreviewToTheSide) as Box<dyn gpui::Action>,
                     &markdown_preview::OpenPreview as &dyn gpui::Action,
                 ),
                 PreviewType::Svg => (
                     "toggle-svg-preview",
-                    "Preview SVG",
+                    "tooltip.preview_svg",
                     Box::new(SvgOpenPreview) as Box<dyn gpui::Action>,
                     Box::new(SvgOpenPreviewToTheSide) as Box<dyn gpui::Action>,
                     &svg_preview::OpenPreview as &dyn gpui::Action,
                 ),
                 PreviewType::Csv => (
                     "toggle-csv-preview",
-                    "Preview CSV",
+                    "tooltip.preview_csv",
                     Box::new(CsvOpenPreview) as Box<dyn gpui::Action>,
                     Box::new(CsvOpenPreviewToTheSide) as Box<dyn gpui::Action>,
                     &csv_preview::OpenPreview as &dyn gpui::Action,
@@ -86,13 +87,11 @@ impl QuickActionBar {
             .icon_size(IconSize::Small)
             .style(ButtonStyle::Subtle)
             .tooltip(move |_window, cx| {
+                let keystroke = text_for_keystroke(&alt_click.modifiers, &alt_click.key, cx);
                 Tooltip::with_meta(
-                    tooltip_text,
+                    t(tooltip_key, cx),
                     Some(open_action_for_tooltip),
-                    format!(
-                        "{} to open in a split",
-                        text_for_keystroke(&alt_click.modifiers, &alt_click.key, cx)
-                    ),
+                    i18n::t_arg("tooltip.open_in_split", &keystroke, cx),
                     cx,
                 )
             })

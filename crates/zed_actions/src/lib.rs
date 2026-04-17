@@ -59,6 +59,8 @@ actions!(
         CheckForUpdates,
         /// Views open source licenses.
         OpenLicenses,
+        /// 릴리즈 노트를 내장 탭으로 연다.
+        OpenReleaseNotes,
         /// Opens the telemetry log.
         OpenTelemetryLog,
         /// Opens the performance profiler.

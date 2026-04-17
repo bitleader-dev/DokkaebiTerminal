@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "Dokkaebi"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "acp_thread",
  "acp_tools",
@@ -7374,6 +7374,7 @@ dependencies = [
  "serde_json",
  "settings",
  "settings_content",
+ "sys-locale",
 ]
 
 [[package]]

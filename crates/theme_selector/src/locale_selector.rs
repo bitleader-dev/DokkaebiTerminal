@@ -95,6 +95,10 @@ impl LanguageSelectorDelegate {
 
         let languages = vec![
             LanguageItem {
+                locale: Locale::System,
+                display_name: i18n::t("language_selector.system", cx).to_string(),
+            },
+            LanguageItem {
                 locale: Locale::En,
                 display_name: "English".to_string(),
             },

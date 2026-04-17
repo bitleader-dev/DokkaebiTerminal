@@ -68,6 +68,10 @@ pub fn app_menus(cx: &mut App) -> Vec<Menu> {
                     t("menu.zed.check_for_updates", cx),
                     zed_actions::CheckForUpdates,
                 ),
+                MenuItem::action(
+                    t("menu.zed.release_notes", cx),
+                    zed_actions::OpenReleaseNotes,
+                ),
                 MenuItem::separator(),
                 MenuItem::submenu(Menu::new(t("menu.zed.settings", cx)).items([
                     MenuItem::action(t("menu.zed.settings.open_settings", cx), zed_actions::OpenSettings),

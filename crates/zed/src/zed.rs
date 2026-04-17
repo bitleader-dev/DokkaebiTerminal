@@ -192,6 +192,11 @@ pub fn init(cx: &mut App) {
             );
         });
     })
+    .on_action(|_: &zed_actions::OpenReleaseNotes, cx| {
+        with_active_or_new_workspace(cx, |workspace, window, cx| {
+            open_release_notes_preview(workspace, window, cx);
+        });
+    })
     .on_action(|&zed_actions::OpenKeymapFile, cx| {
         with_active_or_new_workspace(cx, |workspace, window, cx| {
             // 다른 워크스페이스 그룹에서 이미 열려 있으면 해당 그룹으로 전환
@@ -2120,6 +2125,83 @@ fn open_bundled_file(
                             window,
                             cx,
                         )
+                    })
+                })
+            })?
+            .await
+    })
+    .detach_and_log_err(cx);
+}
+
+/// 릴리즈 노트를 Markdown Preview 탭으로 연다.
+fn open_release_notes_preview(
+    workspace: &mut Workspace,
+    window: &mut Window,
+    cx: &mut Context<Workspace>,
+) {
+    use markdown_preview::markdown_preview_view::{MarkdownPreviewMode, MarkdownPreviewView};
+    use workspace::item::Item as _;
+
+    let existing = workspace
+        .items_of_type::<MarkdownPreviewView>(cx)
+        .find(|view| {
+            view.read_with(cx, |view, cx| {
+                view.tab_content_text(0, cx).as_ref() == "Preview Release Notes"
+            })
+        });
+    if let Some(existing) = existing {
+        workspace.activate_item(&existing, true, true, window, cx);
+        return;
+    }
+
+    let text = asset_str::<Assets>("release_notes.md");
+    let language = workspace.app_state().languages.language_for_name("Markdown");
+    cx.spawn_in(window, async move |workspace, cx| {
+        let language = language.await.log_err();
+        workspace
+            .update_in(cx, move |workspace, window, cx| {
+                let project = workspace.project().clone();
+                let buffer = project.update(cx, move |project, cx| {
+                    project.create_buffer(language, false, cx)
+                });
+                cx.spawn_in(window, async move |workspace, cx| {
+                    let buffer = buffer.await?;
+                    buffer.update(cx, |buffer, cx| {
+                        buffer.set_text(text.into_owned(), cx);
+                        buffer.set_capability(Capability::ReadOnly, cx);
+                    });
+                    let multi_buffer = cx.new(|cx| {
+                        MultiBuffer::singleton(buffer, cx).with_title("Release Notes".into())
+                    });
+                    workspace.update_in(cx, |workspace, window, cx| {
+                        let editor = cx.new(|cx| {
+                            let mut editor = Editor::for_multibuffer(
+                                multi_buffer,
+                                Some(project.clone()),
+                                window,
+                                cx,
+                            );
+                            editor.set_read_only(true);
+                            editor.set_should_serialize(false, cx);
+                            editor
+                        });
+                        let language_registry =
+                            workspace.project().read(cx).languages().clone();
+                        let preview = MarkdownPreviewView::new(
+                            MarkdownPreviewMode::Default,
+                            editor,
+                            workspace.weak_handle(),
+                            language_registry,
+                            window,
+                            cx,
+                        );
+                        workspace.add_item_to_active_pane(
+                            Box::new(preview),
+                            None,
+                            true,
+                            window,
+                            cx,
+                        );
                     })
                 })
             })?

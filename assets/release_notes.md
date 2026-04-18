@@ -1,21 +1,24 @@
 # Dokkaebi 릴리즈 노트
 
-## v0.2.0 (2026-04-17)
+## v0.2.0 (2026-04-18)
 
 ### 새로운 기능
 - **업스트림 Zed v0.232.2 백포트**: ESLint 3.0.24, LanguageAwareStyling, ACP slash commands 복원, Markdown HTML 정렬, 프로젝트 패널 정렬 순서, SSH nickname 표시, 이미지 멘션 이름, OpenAI reasoning_effort, JSX 컴포넌트 하이라이팅, 카드 레이아웃 패딩, 병합 충돌 상태바 표시기, SVG 폰트 fallback 등 20+ PR 이식
-  ([자세한 내용은 공식 Zed 릴리즈 노트](https://github.com/zed-industries/zed/releases/tag/v0.232.2))
+  ([자세한 내용은 공식 Zed 릴리즈 노트 참고](https://github.com/zed-industries/zed/releases/tag/v0.232.2))
 - **릴리즈 노트 메뉴**: 설정 메뉴에서 릴리즈 노트를 직접 확인 가능
 - **메모장 패널 단축키**: `Ctrl+Shift+M`으로 메모장 패널 토글
 - **UI 언어 변경 UI**: 설정 > 일반에서 언어(시스템 언어 / English / 한국어) 선택 가능. 시스템 언어가 기본값이며 OS 언어를 자동 감지하고, 변경 시 재시작 없이 즉시 적용
+- **자동 업데이트 후 릴리즈 노트 표시**: 앱 내부 자동 업데이트로 새 버전이 설치되면 설치가 완료되는 즉시 앱이 자동 재실행되고 릴리즈 노트가 1회 자동으로 열림. 설정 > 일반 > 자동 업데이트의 "릴리즈 노트" 토글로 켜고 끌 수 있음
 
 ### UI/UX 개선
 - **대규모 i18n 한글화**: 다이얼로그, 툴팁, 버튼, 라벨, 피커 placeholder, 드롭다운, 확장 카드, 키맵 편집기, 상태바 LSP 버튼, ETW 트레이싱 알림 등 100+ 문자열 한글 적용
 - **워크스페이스 그룹 패널**: 항목 간 4px 간격 추가로 가독성 향상
 - **프로젝트 패널 정렬**: 설정 UI에서 정렬 모드/순서를 직관적인 위치로 이동
+- **Windows 앱 목록 표시명 단순화**: "Dokkaebi 0.2.0" → "Dokkaebi"로 표시. 버전은 별도 줄(`DisplayVersion`)에 그대로 노출
 
 ### 보안
 - **wasmtime 33 → 36 업그레이드**: Dependabot 보안 경고 해결 (critical 2, moderate 10, low 3)
+- **설치 다운그레이드 보호**: 이미 설치된 버전이 더 높으면 설치 시 경고 후 진행 여부 확인. 앱 자동 업데이트 경로(silent)에서는 다운그레이드를 무조건 차단하여 의도치 않은 버전 되돌림 방지
 
 ### 정리
 - **REPL/Notebook 크레이트 완전 제거**: Windows 환경에서 사용 불가한 Jupyter 관련 코드 정리

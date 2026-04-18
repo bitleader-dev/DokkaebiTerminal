@@ -1212,6 +1212,9 @@ pub enum Event {
     ModalOpened,
     Activate,
     PanelAdded(AnyView),
+    /// DB에서 세션 복원(load_workspace)이 완료되어 직렬화 억제가 해제된 직후 emit.
+    /// 복원 성공·실패 관계없이 항상 emit(실패 경로에서도 finally로 보장).
+    SessionRestored,
 }
 
 #[derive(Debug, Clone)]
@@ -6680,6 +6683,22 @@ impl Workspace {
         cx.notify();
     }
 
+    /// DB에서 세션 복원 중인지 여부를 반환한다.
+    pub fn is_loading_from_db(&self) -> bool {
+        self.loading_from_db
+    }
+
+    /// `loading_from_db` 플래그를 설정한다. true → false 전환 시에만 `Event::SessionRestored`를
+    /// emit하여 세션 복원이 완전히 끝났음을 구독자에게 통지한다. 같은 값 재설정이나 false → true
+    /// 전환은 no-op.
+    pub fn set_loading_from_db(&mut self, value: bool, cx: &mut Context<Self>) {
+        let was_loading = self.loading_from_db;
+        self.loading_from_db = value;
+        if was_loading && !value {
+            cx.emit(Event::SessionRestored);
+        }
+    }
+
     fn serialize_workspace(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         // DB에서 로딩 중일 때는 직렬화를 억제하여 저장된 데이터를 덮어쓰지 않음
         if self.loading_from_db {
@@ -6952,6 +6971,10 @@ impl Workspace {
         cx: &mut Context<Workspace>,
     ) -> Task<Result<Vec<Option<Box<dyn ItemHandle>>>>> {
         cx.spawn_in(window, async move |workspace, cx| {
+            // inner async block으로 감싸서 `?` 전파가 Err을 반환해도 바깥 finally가 실행되도록 한다.
+            // 세션 복원이 중간에 실패하더라도 loading_from_db를 false로 전환해 `Event::SessionRestored`
+            // 가 반드시 emit되어, 구독 측(예: 업데이트 후 릴리즈 노트 표시)이 영구 대기에 빠지지 않는다.
+            let outcome: Result<Vec<Option<Box<dyn ItemHandle>>>> = async {
             let project = workspace.read_with(cx, |workspace, _| workspace.project().clone())?;
 
             // DB에 저장된 raw i18n 키("workspace_group.default_name N")를 번역된 이름으로 수정
@@ -7262,8 +7285,8 @@ impl Workspace {
 
             workspace
                 .update_in(cx, |workspace, window, cx| {
-                    // DB 로딩 완료 — 직렬화 억제 해제
-                    workspace.loading_from_db = false;
+                    // DB 로딩 완료 — 직렬화 억제 해제 (setter 경유로 Event::SessionRestored emit)
+                    workspace.set_loading_from_db(false, cx);
 
                     // Serialize ourself to make sure our timestamps and any pane / item changes are replicated
                     workspace.serialize_workspace_internal(window, cx).detach();
@@ -7274,6 +7297,19 @@ impl Workspace {
                 .ok();
 
             Ok(opened_items)
+            }
+            .await;
+
+            // finally: 성공/실패 어느 경로든 loading_from_db를 false로 전환해 Event::SessionRestored
+            // 를 반드시 emit한다. 성공 경로는 위 update_in에서 이미 false로 설정됐으므로 setter가
+            // was_loading=false → no-op이 되어 중복 emit되지 않는다. 실패 경로는 여기서 emit.
+            workspace
+                .update_in(cx, |workspace, _, cx| {
+                    workspace.set_loading_from_db(false, cx);
+                })
+                .ok();
+
+            outcome
         })
     }
 
@@ -8308,9 +8344,9 @@ fn open_items(
                 });
         } else {
             // 직렬화된 워크스페이스가 없으면 load_workspace가 호출되지 않으므로
-            // 여기서 직렬화 억제 플래그를 해제
-            workspace.update_in(cx, |ws, _, _| {
-                ws.loading_from_db = false;
+            // 여기서 직렬화 억제 플래그를 해제 (setter 경유로 Event::SessionRestored emit)
+            workspace.update_in(cx, |ws, _, cx| {
+                ws.set_loading_from_db(false, cx);
             }).ok();
             for _ in 0..project_paths_to_open.len() {
                 opened_items.push(None);

@@ -14,11 +14,12 @@ use settings::{Settings, SettingsContent};
 use smol::io::AsyncWriteExt;
 use util::command::new_command;
 
-/// 앱 실행 시 GitHub 릴리즈 자동 체크 여부를 담는 설정.
-/// 설정 키는 최상위 `auto_update` (기본값 true).
+/// 앱 실행 시 GitHub 릴리즈 자동 체크 여부와 업데이트 후 릴리즈 노트 자동 표시 여부를 담는 설정.
+/// 설정 키는 최상위 `auto_update` 및 `show_release_notes_after_update` (둘 다 기본값 true).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AutoUpdateSetting {
     pub enabled: bool,
+    pub show_release_notes_after_update: bool,
 }
 
 impl Settings for AutoUpdateSetting {
@@ -26,6 +27,9 @@ impl Settings for AutoUpdateSetting {
         // SettingsContent 병합 후 기본값이 주입되므로 unwrap_or(true)로 안전하게 처리.
         Self {
             enabled: content.auto_update.unwrap_or(true),
+            show_release_notes_after_update: content
+                .show_release_notes_after_update
+                .unwrap_or(true),
         }
     }
 }
@@ -375,8 +379,12 @@ async fn download_and_launch_installer(
         target_path.display()
     );
 
-    // Inno Setup installer를 detach하여 실행한다. 앱이 종료돼도 설치는 계속된다.
+    // Inno Setup installer를 silent 모드로 detach 실행한다. 앱이 종료돼도 설치는 계속되며,
+    // .iss의 silent 전용 [Run] 엔트리가 설치 완료 후 앱을 자동 재실행한다.
+    // /SILENT: 마법사는 숨기되 진행 다이얼로그는 표시(업데이트 진행 상태 가시화),
+    // /SUPPRESSMSGBOXES: 메시지 박스 자동 수락, /NORESTART: 시스템 재부팅 억제
     let mut cmd = new_command(&target_path);
+    cmd.args(["/SILENT", "/SUPPRESSMSGBOXES", "/NORESTART"]);
     cmd.spawn()
         .with_context(|| format!("설치 파일 실행 실패: {}", target_path.display()))?;
 

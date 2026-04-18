@@ -1420,6 +1420,8 @@
   // Automatically update Zed. This setting may be ignored on Linux if
   // installed through a package manager.
   "auto_update": true,
+  // 업데이트 후 처음 실행될 때 릴리즈 노트를 1회 자동으로 표시할지 여부.
+  "show_release_notes_after_update": true,
   // How to render LSP `textDocument/documentColor` colors in the editor.
   //
   // Possible values:

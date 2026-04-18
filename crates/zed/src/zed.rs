@@ -22,7 +22,7 @@ use editor::{Editor, MultiBuffer};
 use extension_host::ExtensionStore;
 use feature_flags::{FeatureFlagAppExt as _, PanicFeatureFlag};
 use fs::Fs;
-use github_update::GithubUpdater;
+use github_update::{AutoUpdateSetting, GithubUpdater};
 use futures::FutureExt as _;
 use futures::future::Either;
 use futures::{StreamExt, channel::mpsc, select_biased};
@@ -194,7 +194,7 @@ pub fn init(cx: &mut App) {
     })
     .on_action(|_: &zed_actions::OpenReleaseNotes, cx| {
         with_active_or_new_workspace(cx, |workspace, window, cx| {
-            open_release_notes_preview(workspace, window, cx);
+            open_release_notes_preview(workspace, true, window, cx);
         });
     })
     .on_action(|&zed_actions::OpenKeymapFile, cx| {
@@ -508,6 +508,9 @@ pub fn initialize_workspace(
         let panels_task = initialize_panels(prompt_builder.clone(), window, cx);
         workspace.set_panels_task(panels_task);
         register_actions(app_state.clone(), workspace, window, cx);
+
+        // 업데이트로 새 버전이 처음 실행된 경우 릴리즈 노트를 1회 자동 표시
+        maybe_show_release_notes_after_update(workspace, window, cx);
 
         if !workspace.has_active_modal(window, cx) {
             workspace.focus_handle(cx).focus(window, cx);
@@ -2133,9 +2136,68 @@ fn open_bundled_file(
     .detach_and_log_err(cx);
 }
 
+/// 업데이트 후 처음 실행될 때 릴리즈 노트를 1회 자동으로 표시한다.
+/// 설치 완료 후 installer가 앱을 재실행할 때 `--updated` CLI 플래그로 시그널을 전달하며,
+/// main.rs가 그 값을 `JUST_UPDATED`에 저장한다. 이 함수는 그 플래그를 소비한다(한 번만 동작).
+/// - JUST_UPDATED false: 아무 동작 없음(수동 실행/신규 설치)
+/// - JUST_UPDATED true: 토글 ON이면 릴리즈 노트 표시(포커스는 뺏지 않음). 어떤 경우든 플래그는
+///   소비되어 다음 실행부터는 표시되지 않음
+///
+/// 프로세스 내 중복 실행은 `RELEASE_NOTES_CHECK_DONE` 정적 가드로 차단한다.
+/// 세션 복원(LastSession) 완료 시점은 workspace 크레이트의 `Event::SessionRestored`로 결정론적
+/// 포착한다(타이머·매직 넘버 사용 안 함). 복원 실패 경로에서도 `load_workspace`의 finally에서
+/// 이벤트가 emit되므로 구독이 영구 대기에 빠지지 않는다.
+pub static JUST_UPDATED: AtomicBool = AtomicBool::new(false);
+static RELEASE_NOTES_CHECK_DONE: AtomicBool = AtomicBool::new(false);
+
+fn maybe_show_release_notes_after_update(
+    workspace: &mut Workspace,
+    window: &mut Window,
+    cx: &mut Context<Workspace>,
+) {
+    if RELEASE_NOTES_CHECK_DONE.swap(true, atomic::Ordering::SeqCst) {
+        return;
+    }
+    // `--updated` 시그널을 한 번만 소비: 이후 추가 워크스페이스가 열려도 영향 없음.
+    if !JUST_UPDATED.swap(false, atomic::Ordering::SeqCst) {
+        return;
+    }
+    if !AutoUpdateSetting::get_global(cx).show_release_notes_after_update {
+        return;
+    }
+
+    // 세션 복원이 이미 끝난 경우(신규 프로젝트/비복원 경로) 즉시 탭 추가.
+    if !workspace.is_loading_from_db() {
+        open_release_notes_preview(workspace, false, window, cx);
+        return;
+    }
+
+    // 복원 진행 중 — `Event::SessionRestored`를 1회 수신 후 탭 추가. Subscription은 `.detach()`
+    // 로 창 수명 동안 유지하되, 콜백 내부 `done` 플래그로 one-shot 동작을 보장(복수 emit 무시).
+    let workspace_entity = cx.entity();
+    let mut done = false;
+    let subscription = cx.subscribe_in(
+        &workspace_entity,
+        window,
+        move |workspace, _, event, window, cx| {
+            if done {
+                return;
+            }
+            if matches!(event, workspace::Event::SessionRestored) {
+                done = true;
+                open_release_notes_preview(workspace, false, window, cx);
+            }
+        },
+    );
+    subscription.detach();
+}
+
 /// 릴리즈 노트를 Markdown Preview 탭으로 연다.
+/// `focus`가 true이면 탭을 활성화하고 포커스를 이동시키며(메뉴 경로), false이면 탭만 추가하고
+/// 현재 사용자의 포커스는 유지한다(업데이트 후 자동 표시 경로).
 fn open_release_notes_preview(
     workspace: &mut Workspace,
+    focus: bool,
     window: &mut Window,
     cx: &mut Context<Workspace>,
 ) {
@@ -2150,7 +2212,10 @@ fn open_release_notes_preview(
             })
         });
     if let Some(existing) = existing {
-        workspace.activate_item(&existing, true, true, window, cx);
+        // focus=false(자동 호출)에서는 이미 열린 탭을 그대로 둬 포커스를 뺏지 않는다.
+        if focus {
+            workspace.activate_item(&existing, true, true, window, cx);
+        }
         return;
     }
 
@@ -2198,7 +2263,7 @@ fn open_release_notes_preview(
                         workspace.add_item_to_active_pane(
                             Box::new(preview),
                             None,
-                            true,
+                            focus,
                             window,
                             cx,
                         );

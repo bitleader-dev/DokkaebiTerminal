@@ -1,6 +1,8 @@
-#define AppId "{{B8F4E2A1-7C3D-4E5F-9A1B-6D8E0F2C3A4B}"
+; AppGuid는 escape 없는 raw GUID. Pascal [Code]에서 안전하게 사용 가능.
+; AppId는 [Setup] AppId= 평가 시 한 글자 escape("{{")가 한 개 "{"로 환원되도록 "{" + AppGuid 조합.
+#define AppGuid "{B8F4E2A1-7C3D-4E5F-9A1B-6D8E0F2C3A4B}"
+#define AppId "{" + AppGuid
 #define AppName "Dokkaebi"
-#define AppDisplayName "Dokkaebi"
 #define Version "0.2.0"
 #define AppSetupName "Dokkaebi-Setup-v" + Version
 #define AppMutex "Dokkaebi-Instance-Mutex"
@@ -14,7 +16,10 @@
 [Setup]
 AppId={#AppId}
 AppName={#AppName}
-AppVerName={#AppDisplayName} {#Version}
+; AppVerName 미지정 시 Inno Setup이 자동으로 "AppName AppVersion" 형태를 기본값으로 사용한다.
+; 마법사·Add/Remove Programs 모두 버전 없는 "Dokkaebi"만 표시하도록 명시적으로 지정.
+AppVerName={#AppName}
+UninstallDisplayName={#AppName}
 AppPublisher=Dokkaebi
 AppPublisherURL=https://github.com/bitleader-dev/DokkaebiTerminal
 AppSupportURL=https://github.com/bitleader-dev/DokkaebiTerminal
@@ -63,6 +68,11 @@ korean.WelcomeLabel2=Zed를 기반으로 개발된 AI 코딩 에이전트를 위
 english.WelcomeLabel1=Welcome to Dokkaebi
 english.WelcomeLabel2=A Windows-focused terminal workspace for AI coding agents, built on Zed.
 
+[CustomMessages]
+; 다운그레이드 경고: %1 = 기존 설치 버전, %2 = 설치하려는 버전
+english.DowngradeWarningText=A newer version (%1) of Dokkaebi is already installed.%nIf you continue, it will be downgraded to version %2.%n%nDo you want to continue?
+korean.DowngradeWarningText=이미 설치된 버전(%1)이 설치하려는 버전(%2)보다 높습니다.%n계속 진행하면 이전 버전으로 되돌립니다.%n%n계속하시겠습니까?
+
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\x64"
 Type: filesandordirs; Name: "{app}\arm64"
@@ -100,11 +110,55 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}.exe"; Tasks: de
 
 [Run]
 Filename: "{app}\{#AppExeName}.exe"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall; Check: WizardNotSilent
+; silent 업데이트(앱 내부 자동 업데이트) 후 앱을 자동 실행하며, --updated 파라미터로
+; "직전 설치가 업데이트였음" 시그널을 앱에 전달한다(릴리즈 노트 1회 자동 표시 트리거).
+Filename: "{app}\{#AppExeName}.exe"; Parameters: "--updated"; Flags: nowait; Check: WizardSilent
 
 [Code]
 function WizardNotSilent(): Boolean;
 begin
   Result := not WizardSilent();
+end;
+
+// 다운그레이드 차단/경고
+// HKCU\...\{AppId}_is1\DisplayVersion 으로 기존 설치 버전을 읽어 신규 버전과 비교한다.
+// - 신규 설치(키 없음) / 동일 / 업그레이드: 통과
+// - 다운그레이드(기존 > 신규):
+//   * silent (앱 자동 업데이트 경로): 메시지 없이 즉시 차단
+//   * interactive: 한/영 메시지로 Yes/No 확인. 기본 버튼은 No(안전).
+function InitializeSetup(): Boolean;
+var
+  RegKey: String;
+  InstalledVer: String;
+  InstalledPacked: Int64;
+  NewPacked: Int64;
+  Msg: String;
+begin
+  Result := True;
+  // AppGuid는 raw GUID(중괄호 1개)이므로 Pascal string에서 그대로 안전하게 결합 가능.
+  RegKey := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#AppGuid}_is1';
+
+  if not RegQueryStringValue(HKCU, RegKey, 'DisplayVersion', InstalledVer) then
+    Exit;
+
+  // 버전 문자열 파싱 실패 시 안전하게 통과(레거시/손상된 레지스트리 보호)
+  if not StrToVersion(InstalledVer, InstalledPacked) then
+    Exit;
+  if not StrToVersion('{#Version}', NewPacked) then
+    Exit;
+
+  if ComparePackedVersion(InstalledPacked, NewPacked) <= 0 then
+    Exit;
+
+  if WizardSilent() then
+  begin
+    Result := False;
+    Exit;
+  end;
+
+  Msg := FmtMessage(CustomMessage('DowngradeWarningText'), [InstalledVer, '{#Version}']);
+  if MsgBox(Msg, mbConfirmation, MB_YESNO or MB_DEFBUTTON2) <> IDYES then
+    Result := False;
 end;
 
 // 제거 시작 시점(AppMutex 체크 이전)에 설치 경로와 일치하는 Dokkaebi 프로세스만 강제 종료

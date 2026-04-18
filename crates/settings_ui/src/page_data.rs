@@ -236,7 +236,7 @@ fn general_page() -> SettingsPage {
         ]
     }
 
-    fn auto_update_section() -> [SettingsPageItem; 2] {
+    fn auto_update_section() -> [SettingsPageItem; 3] {
         [
             SettingsPageItem::SectionHeader("settings_page.section.auto_update"),
             SettingsPageItem::SettingItem(SettingItem {
@@ -247,6 +247,22 @@ fn general_page() -> SettingsPage {
                     pick: |settings_content| settings_content.auto_update.as_ref(),
                     write: |settings_content, value| {
                         settings_content.auto_update = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            // 업데이트 후 처음 실행될 때 릴리즈 노트 자동 표시 여부
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "settings_page.item.show_release_notes_after_update",
+                description: "settings_page.desc.auto_update.show_release_notes_after_update",
+                field: Box::new(SettingField {
+                    json_path: Some("show_release_notes_after_update"),
+                    pick: |settings_content| {
+                        settings_content.show_release_notes_after_update.as_ref()
+                    },
+                    write: |settings_content, value| {
+                        settings_content.show_release_notes_after_update = value;
                     },
                 }),
                 metadata: None,

@@ -180,6 +180,12 @@ fn main() {
 
     let args = Args::parse();
 
+    // 자동 업데이트 설치 후 installer가 `--updated`로 재실행하면 워크스페이스 오픈 시
+    // 릴리즈 노트를 1회 표시하도록 시그널을 전달한다.
+    if args.updated {
+        zed::JUST_UPDATED.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
     // `zed --askpass` Makes zed operate in nc/netcat mode for use with askpass
     #[cfg(not(target_os = "windows"))]
     if let Some(socket) = &args.askpass {
@@ -1694,6 +1700,11 @@ struct Args {
     /// clipboard`
     #[arg(long)]
     system_specs: bool,
+
+    /// 자동 업데이트 설치 후 installer가 앱을 재실행하면서 전달하는 내부 플래그.
+    /// 설정된 경우 앱이 "이번 실행은 업데이트 직후 첫 실행"이라고 판단해 릴리즈 노트를 1회 표시한다.
+    #[arg(long, hide = true)]
+    updated: bool,
 
     /// Used for the MCP Server, to remove the need for netcat as a dependency,
     /// by having Zed act like netcat communicating over a Unix socket.

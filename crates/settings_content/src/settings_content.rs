@@ -122,6 +122,11 @@ pub struct SettingsContent {
     /// Default: true
     pub auto_update: Option<bool>,
 
+    /// 업데이트 후 처음 실행될 때 릴리즈 노트를 1회 자동으로 표시할지 여부.
+    ///
+    /// Default: true
+    pub show_release_notes_after_update: Option<bool>,
+
     /// This base keymap settings adjusts the default keybindings in Zed to be similar
     /// to other common code editors. By default, Zed's keymap closely follows VSCode's
     /// keymap, with minor adjustments, this corresponds to the "VSCode" setting.

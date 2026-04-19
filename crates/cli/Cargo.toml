@@ -12,8 +12,11 @@ workspace = true
 path = "src/cli.rs"
 doctest = false
 
+# bin name은 "dokkaebi-cli"로 고정 — Claude Code 알림 브리지 플러그인의
+# dispatch.sh가 PATH/설치 경로에서 이 이름을 직접 탐색한다.
+# 상류 Zed는 bin name이 "cli"이므로 백포트 시 이 라인을 그대로 유지할 것.
 [[bin]]
-name = "cli"
+name = "dokkaebi-cli"
 path = "src/main.rs"
 
 [features]

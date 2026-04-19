@@ -393,11 +393,10 @@ pub fn init(cx: &mut App) {
     let queue = ProjectSettingsUpdateQueue::new(cx);
     cx.set_global(queue);
 
-    // Claude Code 벨 알림 설정 동기화: Zed 설정 변경 시 ~/.claude/settings.json에 반영
-    cx.observe_global::<SettingsStore>(|cx| {
-        pages::sync_claude_code_bell_setting(cx);
-    })
-    .detach();
+    // 마이그레이션: 과거 claude_code_bell 토글이 ~/.claude/settings.json에 주입했던
+    // 마커 파일 hook을 부팅 시 1회 자동 정리. 새 IPC 알림 시스템(dokkaebi-notify-bridge
+    // 플러그인) 도입에 따른 정리 단계로, 다음 메이저 버전에서 제거 예정.
+    pages::cleanup_legacy_marker_hook(cx);
 
     cx.on_action(|_: &OpenSettings, cx| {
         open_settings_editor(None, None, None, cx);
@@ -857,6 +856,9 @@ enum SettingsPageItem {
     SubPageLink(SubPageLink),
     DynamicItem(DynamicItem),
     ActionLink(ActionLink),
+    /// 외부 상태(예: ~/.claude/settings.json 내 플러그인 등록 여부)에 따라
+    /// "설치"/"설치됨" 라벨과 [설치]/[제거] 버튼을 동적으로 전환하는 항목.
+    PluginAction(PluginAction),
 }
 
 impl std::fmt::Debug for SettingsPageItem {
@@ -874,6 +876,9 @@ impl std::fmt::Debug for SettingsPageItem {
             }
             SettingsPageItem::ActionLink(action_link) => {
                 write!(f, "ActionLink({})", action_link.title)
+            }
+            SettingsPageItem::PluginAction(plugin_action) => {
+                write!(f, "PluginAction({})", plugin_action.title)
             }
         }
     }
@@ -1164,6 +1169,84 @@ impl SettingsPageItem {
                 )
                 .when(bottom_border, |this| this.child(Divider::horizontal()))
                 .into_any_element(),
+            SettingsPageItem::PluginAction(plugin_action) => {
+                let installed = (plugin_action.is_installed)(cx);
+                // 좌측 상태 라벨 (설치됨=Success 색, 미설치=Muted)
+                let (status_label_key, status_color) = if installed {
+                    (plugin_action.installed_label.clone(), Color::Success)
+                } else {
+                    (plugin_action.not_installed_label.clone(), Color::Muted)
+                };
+                // 우측 버튼: 설치됨이면 [제거], 미설치면 [설치]
+                let button_text_key = if installed {
+                    plugin_action.uninstall_button_text.clone()
+                } else {
+                    plugin_action.install_button_text.clone()
+                };
+                let click_handler = if installed {
+                    plugin_action.on_uninstall.clone()
+                } else {
+                    plugin_action.on_install.clone()
+                };
+
+                v_flex()
+                    .group("setting-item")
+                    .px_8()
+                    .child(
+                        h_flex()
+                            .id(plugin_action.title.clone())
+                            .w_full()
+                            .min_w_0()
+                            .justify_between()
+                            .map(apply_padding)
+                            .child(
+                                v_flex()
+                                    .relative()
+                                    .w_full()
+                                    .max_w_1_2()
+                                    .child(Label::new(t(plugin_action.title.as_ref(), cx)))
+                                    .when_some(
+                                        plugin_action.description.as_ref(),
+                                        |this, description| {
+                                            this.child(
+                                                Label::new(t(description.as_ref(), cx))
+                                                    .size(LabelSize::Small)
+                                                    .color(Color::Muted),
+                                            )
+                                        },
+                                    ),
+                            )
+                            .child(
+                                h_flex()
+                                    .gap_2()
+                                    .child(
+                                        Label::new(t(status_label_key.as_ref(), cx))
+                                            .size(LabelSize::Small)
+                                            .color(status_color),
+                                    )
+                                    .child(
+                                        Button::new(
+                                            (
+                                                "plugin-action".into(),
+                                                plugin_action.title.clone(),
+                                            ),
+                                            t(button_text_key.as_ref(), cx),
+                                        )
+                                        .tab_index(0_isize)
+                                        .style(ButtonStyle::OutlinedGhost)
+                                        .size(ButtonSize::Medium)
+                                        .on_click({
+                                            let handler = click_handler.clone();
+                                            cx.listener(move |this, _, window, cx| {
+                                                handler(this, window, cx);
+                                            })
+                                        }),
+                                    ),
+                            ),
+                    )
+                    .when(bottom_border, |this| this.child(Divider::horizontal()))
+                    .into_any_element()
+            }
         }
     }
 }
@@ -1414,6 +1497,32 @@ struct ActionLink {
 }
 
 impl PartialEq for ActionLink {
+    fn eq(&self, other: &Self) -> bool {
+        self.title == other.title
+    }
+}
+
+/// 외부 상태에 따라 "설치 안 됨" + [설치] 버튼 / "설치됨" 라벨 + [제거] 버튼을 전환 표시.
+/// `is_installed`는 매 렌더마다 호출되어 현재 상태를 결정한다.
+struct PluginAction {
+    title: SharedString,
+    description: Option<SharedString>,
+    /// 외부 상태 조회 (예: `~/.claude/settings.json` 검사)
+    is_installed: fn(&App) -> bool,
+    /// 미설치 상태에서 좌측에 표시할 라벨 i18n 키 (예: "settings_page.label.not_installed")
+    not_installed_label: SharedString,
+    /// 설치 상태에서 좌측에 표시할 라벨 i18n 키 (예: "settings_page.label.installed")
+    installed_label: SharedString,
+    /// 미설치 상태일 때 버튼 텍스트 i18n 키 (예: "settings_page.action.install")
+    install_button_text: SharedString,
+    /// 설치 상태일 때 버튼 텍스트 i18n 키 (예: "settings_page.action.uninstall")
+    uninstall_button_text: SharedString,
+    on_install: Arc<dyn Fn(&mut SettingsWindow, &mut Window, &mut App) + Send + Sync>,
+    on_uninstall: Arc<dyn Fn(&mut SettingsWindow, &mut Window, &mut App) + Send + Sync>,
+    files: FileMask,
+}
+
+impl PartialEq for PluginAction {
     fn eq(&self, other: &Self) -> bool {
         self.title == other.title
     }
@@ -1855,7 +1964,8 @@ impl SettingsWindow {
                             any_found_since_last_header = true;
                         }
                     }
-                    SettingsPageItem::ActionLink(ActionLink { files, .. }) => {
+                    SettingsPageItem::ActionLink(ActionLink { files, .. })
+                    | SettingsPageItem::PluginAction(PluginAction { files, .. }) => {
                         if !files.contains(current_file) {
                             page_filter[index] = false;
                         } else {
@@ -2103,6 +2213,21 @@ impl SettingsWindow {
                             &mut fuzzy_match_candidates,
                             key_index,
                             action_link.title.as_ref(),
+                        );
+                    }
+                    SettingsPageItem::PluginAction(plugin_action) => {
+                        documents.push(SearchDocument {
+                            id: key_index,
+                            words: split_into_words(&[
+                                page.title,
+                                header_str,
+                                plugin_action.title.as_ref(),
+                            ]),
+                        });
+                        push_candidates(
+                            &mut fuzzy_match_candidates,
+                            key_index,
+                            plugin_action.title.as_ref(),
                         );
                     }
                 }

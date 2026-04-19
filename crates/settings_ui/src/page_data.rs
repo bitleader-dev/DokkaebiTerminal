@@ -9,9 +9,13 @@ use strum::IntoDiscriminant as _;
 use ui::IntoElement;
 
 use crate::{
-    ActionLink, DynamicItem, PROJECT, SettingField, SettingItem, SettingsFieldMetadata,
-    SettingsPage, SettingsPageItem, SubPageLink, USER, active_language, all_language_names,
-    pages::{render_edit_prediction_setup_page, render_tool_permissions_setup_page},
+    ActionLink, DynamicItem, PROJECT, PluginAction, SettingField, SettingItem,
+    SettingsFieldMetadata, SettingsPage, SettingsPageItem, SubPageLink, USER, active_language,
+    all_language_names,
+    pages::{
+        install_plugin, is_plugin_installed, render_edit_prediction_setup_page,
+        render_tool_permissions_setup_page, uninstall_plugin,
+    },
 };
 
 const DEFAULT_STRING: String = String::new();
@@ -6881,31 +6885,58 @@ fn ai_page(cx: &App) -> SettingsPage {
 }
 
 fn notification_page() -> SettingsPage {
-    static DEFAULT_BELL: bool = false;
+    // 작업 알림 토글 기본값 — 플러그인이 설치되어 있을 때 알림을 표시(true)가 기본.
+    static DEFAULT_TASK_ALERT: bool = true;
 
-    fn claude_code_section() -> [SettingsPageItem; 2] {
+    fn claude_code_section() -> [SettingsPageItem; 3] {
         [
             SettingsPageItem::SectionHeader("settings_page.section.claude_code"),
+            // 플러그인 설치/제거 토글.
+            // 미설치: "설치 안 됨" 라벨 + [설치] 버튼
+            // 설치됨: "설치됨" 라벨 + [제거] 버튼
+            SettingsPageItem::PluginAction(PluginAction {
+                title: "settings_page.item.claude_code_plugin_install".into(),
+                description: Some("settings_page.desc.claude_code_plugin_install".into()),
+                is_installed: is_plugin_installed,
+                not_installed_label: "settings_page.label.not_installed".into(),
+                installed_label: "settings_page.label.installed".into(),
+                install_button_text: "settings_page.action.install".into(),
+                uninstall_button_text: "settings_page.action.uninstall".into(),
+                on_install: Arc::new(|_settings_window, window, _cx| {
+                    if let Err(e) = install_plugin() {
+                        log::warn!("dokkaebi-notify-bridge 플러그인 설치 실패: {}", e);
+                    }
+                    // 상태 라벨·버튼이 즉시 갱신되도록 윈도우 재렌더 트리거
+                    window.refresh();
+                }),
+                on_uninstall: Arc::new(|_settings_window, window, _cx| {
+                    if let Err(e) = uninstall_plugin() {
+                        log::warn!("dokkaebi-notify-bridge 플러그인 제거 실패: {}", e);
+                    }
+                    window.refresh();
+                }),
+                files: USER,
+            }),
+            // 작업 알림 토글 — 플러그인이 보낸 IPC 알림을 Dokkaebi UI에 표시할지 여부
             SettingsPageItem::SettingItem(SettingItem {
-                title: "settings_page.item.claude_code_task_completion_bell",
-                description:
-                    "When Claude Code completes a task, sends a bell signal to the terminal to show a notification indicator on the workspace tab. Modifies ~/.claude/settings.json Stop hook.",
+                title: "settings_page.item.claude_code_task_alert",
+                description: "settings_page.desc.claude_code_task_alert",
                 field: Box::new(SettingField {
-                    json_path: Some("notification.claude_code_bell"),
+                    json_path: Some("notification.task_alert"),
                     pick: |settings_content| {
                         Some(
                             settings_content
                                 .notification
                                 .as_ref()
-                                .and_then(|n| n.claude_code_bell.as_ref())
-                                .unwrap_or(&DEFAULT_BELL),
+                                .and_then(|n| n.task_alert.as_ref())
+                                .unwrap_or(&DEFAULT_TASK_ALERT),
                         )
                     },
                     write: |settings_content, value| {
                         settings_content
                             .notification
                             .get_or_insert_with(Default::default)
-                            .claude_code_bell = value;
+                            .task_alert = value;
                     },
                 }),
                 metadata: None,

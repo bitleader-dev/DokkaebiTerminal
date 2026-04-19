@@ -9,7 +9,7 @@
 
 use anyhow::{Context as _, Result};
 use clap::Parser;
-use cli::{CliRequest, CliResponse, IpcHandshake, ipc::IpcOneShotServer};
+use cli::{CliRequest, CliResponse, IpcHandshake, NotifyKind, ipc::IpcOneShotServer};
 use parking_lot::Mutex;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -134,6 +134,21 @@ struct Args {
     /// by having Zed act like netcat communicating over a Unix socket.
     #[arg(long, hide = true)]
     askpass: Option<String>,
+
+    /// Claude Code 플러그인 → Dokkaebi 작업 알림 전달용 인자.
+    /// 지정 시 paths/wait/diff 등 다른 인자는 무시되고 알림 IPC만 송신 후 즉시 종료한다.
+    /// 값: "stop" | "idle" | "permission"
+    #[arg(long, hide = true, value_name = "KIND")]
+    notify_kind: Option<String>,
+    /// 알림 제목 (notify-kind와 함께 사용)
+    #[arg(long, hide = true, value_name = "TITLE", requires = "notify_kind")]
+    notify_title: Option<String>,
+    /// 알림 본문 (notify-kind와 함께 사용)
+    #[arg(long, hide = true, value_name = "MESSAGE", requires = "notify_kind")]
+    notify_message: Option<String>,
+    /// 알림 발생 위치 cwd. 다중 워크스페이스 라우팅 힌트로 사용된다.
+    #[arg(long, hide = true, value_name = "PATH", requires = "notify_kind")]
+    notify_cwd: Option<String>,
 }
 
 /// Parses a path containing a position (e.g. `path:line:column`)
@@ -659,18 +674,38 @@ fn main() -> Result<()> {
                 #[cfg(not(target_os = "windows"))]
                 let wsl = None;
 
-                tx.send(CliRequest::Open {
-                    paths,
-                    urls,
-                    diff_paths,
-                    diff_all: diff_all_mode,
-                    wsl,
-                    wait: args.wait,
-                    open_new_workspace,
-                    reuse: args.reuse,
-                    env,
-                    user_data_dir: user_data_dir_for_thread,
-                })?;
+                // Claude Code 플러그인 알림 모드: 다른 인자(paths/wait/diff 등)를 무시하고
+                // Notify IPC만 송신한 뒤 응답(Exit) 대기.
+                let request = if let Some(kind_str) = args.notify_kind.as_deref() {
+                    let kind = match kind_str {
+                        "stop" => NotifyKind::Stop,
+                        "idle" => NotifyKind::Idle,
+                        "permission" => NotifyKind::Permission,
+                        other => anyhow::bail!(
+                            "invalid --notify-kind value '{other}', expected one of: stop|idle|permission"
+                        ),
+                    };
+                    CliRequest::Notify {
+                        kind,
+                        title: args.notify_title.unwrap_or_default(),
+                        message: args.notify_message.unwrap_or_default(),
+                        cwd: args.notify_cwd,
+                    }
+                } else {
+                    CliRequest::Open {
+                        paths,
+                        urls,
+                        diff_paths,
+                        diff_all: diff_all_mode,
+                        wsl,
+                        wait: args.wait,
+                        open_new_workspace,
+                        reuse: args.reuse,
+                        env,
+                        user_data_dir: user_data_dir_for_thread,
+                    }
+                };
+                tx.send(request)?;
 
                 while let Ok(response) = rx.recv() {
                     match response {

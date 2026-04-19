@@ -8,6 +8,17 @@ pub struct IpcHandshake {
     pub responses: ipc::IpcReceiver<CliResponse>,
 }
 
+/// Claude Code 플러그인이 송신하는 작업 알림 종류
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum NotifyKind {
+    /// 작업 완료 (Stop hook)
+    Stop,
+    /// 사용자 입력 대기 (Notification hook, matcher: idle_prompt)
+    Idle,
+    /// 도구 사용 권한 요청 (PermissionRequest hook)
+    Permission,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub enum CliRequest {
     Open {
@@ -21,6 +32,15 @@ pub enum CliRequest {
         reuse: bool,
         env: Option<HashMap<String, String>>,
         user_data_dir: Option<String>,
+    },
+    /// Claude Code 플러그인 → Dokkaebi 작업 알림 전달
+    /// 워크스페이스 토스트 또는 전역 알림으로 표시한다.
+    Notify {
+        kind: NotifyKind,
+        title: String,
+        message: String,
+        /// 알림 발생 위치 (어느 워크스페이스에 표시할지 라우팅 힌트)
+        cwd: Option<String>,
     },
 }
 

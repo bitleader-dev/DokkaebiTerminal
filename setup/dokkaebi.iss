@@ -3,7 +3,7 @@
 #define AppGuid "{B8F4E2A1-7C3D-4E5F-9A1B-6D8E0F2C3A4B}"
 #define AppId "{" + AppGuid
 #define AppName "Dokkaebi"
-#define Version "0.2.0"
+#define Version "0.3.0"
 #define AppSetupName "Dokkaebi-Setup-v" + Version
 #define AppMutex "Dokkaebi-Instance-Mutex"
 #define AppIconName "app-icon-dokkaebi"
@@ -80,6 +80,7 @@ Type: filesandordirs; Name: "{app}\config"
 Type: filesandordirs; Name: "{app}\logs"
 Type: filesandordirs; Name: "{app}\db"
 Type: filesandordirs; Name: "{app}\extensions"
+Type: filesandordirs; Name: "{app}\plugins"
 Type: filesandordirs; Name: "{app}\state"
 ; data_dir() == {app} 구조라 런타임에 생성되는 모든 서브폴더(temp, hang_traces, server_state,
 ; remote_extensions, conversations, prompts, prompt_overrides, embeddings, languages,
@@ -103,6 +104,24 @@ Source: "{#ResourcesDir}\amd_ags_x64.dll"; DestDir: "{app}"; Flags: ignoreversio
 #endif
 Source: "{#ResourcesDir}\OpenConsole.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#ResourcesDir}\conpty.dll"; DestDir: "{app}"; Flags: ignoreversion
+; cli 바이너리 — Dokkaebi 본체에 IPC 메시지를 전달하는 작은 클라이언트.
+; Claude Code 플러그인이 dokkaebi-cli.exe를 호출해 작업 알림을 본체로 보낸다.
+; dokkaebi-cli.exe는 {app}\dokkaebi.exe를 자동 탐지(./dokkaebi.exe 폴백)하여 Named Pipe로 IPC URL 전달.
+; cargo bin name이 "dokkaebi-cli"로 빌드되므로 별도 리네임 불필요.
+#ifexist ResourcesDir + "\dokkaebi-cli.exe"
+Source: "{#ResourcesDir}\dokkaebi-cli.exe"; DestDir: "{app}"; Flags: ignoreversion
+#endif
+; Claude Code 작업 알림 브리지 플러그인.
+; 1순위: 인스톨러 작업 디렉터리(setup/)에 plugins/dokkaebi-notify-bridge가 미리 복사되어 있는 경우.
+; 2순위: 저장소 루트의 assets/claude-plugins/dokkaebi-notify-bridge (수동/로컬 빌드 경로).
+; 설치된 후 사용자가 [설정 → 알림 → Claude Code → 플러그인 설치] 클릭 시 활성화됨.
+#ifexist ResourcesDir + "\plugins\dokkaebi-notify-bridge\.claude-plugin\plugin.json"
+Source: "{#ResourcesDir}\plugins\dokkaebi-notify-bridge\*"; DestDir: "{app}\plugins\dokkaebi-notify-bridge"; Flags: ignoreversion recursesubdirs createallsubdirs
+#else
+#ifexist ResourcesDir + "\..\assets\claude-plugins\dokkaebi-notify-bridge\.claude-plugin\plugin.json"
+Source: "{#ResourcesDir}\..\assets\claude-plugins\dokkaebi-notify-bridge\*"; DestDir: "{app}\plugins\dokkaebi-notify-bridge"; Flags: ignoreversion recursesubdirs createallsubdirs
+#endif
+#endif
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}.exe"; AppUserModelID: "{#AppUserId}"

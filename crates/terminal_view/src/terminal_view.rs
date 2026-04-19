@@ -155,8 +155,6 @@ pub struct TerminalView {
     task_completed: Option<bool>,
     // 대화형 터미널에서 포그라운드 프로세스 이름을 추적하여 명령 완료 감지
     last_foreground_process: Option<String>,
-    // Claude Code Stop 훅 마커 파일 확인 주기 제어용 타임스탬프
-    last_bell_file_check: Instant,
     last_wakeup_notify: Instant,
     context_menu: Option<(Entity<ContextMenu>, Point<Pixels>, Subscription)>,
     cursor_shape: CursorShape,
@@ -305,7 +303,6 @@ impl TerminalView {
             has_bell: false,
             task_completed: None,
             last_foreground_process: None,
-            last_bell_file_check: Instant::now(),
             last_wakeup_notify: Instant::now() - WAKEUP_THROTTLE_INTERVAL,
             focus_handle,
             context_menu: None,
@@ -1124,38 +1121,12 @@ fn subscribe_for_terminal_events(
                         }
                     }
 
-                    // Claude Code Stop 훅이 생성한 터미널별 마커 파일 감지 (1초 간격)
-                    let now = Instant::now();
-                    if now.duration_since(terminal_view.last_bell_file_check)
-                        >= Duration::from_secs(1)
-                    {
-                        terminal_view.last_bell_file_check = now;
-                        let tid = terminal.read(cx).terminal_id();
-                        if !tid.is_empty() {
-                            let marker_path = std::env::temp_dir()
-                                .join(format!("dokkaebi_bell_{}", tid));
-                            if marker_path.exists() {
-                                if std::fs::remove_file(&marker_path).is_ok() {
-                                    terminal_view.has_bell = true;
-                                    // 비활성 워크스페이스 그룹 알림 전달
-                                    let item_id = cx.entity().entity_id();
-                                    if let Some(ws) =
-                                        terminal_view.workspace.upgrade()
-                                    {
-                                        ws.update(cx, |ws, cx| {
-                                            ws.notify_bell_for_item(item_id, cx);
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-
                     // cx.notify()와 window.refresh()는 GPUI에서 중복 제거되므로 매번 호출 가능
                     cx.notify();
                     window.refresh();
 
                     // SearchEvent::MatchesInvalidated 등이 비용이 크므로 ~60fps로 제한
+                    let now = Instant::now();
                     if now.duration_since(terminal_view.last_wakeup_notify)
                         >= WAKEUP_THROTTLE_INTERVAL
                     {

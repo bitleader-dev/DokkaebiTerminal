@@ -2,7 +2,7 @@ use crate::handle_open_request;
 use crate::restore_or_create_workspace;
 use agent_ui::ExternalSourcePrompt;
 use anyhow::{Context as _, Result, anyhow};
-use cli::{CliRequest, CliResponse, ipc::IpcSender};
+use cli::{CliRequest, CliResponse, NotifyKind, ipc::IpcSender};
 use cli::{IpcHandshake, ipc};
 use client::parse_zed_link;
 use db::kvp::KeyValueStore;
@@ -14,12 +14,12 @@ use futures::future;
 
 use futures::{FutureExt, SinkExt, StreamExt};
 use git_ui::{file_diff_view::FileDiffView, multi_diff_view::MultiDiffView};
-use gpui::{App, AsyncApp, Global, WindowHandle};
+use gpui::{App, AppContext, AsyncApp, Global, ReadGlobal, WindowHandle};
 use onboarding::FIRST_OPEN;
 use onboarding::show_onboarding_view;
 use recent_projects::{RemoteSettings, navigate_to_positions, open_remote_project};
 use remote::{RemoteConnectionOptions, WslConnectionOptions};
-use settings::Settings;
+use settings::{Settings, SettingsStore};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
@@ -29,6 +29,9 @@ use util::ResultExt;
 use util::paths::PathWithPosition;
 use workspace::PathList;
 use workspace::item::ItemHandle;
+use workspace::notifications::{
+    NotificationId, dismiss_app_notification, show_app_notification, simple_message_notification,
+};
 use workspace::{AppState, MultiWorkspace, OpenOptions, OpenResult, SerializedWorkspaceLocation};
 
 #[derive(Default, Debug)]
@@ -447,8 +450,73 @@ pub async fn handle_cli_connection(
                 let status = if open_workspace_result.is_err() { 1 } else { 0 };
                 responses.send(CliResponse::Exit { status }).log_err();
             }
+            CliRequest::Notify {
+                kind,
+                title,
+                message,
+                cwd: _,
+            } => {
+                handle_notify_request(kind, title, message, &responses, cx).await;
+            }
         }
     }
+}
+
+/// Claude Code 플러그인 → Dokkaebi 작업 알림 IPC 처리.
+/// notification.task_alert 설정이 false면 알림을 표시하지 않고 즉시 종료한다.
+async fn handle_notify_request(
+    kind: NotifyKind,
+    title: String,
+    message: String,
+    responses: &IpcSender<CliResponse>,
+    cx: &mut AsyncApp,
+) {
+    // task_alert 토글 확인 (기본값 true)
+    let task_alert_enabled = cx.update(|cx| {
+        SettingsStore::global(cx)
+            .raw_user_settings()
+            .and_then(|user| user.content.notification.as_ref())
+            .and_then(|n| n.task_alert)
+            .unwrap_or(true)
+    });
+
+    if task_alert_enabled {
+        let id_name: SharedString = match kind {
+            NotifyKind::Stop => "claude_code.stop".into(),
+            NotifyKind::Idle => "claude_code.idle".into(),
+            NotifyKind::Permission => "claude_code.permission".into(),
+        };
+        let id = NotificationId::named(id_name);
+        let id_for_show = id.clone();
+        let title_for_show = title.clone();
+        let message_for_show = message.clone();
+
+        cx.update(|cx| {
+            show_app_notification(id_for_show, cx, move |cx| {
+                let title_clone = title_for_show.clone();
+                let message_clone = message_for_show.clone();
+                cx.new(|cx| {
+                    simple_message_notification::MessageNotification::new(message_clone, cx)
+                        .with_title(title_clone)
+                        .show_close_button(true)
+                })
+            });
+        });
+
+        // Stop 알림은 5초 자동 dismiss, Idle/Permission은 사용자가 직접 닫을 때까지 유지
+        if matches!(kind, NotifyKind::Stop) {
+            let id_for_dismiss = id.clone();
+            cx.spawn(async move |cx| {
+                cx.background_executor()
+                    .timer(Duration::from_secs(5))
+                    .await;
+                cx.update(|cx| dismiss_app_notification(&id_for_dismiss, cx));
+            })
+            .detach();
+        }
+    }
+
+    responses.send(CliResponse::Exit { status: 0 }).log_err();
 }
 
 async fn open_workspaces(

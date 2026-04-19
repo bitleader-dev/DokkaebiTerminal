@@ -568,7 +568,16 @@ pub struct NotificationSettingsContent {
     /// ~/.claude/settings.json의 Stop 훅에 벨 명령을 추가/제거한다.
     ///
     /// Default: false
+    ///
+    /// Deprecated: 다음 메이저 버전에서 제거 예정. `task_alert` 사용을 권장한다.
     pub claude_code_bell: Option<bool>,
+
+    /// Claude Code 플러그인이 보낸 작업 알림(Stop/Notification/PermissionRequest)을
+    /// Dokkaebi 워크스페이스 토스트로 표시할지 여부.
+    /// false이면 IPC 알림이 도착해도 표시하지 않는다.
+    ///
+    /// Default: true
+    pub task_alert: Option<bool>,
 }
 
 #[with_fallible_options]

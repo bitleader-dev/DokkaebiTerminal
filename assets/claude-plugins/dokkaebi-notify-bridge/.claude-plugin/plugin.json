@@ -1,0 +1,10 @@
+{
+  "name": "dokkaebi-notify-bridge",
+  "description": "Claude Code 작업 완료/대기/권한요청 이벤트를 Dokkaebi 에디터 내부 알림으로 전달",
+  "version": "1.0.0",
+  "author": {
+    "name": "Dokkaebi"
+  },
+  "homepage": "https://github.com/bitleader-dev/DokkaebiTerminal",
+  "strict": false
+}

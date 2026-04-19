@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "Dokkaebi"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "acp_thread",
  "acp_tools",
@@ -157,6 +157,7 @@ dependencies = [
  "web_search_providers",
  "which_key",
  "windows 0.61.3",
+ "windows-registry 0.5.3",
  "winresource",
  "workspace",
  "zed-reqwest",

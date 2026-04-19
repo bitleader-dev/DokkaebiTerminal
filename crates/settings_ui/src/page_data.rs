@@ -75,7 +75,7 @@ pub(crate) fn settings_data(cx: &App) -> Vec<SettingsPage> {
 }
 
 fn general_page() -> SettingsPage {
-    fn general_settings_section() -> [SettingsPageItem; 8] {
+    fn general_settings_section() -> [SettingsPageItem; 9] {
         [
             SettingsPageItem::SectionHeader("settings_page.section.general_settings"),
             SettingsPageItem::SettingItem(SettingItem {
@@ -173,6 +173,21 @@ fn general_page() -> SettingsPage {
                     },
                     write: |settings_content, value| {
                         settings_content.workspace.system_monitoring = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            // Windows 로그인 시 자동 실행 여부 — 값 변경 시 crates/zed/src/auto_start.rs
+            // 옵저버가 레지스트리(HKCU Run)를 즉시 동기화한다.
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "settings_page.item.auto_start",
+                description: "settings_page.desc.general_settings.auto_start",
+                field: Box::new(SettingField {
+                    json_path: Some("auto_start"),
+                    pick: |settings_content| settings_content.workspace.auto_start.as_ref(),
+                    write: |settings_content, value| {
+                        settings_content.workspace.auto_start = value;
                     },
                 }),
                 metadata: None,

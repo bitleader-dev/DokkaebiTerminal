@@ -84,6 +84,12 @@ pub struct WorkspaceSettingsContent {
     ///
     /// Default: true
     pub system_monitoring: Option<bool>,
+    /// Windows 로그인 시 Dokkaebi를 자동으로 실행할지 여부.
+    /// 값이 `true`면 `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`에 실행 파일 경로가 등록되고,
+    /// `false`면 등록이 해제된다.
+    ///
+    /// Default: false
+    pub auto_start: Option<bool>,
     /// Aliases for the command palette. When you type a key in this map,
     /// it will be assumed to equal the value.
     ///

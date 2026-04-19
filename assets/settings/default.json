@@ -207,6 +207,8 @@
   "use_system_prompts": true,
   // Whether to show system monitoring (CPU, memory, GPU usage) in the status bar.
   "system_monitoring": false,
+  // Windows 로그인 시 Dokkaebi 자동 실행 여부.
+  "auto_start": false,
   // Whether the cursor blinks in the editor.
   "cursor_blink": true,
   // Cursor shape for the default editor.

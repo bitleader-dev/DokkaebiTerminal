@@ -2,7 +2,7 @@
 description = "Dokkaebi - a Windows-focused terminal workspace for AI coding agents, based on Zed."
 edition.workspace = true
 name = "Dokkaebi"
-version = "0.2.0"
+version = "0.3.0"
 publish.workspace = true
 license = "GPL-3.0-or-later"
 authors = ["Dokkaebi"]
@@ -220,6 +220,8 @@ zlog_settings.workspace = true
 [target.'cfg(target_os = "windows")'.dependencies]
 etw_tracing.workspace = true
 windows.workspace = true
+# Windows 로그인 시 자동 실행 등록을 위한 레지스트리(HKCU Run) 접근용.
+windows-registry = "0.5"
 gpui = { workspace = true, features = [
     "windows-manifest",
 ] }

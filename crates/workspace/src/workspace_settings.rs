@@ -28,6 +28,8 @@ pub struct WorkspaceSettings {
     pub use_system_path_prompts: bool,
     pub use_system_prompts: bool,
     pub system_monitoring: bool,
+    /// Windows 로그인 시 자동 실행 여부.
+    pub auto_start: bool,
     pub command_aliases: HashMap<String, String>,
     pub max_tabs: Option<NonZeroUsize>,
     pub when_closing_with_no_tabs: settings::CloseWindowWhenNoItems,
@@ -101,6 +103,7 @@ impl Settings for WorkspaceSettings {
             use_system_path_prompts: workspace.use_system_path_prompts.unwrap(),
             use_system_prompts: workspace.use_system_prompts.unwrap(),
             system_monitoring: workspace.system_monitoring.unwrap_or(false),
+            auto_start: workspace.auto_start.unwrap_or(false),
             command_aliases: workspace.command_aliases.clone(),
             max_tabs: workspace.max_tabs,
             when_closing_with_no_tabs: workspace.when_closing_with_no_tabs.unwrap(),

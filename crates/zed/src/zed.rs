@@ -1,4 +1,5 @@
 mod app_menus;
+mod auto_start;
 #[cfg(target_os = "macos")]
 pub(crate) mod mac_only_instance;
 mod migrate;
@@ -151,6 +152,9 @@ pub fn init(cx: &mut App) {
     cx.on_action(|_: &ShowAll, cx| cx.unhide_other_apps());
     cx.on_action(quit);
 
+    // Windows 로그인 시 자동 실행 설정(`workspace.auto_start`)을 레지스트리와 동기화한다.
+    auto_start::init(cx);
+
     cx.on_action(|_: &RestoreBanner, cx| title_bar::restore_banner(cx));
 
     cx.observe_flag::<PanicFeatureFlag, _>({
@@ -278,9 +282,9 @@ pub fn init(cx: &mut App) {
         });
     })
     .on_action(|_: &zed_actions::About, cx| {
-        with_active_or_new_workspace(cx, |workspace, window, cx| {
-            about(workspace, window, cx);
-        });
+        // App 스코프 폴백(워크스페이스 창이 없을 때 등). 워크스페이스 스코프의
+        // register_action이 있으면 그쪽이 먼저 소비되므로 이 경로는 실행되지 않는다.
+        open_about_window(None, cx);
     })
     .on_action(|_: &zed_actions::CheckForUpdates, cx| {
         // 이미 체크·다운로드 진행 중이면 check() 내부에서 pending 가드로 무시된다.
@@ -415,7 +419,6 @@ pub fn initialize_workspace(
                 })
                 .unwrap_or(true)
         });
-
     })
     .detach();
 
@@ -427,6 +430,14 @@ pub fn initialize_workspace(
         let workspace_handle = cx.entity();
         let center_pane = workspace.active_pane().clone();
         initialize_pane(workspace, &center_pane, window, cx);
+
+        // About 다이얼로그를 이 워크스페이스 창과 같은 모니터에 열기 위해
+        // 워크스페이스 스코프 register_action에서 window_handle을 직접 캡처한다.
+        // (App 스코프 cx.on_action(&About)은 워크스페이스 창이 없을 때의 폴백용.)
+        workspace.register_action(|_, _: &zed_actions::About, window, cx| {
+            let workspace_handle = window.window_handle().downcast::<MultiWorkspace>();
+            open_about_window(workspace_handle, cx);
+        });
 
         cx.subscribe_in(&workspace_handle, window, {
             move |workspace, _, event, window, cx| match event {
@@ -1207,18 +1218,101 @@ fn initialize_pane(
     });
 }
 
-fn about(workspace: &mut Workspace, window: &mut Window, cx: &mut Context<Workspace>) {
-    workspace.toggle_modal(window, cx, |_window, cx| AboutDialog::new(cx));
+/// 정보(About) 다이얼로그 URL 상수 (크레딧 링크 대상)
+const ZED_PROJECT_URL: &str = "https://zed.dev/";
+
+/// Dokkaebi 앱 아이콘 (About 창 상단 노출용).
+/// `assets/icons/icon.png`를 컴파일 타임에 포함한다.
+const ABOUT_APP_ICON_BYTES: &[u8] =
+    include_bytes!("../../../assets/icons/icon.png");
+
+/// About 윈도우를 연다. 이미 열려있으면 활성화만 수행한다.
+///
+/// 설계: `workspace_handle`은 호출한 멀티워크스페이스 창의 `WindowHandle`.
+/// `settings_ui::open_settings_editor`와 동일한 패턴으로, 워크스페이스 스코프
+/// `register_action`에서 `window.window_handle().downcast::<MultiWorkspace>()`로
+/// 얻은 핸들을 넘기면 해당 창의 `display_id`로 정확하게 모니터를 특정할 수 있다.
+/// 또한 `cx.defer`로 감싸 현재 워크스페이스 액션 스택에서 벗어난 뒤 창을 연다.
+fn open_about_window(workspace_handle: Option<WindowHandle<MultiWorkspace>>, cx: &mut App) {
+    // 중복 창 방지: 이미 열린 AboutWindow가 있으면 포커스만 준다.
+    if let Some(existing) = cx
+        .windows()
+        .into_iter()
+        .find_map(|w| w.downcast::<AboutWindow>())
+    {
+        existing
+            .update(cx, |about, window, cx| {
+                window.activate_window();
+                about.focus.focus(window, cx);
+            })
+            .log_err();
+        return;
+    }
+
+    // defer로 감싸 워크스페이스 액션 스택 해제 후 open_window 수행.
+    cx.defer(move |cx| {
+        let window_size = gpui::Size {
+            width: px(440.),
+            height: px(340.),
+        };
+
+        let title: SharedString = i18n::t("about.title", cx);
+
+        // 듀얼 모니터 대응: 호출 창(워크스페이스)의 display_id를 조회한다.
+        // 조회 실패/워크스페이스 핸들 없음 시 None → primary 디스플레이 폴백.
+        let target_display_id: Option<gpui::DisplayId> =
+            workspace_handle.and_then(|handle| {
+                handle
+                    .update(cx, |_, window, cx| {
+                        window.display(cx).map(|display| display.id())
+                    })
+                    .ok()
+                    .flatten()
+            });
+        log::info!(
+            "about window target display_id = {:?}",
+            target_display_id
+        );
+
+        let bounds = gpui::Bounds::centered(target_display_id, window_size, cx);
+
+        cx.open_window(
+            WindowOptions {
+                titlebar: Some(TitlebarOptions {
+                    title: Some(title),
+                    appears_transparent: true,
+                    traffic_light_position: None,
+                }),
+                window_bounds: Some(gpui::WindowBounds::Windowed(bounds)),
+                display_id: target_display_id,
+                is_resizable: false,
+                is_minimizable: false,
+                kind: WindowKind::Normal,
+                app_id: Some(ReleaseChannel::global(cx).app_id().to_owned()),
+                ..Default::default()
+            },
+            |window, cx| {
+                let about = cx.new(AboutWindow::new);
+                let focus = about.read(cx).focus.clone();
+                window.activate_window();
+                focus.focus(window, cx);
+                about
+            },
+        )
+        .log_err();
+    });
 }
 
-/// 정보(About) 다이얼로그
-struct AboutDialog {
+/// 정보(About) 독립 윈도우
+struct AboutWindow {
     focus: gpui::FocusHandle,
     /// 버전 문자열 (예: "Dokkaebi Dev 0.1.0 (debug)")
-    version_text: String,
+    version_text: SharedString,
+    /// 앱 아이콘 (상단 중앙 노출)
+    app_icon: Arc<gpui::Image>,
 }
 
-impl AboutDialog {
+impl AboutWindow {
     fn new(cx: &mut Context<Self>) -> Self {
         let release_channel = ReleaseChannel::global(cx).display_name();
         let version = env!("CARGO_PKG_VERSION");
@@ -1227,23 +1321,26 @@ impl AboutDialog {
         } else {
             ""
         };
-        let version_text = format!("{release_channel} {version}{debug}");
+        let version_text: SharedString =
+            format!("{release_channel} {version}{debug}").into();
+
+        let app_icon = Arc::new(gpui::Image::from_bytes(
+            gpui::ImageFormat::Png,
+            ABOUT_APP_ICON_BYTES.to_vec(),
+        ));
 
         Self {
             focus: cx.focus_handle(),
             version_text,
+            app_icon,
         }
     }
-
 }
 
-const ZED_PROJECT_URL: &str = "https://zed.dev/";
-
-impl Render for AboutDialog {
+impl Render for AboutWindow {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let settings = ThemeSettings::get_global(cx);
 
-        let title = i18n::t("about.title", cx);
         let credit_prefix = i18n::t("about.credit_prefix", cx);
         let credit_link = i18n::t("about.credit_link", cx);
         let credit_suffix_1 = i18n::t("about.credit_suffix_1", cx);
@@ -1251,86 +1348,82 @@ impl Render for AboutDialog {
         let ok_label = i18n::t("about.ok", cx);
 
         v_flex()
-            .key_context("AboutDialog")
+            .id("about-window")
+            .key_context("AboutWindow")
             .track_focus(&self.focus)
-            .on_action(cx.listener(|_, _: &menu::Cancel, _window, cx| {
-                cx.emit(DismissEvent);
+            .on_action(cx.listener(|_, _: &menu::Cancel, window, _cx| {
+                window.remove_window();
             }))
-            .on_action(cx.listener(|_, _: &menu::Confirm, _window, cx| {
-                cx.emit(DismissEvent);
+            .on_action(cx.listener(|_, _: &menu::Confirm, window, _cx| {
+                window.remove_window();
             }))
-            .w_80()
+            .size_full()
+            .bg(cx.theme().colors().editor_background)
+            .text_color(cx.theme().colors().text)
             .p_4()
-            .gap_3()
-            .elevation_3(cx)
-            .overflow_hidden()
+            .gap_4()
+            .text_center()
+            .justify_between()
             .font_family(settings.ui_font.family.clone())
-            // 타이틀
             .child(
-                div()
-                    .w_full()
-                    .text_sm()
-                    .text_color(cx.theme().colors().text_muted)
-                    .child(title.to_string()),
-            )
-            // 버전 정보
-            .child(
-                div()
-                    .w_full()
-                    .text_base()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .child(self.version_text.clone()),
-            )
-            // 크레딧 (링크 포함, 세로 3줄 배치로 긴 문구를 좁은 다이얼로그에 맞춤)
-            .child(
+                // 상단: 아이콘 + 버전 + 크레딧
                 v_flex()
                     .w_full()
-                    .text_xs()
-                    .text_color(cx.theme().colors().text_muted)
+                    .gap_3()
+                    .items_center()
                     .child(
-                        h_flex()
-                            .child(credit_prefix.to_string())
-                            .child(
-                                div()
-                                    .id("zed-link")
-                                    .cursor_pointer()
-                                    .text_color(cx.theme().colors().link_text_hover)
-                                    .hover(|s| s.underline())
-                                    .on_click(cx.listener(|_, _, _window, cx| {
-                                        cx.open_url(ZED_PROJECT_URL);
-                                    }))
-                                    .child(credit_link.to_string()),
-                            ),
+                        gpui::img(self.app_icon.clone())
+                            .size_16()
+                            .flex_none(),
                     )
-                    .child(credit_suffix_1.to_string())
-                    .child(credit_suffix_2.to_string()),
+                    .child(Headline::new(self.version_text.clone()))
+                    .child(
+                        // 크레딧 3줄 (중앙 정렬, 링크 포함)
+                        v_flex()
+                            .w_full()
+                            .gap_1()
+                            .items_center()
+                            .text_xs()
+                            .text_color(cx.theme().colors().text_muted)
+                            .child(
+                                h_flex()
+                                    .justify_center()
+                                    .child(credit_prefix.to_string())
+                                    .child(
+                                        div()
+                                            .id("zed-link")
+                                            .cursor_pointer()
+                                            .text_color(cx.theme().colors().link_text_hover)
+                                            .hover(|s| s.underline())
+                                            .on_click(cx.listener(|_, _, _window, cx| {
+                                                cx.open_url(ZED_PROJECT_URL);
+                                            }))
+                                            .child(credit_link.to_string()),
+                                    ),
+                            )
+                            .child(credit_suffix_1.to_string())
+                            .child(credit_suffix_2.to_string()),
+                    ),
             )
-            // 버튼
             .child(
+                // 하단: 확인 버튼 (full-width)
                 h_flex()
-                    .justify_end()
+                    .w_full()
                     .child(
                         Button::new("ok", ok_label.to_string())
+                            .full_width()
                             .style(ButtonStyle::Tinted(ui::TintColor::Accent))
-                            .on_click(cx.listener(|_, _, _window, cx| {
-                                cx.emit(DismissEvent);
+                            .on_click(cx.listener(|_, _, window, _cx| {
+                                window.remove_window();
                             })),
                     ),
             )
     }
 }
 
-impl EventEmitter<DismissEvent> for AboutDialog {}
-
-impl Focusable for AboutDialog {
+impl Focusable for AboutWindow {
     fn focus_handle(&self, _: &gpui::App) -> gpui::FocusHandle {
         self.focus.clone()
-    }
-}
-
-impl workspace::ModalView for AboutDialog {
-    fn fade_out_background(&self) -> bool {
-        true
     }
 }
 

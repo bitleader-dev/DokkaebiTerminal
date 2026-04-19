@@ -1,54 +1,107 @@
-# Inno Setup 다운그레이드 검사 버그 수정 + 앱 목록 표시명 정리 (2026-04-18)
+# 설정 → 일반 → "자동 실행" 토글 추가 (Windows 부팅 시 자동 시작)
 
 ## 목표
-1. **다운그레이드 검사 미작동 버그 수정**: `{#AppId}` 매크로의 `{` escape가 Pascal string literal에서 두 개의 중괄호로 평가되어 레지스트리 키 매칭 실패. 결과적으로 항상 "신규 설치"로 오판.
-2. **Windows 앱 목록 DisplayName**: "Dokkaebi 0.2.0" → "Dokkaebi"로 변경. 버전은 `DisplayVersion` 필드(별도 줄)에만 표시.
+설정 화면 `일반` → `일반 설정` 섹션에 **자동 실행** 토글을 추가한다.
+- ON: Windows 사용자 로그인 시 Dokkaebi가 자동 실행되도록 OS에 등록
+- OFF: 자동 실행 등록 해제
 
-## 근거
-### 1번 버그
-- `#define AppId "{{B8F4E2A1-...-3A4B}"`: `{{`은 `[Setup]` 평가 시 한 개의 `{`로 해석되도록 escape (Inno Setup constant 충돌 회피).
-- Pascal `[Code]`에서 `'{#AppId}'`는 ISPP 텍스트 치환 → `'{{B8F4...}'`. Pascal single-quoted string은 `{{`를 escape하지 않으므로 결과 문자열 = `{{B8F4...}` (중괄호 2개).
-- 실제 레지스트리 키는 `HKCU\...\Uninstall\{B8F4...}_is1`라 매칭 실패 → `RegQueryStringValue` False → `Exit; Result := True` (신규 설치 분기) → 검사 무력화.
+UX는 기존 `시스템 모니터링` 등 다른 토글과 동일한 `SettingItem` + `bool` 형태.
 
-### 2번 표시
-- `setup/dokkaebi.iss:17` `AppVerName={#AppDisplayName} {#Version}` 지정 시 Inno Setup이 이를 Add/Remove Programs `DisplayName`으로 사용.
-- `AppVerName` 미지정 시 `AppName`("Dokkaebi") 단독 사용. 버전은 `AppVersion={#Version}`이 `DisplayVersion`으로 별도 노출 (이미지 두 번째 줄 `0.2.0 | Dokkaebi | 2026-04-18`).
+## 범위
 
-## 설계
-### 1번 수정
-- ISPP 매크로 분리:
-  - `#define AppGuid "{B8F4E2A1-7C3D-4E5F-9A1B-6D8E0F2C3A4B}"` — escape 없이 raw GUID
-  - `#define AppId "{" + AppGuid` — `[Setup]` AppId용 escape 형태 ("{" + "{B8F4...}" = "{{B8F4...}")
-- Pascal 코드의 레지스트리 경로 조립: `'{#AppGuid}' + '_is1'` 또는 `'..\Uninstall\' + '{#AppGuid}' + '_is1'` 형태로 `AppGuid` 사용.
-- 결과: Pascal string은 `{B8F4...}_is1` (중괄호 1개) → 레지스트리 매칭 성공.
+### 포함 (이번 작업)
+1. **설정 스키마** (`crates/settings_content/src/workspace.rs`)
+   - `WorkspaceSettings`(또는 `WorkspaceSettingsContent`)에 `pub auto_start: Option<bool>` 추가
+   - 기본값 주석 `Default: false`
+2. **기본값** (`assets/settings/default.json`)
+   - `"auto_start": false` 추가 (기존 `system_monitoring` 옆)
+3. **설정 UI 항목** (`crates/settings_ui/src/page_data.rs`)
+   - `general_settings_section()` 배열 크기 `[SettingsPageItem; 8]` → `[SettingsPageItem; 9]`
+   - `system_monitoring` 다음에 `SettingItem` 1건 추가 (json_path="auto_start", USER 스코프)
+4. **i18n 키** (`assets/locales/ko.json`, `assets/locales/en.json`)
+   - `settings_page.item.auto_start` ("자동 실행" / "Auto Start")
+   - `settings_page.desc.general_settings.auto_start` ("Windows 시작 시 Dokkaebi를 자동으로 실행합니다." / "Launch Dokkaebi automatically when Windows starts.")
+5. **OS 연동 로직** (Windows 레지스트리)
+   - 위치: `crates/zed/src/zed.rs`의 `init_ui` 또는 적절한 초기화 시점에 `cx.observe_global::<SettingsStore>` 또는 `WorkspaceSettings`의 변경 감지
+   - 등록 방식: `HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Run` 의 `Dokkaebi` 값
+     - ON: `RegSetValueEx`로 `std::env::current_exe()` 경로(따옴표 감싼 형태) 기록
+     - OFF: `RegDeleteValue`로 제거 (없으면 무시)
+   - 등록 실패 시 panic 금지, `log::warn!` 정도만 남김
+   - 신규 의존성: `windows-registry` (Cargo.lock 확인 결과 `crates/recent_projects`·`gpui_windows`에서 이미 사용 중) → `crates/zed/Cargo.toml`에 추가
+6. **변경 시 자동 적용 + 기동 시 일관성 보장**
+   - 설정 ON인데 레지스트리 값 없음 → 기록
+   - 설정 OFF인데 레지스트리 값 있음 → 삭제
+   - 매 변경마다 동일 로직 호출
 
-### 2번 수정
-- `AppVerName={#AppDisplayName} {#Version}` 라인을 **제거**. (정책상 단순 삭제로 충분, 다른 효과 없음)
-- `AppName`은 그대로 "Dokkaebi" 유지.
-- 영향 검토: `AppVerName`은 사용자 가시 표시명에만 영향. `AppId`/`AppVersion`/`UninstallString` 등 다른 키는 무관.
+### 제외 (요청 범위 밖이라 수동 확인 후 후속 작업)
+- "관리자 권한으로 자동 실행" 옵션 (Task Scheduler 사용) — 현재 요구는 단순 ON/OFF
+- Stable/Preview 등 채널별 별도 등록값 — Dokkaebi 단일 채널 가정
+- 자동 실행 시 인자(예: `--minimized`) 전달 — 요구 없음
+- macOS/Linux 분기 (Windows 전용 프로젝트 규칙)
 
-## 범위 (수정 대상 파일)
-1. `setup/dokkaebi.iss`
-   - `#define AppGuid "..."` 1줄 신규 추가 (line 1 부근)
-   - `#define AppId` 정의 변경 (raw GUID + 한 글자 escape)
-   - `[Setup]`에서 `AppVerName=...` 라인 1줄 제거
-   - `[Code]` `InitializeSetup()`의 `RegKey` 조립을 `'{#AppGuid}'` 기반으로 변경
+## 설계 상세
+
+### `default.json` 위치
+```jsonc
+  // 상태 표시줄에 CPU/메모리/GPU 사용량 표시
+  "system_monitoring": false,
+  // Windows 시작 시 Dokkaebi를 자동 실행할지 여부
+  "auto_start": false,
+```
+
+### `page_data.rs` 추가 항목 (system_monitoring 직후)
+```rust
+SettingsPageItem::SettingItem(SettingItem {
+    title: "settings_page.item.auto_start",
+    description: "settings_page.desc.general_settings.auto_start",
+    field: Box::new(SettingField {
+        json_path: Some("auto_start"),
+        pick: |sc| sc.workspace.auto_start.as_ref(),
+        write: |sc, v| { sc.workspace.auto_start = v; },
+    }),
+    metadata: None,
+    files: USER,
+}),
+```
+배열 크기 8 → 9 동시 갱신 (CLAUDE.md "설정 UI 섹션 배치" 주의 사항).
+
+### 레지스트리 모듈 (신규 함수 1세트, `zed.rs` 또는 신설 `auto_start.rs`)
+```rust
+fn apply_auto_start(enabled: bool) -> std::io::Result<()> {
+    use windows_registry::CURRENT_USER;
+    let key = CURRENT_USER.create(r"Software\Microsoft\Windows\CurrentVersion\Run")?;
+    if enabled {
+        let exe = std::env::current_exe()?;
+        let value = format!("\"{}\"", exe.display());
+        key.set_string("Dokkaebi", &value)?;
+    } else {
+        let _ = key.remove_value("Dokkaebi"); // 없을 수도 있음
+    }
+    Ok(())
+}
+```
+호출 지점: 앱 부팅 직후 1회 + `WorkspaceSettings` 변경 옵저버 안에서 값 변화 시. 실패는 `log::warn!`로만 남김.
 
 ## 작업 단계
-- [x] 1. `setup/dokkaebi.iss` `#define AppGuid` 추가 + `AppId` 재정의 (raw + escape 분리)
-- [x] 2. `[Setup]` `AppVerName` 라인 제거
-- [x] 3. `[Code]` `InitializeSetup` `RegKey` 문자열을 `'{#AppGuid}'` 기반으로 교체
-- [x] 4. ISCC 재컴파일 → `Successful compile (84.625 sec)`, 신규 경고 0건
-- [x] 5. 시나리오 점검(코드 리뷰): Pascal 치환 결과 `{B8F4...-3A4B}_is1` (중괄호 1개) ✓, [Setup] AppId 평가 결과 `{B8F4...-3A4B}` 변경 전후 동일 ✓
-- [x] 6. `notes.md` 갱신, `release_notes.md` UI/UX 섹션에 표시명 항목 추가 (다운그레이드 보호 항목은 기존 보안 항목 그대로 유지 — 의미상 동일)
-- [x] 7. 완료 보고 (사용자 환경 검증 완료 — 다운그레이드 차단/경고 동작, Add/Remove Programs 표시명 "Dokkaebi"로 표시)
+- [x] 1. `WorkspaceSettings`에 `auto_start` 필드 추가 + 주석
+- [x] 2. `default.json`에 키/주석 추가
+- [x] 3. `page_data.rs` 항목 추가 + 배열 크기 9로 변경
+- [x] 4. ko.json / en.json 키 2건 × 2언어 = 총 4건 추가
+- [x] 5. `zed.rs` (또는 신설 모듈)에 `apply_auto_start` + 옵저버 + 부팅 1회 호출 구현
+- [x] 6. `crates/zed/Cargo.toml`에 `windows-registry` 의존성 추가
+- [x] 7. `cargo check -p Dokkaebi` 신규 경고/에러 0건 (5.20s, exit 0)
+- [ ] 8. 사용자 환경 실행 검증 — 토글 ON/OFF 시 `regedit`에서 `HKCU\...\Run\Dokkaebi` 추가/삭제 확인
+- [x] 9. `notes.md` + `assets/release_notes.md` 갱신 (`### 새로운 기능`)
 
-## 검증
-- ISCC 컴파일 통과.
-- 시나리오 검증 (사용자 환경): regedit으로 `DisplayVersion`을 `9.9.9`로 임시 변경 후 `Dokkaebi-Setup-v0.2.0.exe` 실행 → 한글 경고 다이얼로그 표시. 검증 후 원복.
-- Add/Remove Programs에서 항목명이 "Dokkaebi 0.2.0" → "Dokkaebi"로 변경 확인.
+## 승인 필요 사항 (CLAUDE.md 1단계 기준)
+1. **의존성 추가**: `crates/zed/Cargo.toml`에 `windows-registry` 추가 (또는 기존 `windows` 크레이트 features 활용 — 어느 쪽이 좋은지 확인 필요)
+2. **외부 호출**: Windows 레지스트리 쓰기/삭제 (HKCU 범위, 관리자 권한 불필요)
+3. **공개 설정 스키마 변경**: `WorkspaceSettings`에 신규 필드 추가 (하위 호환 OK — `Option<bool>`이므로 기존 사용자 settings.json 비파괴)
+4. **i18n 신규 키**: ko/en 양쪽에 `auto_start` 항목 2개
 
-## 승인 필요 사항
-- `AppId` 정의 방식 변경 — 단 매크로 평가 결과(`{B8F4...-3A4B}`)는 동일하므로 **AppId 값 자체는 불변**. 기존 설치본의 제거/업그레이드 호환성 영향 없음.
-- `AppVerName` 제거 — 표시명 단순화. 기능 영향 없음.
-- 의존성 추가 없음, 다른 코드 변경 없음.
+## 리스크 / 미해결
+- 레지스트리 경로 따옴표 처리: 공백 포함 경로(예: `C:\Program Files\Dokkaebi\Dokkaebi.exe`) 대비 `\"...\"` 감싸기 필수. 위 코드에 반영.
+- `current_exe()`가 심볼릭 링크 / 업데이트 후 갱신되는 경로일 가능성 — 토글 ON 후 앱 이동 시 등록 경로가 어긋날 수 있음. 부팅 시 자동 갱신 로직(설정 ON이면 매 시작마다 최신 exe 경로로 set_string 재기록)으로 완화.
+- 기존 사용자가 직접 만든 `Dokkaebi` 레지스트리 값이 있는 경우 OFF 토글 시 그것까지 삭제됨 — 의도된 동작으로 간주.
+
+**승인 후 착수.** 단계 1~6은 승인 전 수행하지 않는다.

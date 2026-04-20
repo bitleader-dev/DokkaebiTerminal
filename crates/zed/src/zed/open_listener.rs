@@ -14,7 +14,7 @@ use futures::future;
 
 use futures::{FutureExt, SinkExt, StreamExt};
 use git_ui::{file_diff_view::FileDiffView, multi_diff_view::MultiDiffView};
-use gpui::{App, AppContext, AsyncApp, Global, ReadGlobal, WindowHandle};
+use gpui::{App, AppContext, AsyncApp, Entity, Global, ReadGlobal, WindowHandle};
 use onboarding::FIRST_OPEN;
 use onboarding::show_onboarding_view;
 use recent_projects::{RemoteSettings, navigate_to_positions, open_remote_project};
@@ -29,9 +29,8 @@ use util::ResultExt;
 use util::paths::PathWithPosition;
 use workspace::PathList;
 use workspace::item::{Item, ItemHandle};
-use workspace::notifications::{
-    NotificationId, dismiss_app_notification, show_app_notification, simple_message_notification,
-};
+use workspace::Workspace;
+use workspace::notifications::{NotificationId, simple_message_notification};
 use workspace::{AppState, MultiWorkspace, OpenOptions, OpenResult, SerializedWorkspaceLocation};
 
 #[derive(Default, Debug)]
@@ -507,15 +506,20 @@ async fn handle_notify_request(
         pid,
         ancestors,
     } = args;
-    // 전역 on/off (`task_alert`)와 토스트 전용 on/off (`task_alert_toast`)를
-    // 한 번에 읽는다. 기본값은 모두 true.
-    let (task_alert_enabled, toast_enabled) = cx.update(|cx| {
+    // 전역 on/off (`task_alert`)와 토스트 전용 on/off (`task_alert_toast`),
+    // 토스트 auto-dismiss 시간(`toast_display_seconds`, 5~300 clamp, 기본 5)을
+    // 한 번에 읽는다.
+    let (task_alert_enabled, toast_enabled, toast_display_secs) = cx.update(|cx| {
         let settings = SettingsStore::global(cx)
             .raw_user_settings()
             .and_then(|user| user.content.notification.as_ref());
         (
             settings.and_then(|n| n.task_alert).unwrap_or(true),
             settings.and_then(|n| n.task_alert_toast).unwrap_or(true),
+            settings
+                .and_then(|n| n.toast_display_seconds)
+                .unwrap_or(5)
+                .clamp(5, 300),
         )
     });
 
@@ -528,44 +532,91 @@ async fn handle_notify_request(
         let id = NotificationId::named(id_name);
 
         // dot 인디케이터 + 비활성 그룹 배지 적용 및 매칭 터미널의 "그룹 / 탭"
-        // 라벨 수집. cli가 보낸 ancestors가 비어있으면 pid 기반 sysinfo 폴백.
-        let location_label =
-            mark_bell_for_notification(ancestors, pid, cwd.as_deref(), cx);
+        // 라벨 + 소속 (윈도우, 워크스페이스) 타겟 수집.
+        // cli가 보낸 ancestors가 비어있으면 pid 기반 sysinfo 폴백.
+        let target = mark_bell_for_notification(ancestors, pid, cwd.as_deref(), cx);
 
-        // 토스트 팝업은 `task_alert_toast` 가 true 일 때만 표시.
-        if toast_enabled {
-            let id_for_show = id.clone();
-            let title_for_show = title.clone();
-            // 매칭된 터미널이 있으면 메시지 맨 앞에 "그룹 / 탭" 라인을 덧붙여
-            // 어느 워크스페이스의 어떤 터미널에서 온 알림인지 식별 가능하게 함.
-            let message_for_show = match location_label {
-                Some(loc) if !loc.is_empty() => format!("{}\n{}", loc, message),
-                _ => message.clone(),
+        // 토스트 팝업은 `task_alert_toast` 가 true 이고 발신 터미널이 속한
+        // 타겟 워크스페이스가 식별된 경우에만 그 워크스페이스 하나에만 표시.
+        // 매칭 실패 시 토스트를 생략해 발신과 무관한 윈도우에 팝업이 뜨는
+        // 문제(동일 이름 탭을 가진 창 2개 환경)를 차단한다.
+        if toast_enabled
+            && let Some(target) = target
+        {
+            let NotifyTarget {
+                location_label,
+                window,
+                workspace,
+            } = target;
+
+            // Stop 알림 수신 시 같은 워크스페이스의 Idle 토스트를 먼저 정리한다.
+            // Idle 은 "1분 이상 입력 없음" 트리거이므로 작업 완료(Stop) 시점에는
+            // 더 이상 유효하지 않고, 두 토스트가 동시에 쌓이는 것을 방지한다.
+            if matches!(kind, NotifyKind::Stop) {
+                let idle_id = NotificationId::named("claude_code.idle".into());
+                let workspace_for_stop = workspace.clone();
+                window
+                    .update(cx, move |_, _, cx| {
+                        workspace_for_stop.update(cx, |ws, cx| {
+                            ws.dismiss_notification(&idle_id, cx);
+                        });
+                    })
+                    .log_err();
+            }
+
+            // 매칭된 터미널의 "그룹 / 탭" 라벨을 본문 앞에 덧붙여 발신 위치를
+            // 토스트에 표기. 라벨이 비면 원본 메시지만 표시.
+            let message_for_show = if location_label.is_empty() {
+                message.clone()
+            } else {
+                format!("{}\n{}", location_label, message)
             };
 
-            cx.update(|cx| {
-                show_app_notification(id_for_show, cx, move |cx| {
-                    let title_clone = title_for_show.clone();
-                    let message_clone = message_for_show.clone();
-                    cx.new(|cx| {
-                        simple_message_notification::MessageNotification::new(
-                            message_clone,
-                            cx,
-                        )
-                        .with_title(title_clone)
-                        .show_close_button(true)
-                    })
-                });
-            });
+            let id_for_show = id.clone();
+            let title_for_show = title.clone();
+            let workspace_for_show = workspace.clone();
+            let window_for_show = window;
+            window_for_show
+                .update(cx, move |_, _, cx| {
+                    workspace_for_show.update(cx, move |ws, cx| {
+                        ws.show_notification(id_for_show, cx, move |cx| {
+                            let title_clone = title_for_show.clone();
+                            let message_clone = message_for_show.clone();
+                            cx.new(|cx| {
+                                simple_message_notification::MessageNotification::new(
+                                    message_clone,
+                                    cx,
+                                )
+                                .with_title(title_clone)
+                                .show_close_button(true)
+                            })
+                        });
+                    });
+                })
+                .log_err();
 
-            // Stop 토스트는 5초 자동 dismiss. Idle/Permission은 유지.
-            if matches!(kind, NotifyKind::Stop) {
+            // Stop/Idle 토스트는 `toast_display_seconds` 경과 후 자동 dismiss.
+            // 값은 설정에서 읽어 5~300 범위로 clamp 된 `toast_display_secs` 를 사용.
+            // Permission 은 승인 응답이 필요하므로 자동 dismiss 하지 않고
+            // 사용자가 직접 닫을 때까지 유지.
+            if matches!(kind, NotifyKind::Stop | NotifyKind::Idle) {
                 let id_for_dismiss = id.clone();
+                let window_for_dismiss = window;
+                let workspace_for_dismiss = workspace;
+                let dismiss_after = Duration::from_secs(toast_display_secs as u64);
                 cx.spawn(async move |cx| {
                     cx.background_executor()
-                        .timer(Duration::from_secs(5))
+                        .timer(dismiss_after)
                         .await;
-                    cx.update(|cx| dismiss_app_notification(&id_for_dismiss, cx));
+                    let _ = cx.update(|cx| {
+                        window_for_dismiss
+                            .update(cx, move |_, _, cx| {
+                                workspace_for_dismiss.update(cx, |ws, cx| {
+                                    ws.dismiss_notification(&id_for_dismiss, cx);
+                                });
+                            })
+                            .log_err();
+                    });
                 })
                 .detach();
             }
@@ -705,6 +756,19 @@ impl ProcessSnapshot {
     }
 }
 
+/// 발신 터미널 매칭 결과. 토스트를 발신 터미널이 속한 (윈도우, 워크스페이스)
+/// 한 쌍에만 표시하기 위해 `mark_bell_for_notification` 이 반환한다.
+/// 매칭 실패 시 반환값은 `None` 이고, 이 경우 토스트/dot/그룹 배지 모두
+/// 표시되지 않는다.
+struct NotifyTarget {
+    /// 토스트 본문 앞에 붙일 "그룹 이름 / 탭 이름" 라벨. 그룹명이 비면 탭명만.
+    location_label: String,
+    /// 발신 터미널이 속한 MultiWorkspace 윈도우 핸들.
+    window: WindowHandle<MultiWorkspace>,
+    /// 발신 터미널이 속한 Workspace 엔티티.
+    workspace: Entity<Workspace>,
+}
+
 /// Claude Code 작업 알림으로 터미널 dot 인디케이터 + 비활성 그룹 배지를 설정한다.
 ///
 /// 매칭은 양방향 PID 검사를 모두 수행한다:
@@ -713,16 +777,16 @@ impl ProcessSnapshot {
 ///
 /// 둘 중 어느 쪽이든 일치하면 해당 터미널만 dot + 그룹 배지를 받는다. cwd 기반
 /// fallback은 동명 탭이 여러 개일 때 과다 매칭을 유발하므로 제거했다. 매칭
-/// 실패 시 토스트만 뜨고 dot/배지는 표시되지 않는다.
-/// 매칭된 첫 터미널의 "그룹 이름 / 탭 이름" 형식의 location 라벨을 반환한다.
-/// 호출자는 이 값을 토스트 본문 앞에 덧붙여 사용자가 어느 워크스페이스 그룹의
-/// 어떤 터미널 탭에서 알림이 왔는지 식별할 수 있게 한다.
+/// 실패 시 토스트/dot/배지 모두 표시되지 않는다.
+/// 반환값은 매칭된 첫 터미널의 라벨과 소속 (윈도우, 워크스페이스) 타겟을 담은
+/// `NotifyTarget` 이다. 호출자는 이 타겟을 이용해 발신과 무관한 다른 윈도우에
+/// 토스트가 브로드캐스트되지 않도록 해당 워크스페이스 1곳에만 알림을 띄운다.
 fn mark_bell_for_notification(
     ancestors: Vec<u32>,
     pid: Option<u32>,
     _cwd_str: Option<&str>,
     cx: &mut AsyncApp,
-) -> Option<String> {
+) -> Option<NotifyTarget> {
     use std::collections::HashSet;
     use terminal_view::TerminalView;
 
@@ -762,19 +826,24 @@ fn mark_bell_for_notification(
         ancestor_set.iter().any(|a| desc.contains(a))
     };
 
-    // 매칭 터미널 엔티티와 소속 그룹 인덱스를 함께 수집하여 첫 매칭의
-    // "그룹 / 탭" 라벨을 토스트에 노출할 수 있도록 한다.
-    let mut location_label: Option<String> = None;
+    // 매칭 터미널의 (엔티티, 그룹 인덱스) 를 수집하고, 첫 매칭 터미널의 라벨 +
+    // 소속 (윈도우, 워크스페이스) 를 타겟으로 캡처해 호출자가 토스트를 해당
+    // 워크스페이스 한 곳에만 띄울 수 있게 한다.
+    let mut target: Option<NotifyTarget> = None;
 
     cx.update(|cx| {
         for window in cx.windows() {
             let Some(multi_handle) = window.downcast::<MultiWorkspace>() else {
                 continue;
             };
+            // nested closure 에서 workspace 캡처 시 move 되지 않도록 outer 에서
+            // 클론해둔다. WindowHandle 은 가벼운 ID 기반이라 비용 무시.
+            let window_for_target = multi_handle;
             multi_handle
                 .update(cx, |multi_ws, _window, cx| {
                     let workspaces: Vec<_> = multi_ws.workspaces().to_vec();
                     for workspace_entity in workspaces {
+                        let workspace_for_target = workspace_entity.clone();
                         workspace_entity.update(cx, |workspace, cx| {
                             let active_index = workspace.active_group_index();
                             // (TerminalView, 그룹 인덱스) 쌍으로 수집
@@ -802,9 +871,9 @@ fn mark_bell_for_notification(
                                 }
                             }
 
-                            // 첫 매칭에서 "그룹 / 탭" 라벨 결정.
-                            // 이후 매칭들은 bell/배지만 적용한다.
-                            if location_label.is_none()
+                            // 첫 매칭에서 "그룹 / 탭" 라벨 + 소속 윈도우/워크스페이스
+                            // 타겟을 기록. 이후 매칭들은 bell/배지만 적용한다.
+                            if target.is_none()
                                 && let Some((tv, group_idx)) = matched.first()
                             {
                                 let tab_name =
@@ -814,10 +883,15 @@ fn mark_bell_for_notification(
                                     .get(*group_idx)
                                     .map(|g| g.name.clone())
                                     .unwrap_or_default();
-                                location_label = Some(if group_name.is_empty() {
+                                let location_label = if group_name.is_empty() {
                                     tab_name
                                 } else {
                                     format!("{} / {}", group_name, tab_name)
+                                };
+                                target = Some(NotifyTarget {
+                                    location_label,
+                                    window: window_for_target,
+                                    workspace: workspace_for_target,
                                 });
                             }
 
@@ -835,7 +909,7 @@ fn mark_bell_for_notification(
         }
     });
 
-    location_label
+    target
 }
 
 async fn open_workspaces(

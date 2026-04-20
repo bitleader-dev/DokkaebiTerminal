@@ -6889,6 +6889,9 @@ fn notification_page() -> SettingsPage {
     static DEFAULT_TASK_ALERT: bool = true;
     // 토스트 팝업 알림 토글 기본값 — 작업 알림이 켜진 상태에서 토스트도 뜨게.
     static DEFAULT_TASK_ALERT_TOAST: bool = true;
+    // 토스트 표시 시간 기본값(초). 설정 미지정 시 5초로 동작하며, 런타임에서
+    // 5~300 범위로 clamp 된다.
+    static DEFAULT_TOAST_DISPLAY_SECONDS: u32 = 5;
 
     fn claude_code_section() -> [SettingsPageItem; 4] {
         [
@@ -6976,9 +6979,45 @@ fn notification_page() -> SettingsPage {
         ]
     }
 
+    // 토스트 팝업 섹션 — 표시 시간(초) 숫자 입력. 5~300 범위는 런타임 clamp.
+    // 별도 섹션으로 분리해 "Claude Code" 섹션의 토글 묶음과 시각적으로 구분.
+    fn toast_popup_section() -> [SettingsPageItem; 2] {
+        [
+            SettingsPageItem::SectionHeader("settings_page.section.toast_popup"),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "settings_page.item.toast_display_seconds",
+                description: "settings_page.desc.toast_display_seconds",
+                field: Box::new(SettingField {
+                    json_path: Some("notification.toast_display_seconds"),
+                    pick: |settings_content| {
+                        Some(
+                            settings_content
+                                .notification
+                                .as_ref()
+                                .and_then(|n| n.toast_display_seconds.as_ref())
+                                .unwrap_or(&DEFAULT_TOAST_DISPLAY_SECONDS),
+                        )
+                    },
+                    write: |settings_content, value| {
+                        // 저장 시점에 5~300 으로 clamp 해서 settings.json 에 기록되는
+                        // 값과 실제 런타임 동작 시간이 항상 일치하도록 보정한다.
+                        // 범위 밖 값을 입력해도 저장 직후 UI 에 올바른 값이 반영된다.
+                        let clamped = value.map(|v| v.clamp(5, 300));
+                        settings_content
+                            .notification
+                            .get_or_insert_with(Default::default)
+                            .toast_display_seconds = clamped;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+        ]
+    }
+
     SettingsPage {
         title: "settings_page.item.notifications",
-        items: concat_sections!(claude_code_section()),
+        items: concat_sections!(claude_code_section(), toast_popup_section()),
     }
 }
 

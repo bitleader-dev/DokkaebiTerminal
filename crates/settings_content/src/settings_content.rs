@@ -585,6 +585,14 @@ pub struct NotificationSettingsContent {
     ///
     /// Default: true
     pub task_alert_toast: Option<bool>,
+
+    /// Claude Code 작업 알림 토스트(Stop/Idle)의 auto-dismiss 시간(초).
+    /// 5~300 범위로 사용되며, 범위 밖 값은 런타임에서 clamp 된다.
+    /// Permission 토스트는 승인 응답이 필요하므로 이 설정의 영향을 받지 않고
+    /// 사용자가 직접 닫을 때까지 유지된다.
+    ///
+    /// Default: 5
+    pub toast_display_seconds: Option<u32>,
 }
 
 #[with_fallible_options]

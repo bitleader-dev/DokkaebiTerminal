@@ -111,15 +111,22 @@ Source: "{#ResourcesDir}\conpty.dll"; DestDir: "{app}"; Flags: ignoreversion
 #ifexist ResourcesDir + "\dokkaebi-cli.exe"
 Source: "{#ResourcesDir}\dokkaebi-cli.exe"; DestDir: "{app}"; Flags: ignoreversion
 #endif
-; Claude Code 작업 알림 브리지 플러그인.
-; 1순위: 인스톨러 작업 디렉터리(setup/)에 plugins/dokkaebi-notify-bridge가 미리 복사되어 있는 경우.
-; 2순위: 저장소 루트의 assets/claude-plugins/dokkaebi-notify-bridge (수동/로컬 빌드 경로).
+; Claude Code 작업 알림 브리지 플러그인 (로컬 마켓플레이스 구조).
+; Claude Code의 directory source는 `.claude-plugin/marketplace.json` 카탈로그가 있는
+; 마켓플레이스 루트 디렉터리를 요구하므로 {app}\plugins\ 에 marketplace.json과
+; 플러그인 서브디렉터리를 함께 배치한다.
+;   {app}\plugins\.claude-plugin\marketplace.json
+;   {app}\plugins\dokkaebi-notify-bridge\.claude-plugin\plugin.json
+;   {app}\plugins\dokkaebi-notify-bridge\hooks\hooks.json
+;   {app}\plugins\dokkaebi-notify-bridge\scripts\dispatch.sh
+; 1순위: 인스톨러 작업 디렉터리(setup/)에 plugins/ 마켓플레이스 루트가 미리 복사되어 있는 경우.
+; 2순위: 저장소 루트의 assets/claude-plugins/ (수동/로컬 빌드 경로).
 ; 설치된 후 사용자가 [설정 → 알림 → Claude Code → 플러그인 설치] 클릭 시 활성화됨.
-#ifexist ResourcesDir + "\plugins\dokkaebi-notify-bridge\.claude-plugin\plugin.json"
-Source: "{#ResourcesDir}\plugins\dokkaebi-notify-bridge\*"; DestDir: "{app}\plugins\dokkaebi-notify-bridge"; Flags: ignoreversion recursesubdirs createallsubdirs
+#ifexist ResourcesDir + "\plugins\.claude-plugin\marketplace.json"
+Source: "{#ResourcesDir}\plugins\*"; DestDir: "{app}\plugins"; Flags: ignoreversion recursesubdirs createallsubdirs
 #else
-#ifexist ResourcesDir + "\..\assets\claude-plugins\dokkaebi-notify-bridge\.claude-plugin\plugin.json"
-Source: "{#ResourcesDir}\..\assets\claude-plugins\dokkaebi-notify-bridge\*"; DestDir: "{app}\plugins\dokkaebi-notify-bridge"; Flags: ignoreversion recursesubdirs createallsubdirs
+#ifexist ResourcesDir + "\..\assets\claude-plugins\.claude-plugin\marketplace.json"
+Source: "{#ResourcesDir}\..\assets\claude-plugins\*"; DestDir: "{app}\plugins"; Flags: ignoreversion recursesubdirs createallsubdirs
 #endif
 #endif
 

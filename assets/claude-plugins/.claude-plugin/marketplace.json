@@ -1,0 +1,18 @@
+{
+  "name": "dokkaebi-local",
+  "description": "Dokkaebi 에디터 내부 알림으로 Claude Code 이벤트를 전달하는 로컬 마켓플레이스",
+  "owner": {
+    "name": "Dokkaebi",
+    "url": "https://github.com/bitleader-dev/DokkaebiTerminal"
+  },
+  "plugins": [
+    {
+      "name": "dokkaebi-notify-bridge",
+      "description": "Claude Code 작업 완료/대기/권한요청 이벤트를 Dokkaebi 에디터 내부 알림으로 전달",
+      "source": "./dokkaebi-notify-bridge",
+      "version": "1.0.0",
+      "category": "productivity",
+      "tags": ["notifications", "dokkaebi", "ipc"]
+    }
+  ]
+}

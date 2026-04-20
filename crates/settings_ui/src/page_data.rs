@@ -6887,8 +6887,10 @@ fn ai_page(cx: &App) -> SettingsPage {
 fn notification_page() -> SettingsPage {
     // 작업 알림 토글 기본값 — 플러그인이 설치되어 있을 때 알림을 표시(true)가 기본.
     static DEFAULT_TASK_ALERT: bool = true;
+    // 토스트 팝업 알림 토글 기본값 — 작업 알림이 켜진 상태에서 토스트도 뜨게.
+    static DEFAULT_TASK_ALERT_TOAST: bool = true;
 
-    fn claude_code_section() -> [SettingsPageItem; 3] {
+    fn claude_code_section() -> [SettingsPageItem; 4] {
         [
             SettingsPageItem::SectionHeader("settings_page.section.claude_code"),
             // 플러그인 설치/제거 토글.
@@ -6917,7 +6919,9 @@ fn notification_page() -> SettingsPage {
                 }),
                 files: USER,
             }),
-            // 작업 알림 토글 — 플러그인이 보낸 IPC 알림을 Dokkaebi UI에 표시할지 여부
+            // 작업 알림 토글 — 플러그인이 보낸 IPC 알림을 Dokkaebi UI에 표시할지 여부.
+            // 플러그인 미설치 시 렌더링 단계에서 자동 비활성화된다
+            // (render_toggle_button의 json_path 기반 특수 케이스).
             SettingsPageItem::SettingItem(SettingItem {
                 title: "settings_page.item.claude_code_task_alert",
                 description: "settings_page.desc.claude_code_task_alert",
@@ -6937,6 +6941,33 @@ fn notification_page() -> SettingsPage {
                             .notification
                             .get_or_insert_with(Default::default)
                             .task_alert = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            // 토스트 팝업 알림 토글 — OFF로 두면 dot 인디케이터와 그룹 배지는
+            // 유지되지만 화면 우하단 토스트 팝업만 생략된다. 플러그인 미설치
+            // 시에도 비활성화 처리된다.
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "settings_page.item.claude_code_task_alert_toast",
+                description: "settings_page.desc.claude_code_task_alert_toast",
+                field: Box::new(SettingField {
+                    json_path: Some("notification.task_alert_toast"),
+                    pick: |settings_content| {
+                        Some(
+                            settings_content
+                                .notification
+                                .as_ref()
+                                .and_then(|n| n.task_alert_toast.as_ref())
+                                .unwrap_or(&DEFAULT_TASK_ALERT_TOAST),
+                        )
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .notification
+                            .get_or_insert_with(Default::default)
+                            .task_alert_toast = value;
                     },
                 }),
                 metadata: None,

@@ -981,7 +981,7 @@ impl Render for WorkspaceGroupPanel {
                             .id(("workspace-group-item", index))
                             .w_full()
                             .px_2()
-                            .py(px(4.))
+                            .py(px(8.))
                             .gap_1()
                             .justify_between()
                             .rounded_md()

@@ -17,10 +17,71 @@ use std::{
     ffi::OsStr,
     fs, io,
     path::{Path, PathBuf},
-    process::ExitStatus,
-    sync::Arc,
+    process::{Child, ExitStatus},
+    sync::{
+        Arc, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
     thread::{self, JoinHandle},
+    time::Duration,
 };
+
+/// cli가 `App::launch()`에서 `cmd.spawn()`으로 본체를 새로 띄운 경우 반환된
+/// `Child` 핸들을 저장한다. handshake 워치독이 타임아웃 시 이 핸들로
+/// spawn된 본체를 강제 종료해 좀비 프로세스가 남지 않도록 한다. pipe 경로
+/// (기존 본체 재사용)에서는 저장하지 않는다.
+static SPAWNED_CHILD: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
+
+fn spawned_child_slot() -> &'static Mutex<Option<Child>> {
+    SPAWNED_CHILD.get_or_init(|| Mutex::new(None))
+}
+
+/// handshake 대기 최대 시간. 이보다 길면 본체가 UI 초기화에 실패한 좀비로
+/// 간주하고 spawn된 Child를 kill한 뒤 cli가 실패 종료한다.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// cli가 본체에 대한 IPC handshake 완료를 `HANDSHAKE_TIMEOUT` 내 감지하지
+/// 못하면 spawn된 Child를 kill하고 프로세스를 에러 코드로 즉시 종료한다.
+/// 이 보장 덕에 cli가 띄운 본체가 UI 초기화 실패로 좀비화하더라도 다음 번
+/// cli 호출이 계속 같은 좀비에 IPC를 보내 실패하는 연쇄 문제가 방지된다.
+fn spawn_handshake_watchdog(sender_done: Arc<AtomicBool>) {
+    thread::Builder::new()
+        .name("CliHandshakeWatchdog".to_string())
+        .spawn(move || {
+            thread::sleep(HANDSHAKE_TIMEOUT);
+            if sender_done.load(Ordering::SeqCst) {
+                return;
+            }
+            // 타임아웃. spawn된 Child가 있으면 종료한다.
+            // lock 확보 후 `sender_done` 을 재검사해 sleep 종료 직후 sender가
+            // 완료된 경우의 race를 방지한다.
+            let killed_pid = {
+                let mut slot = spawned_child_slot().lock();
+                if sender_done.load(Ordering::SeqCst) {
+                    return;
+                }
+                slot.take().map(|mut child| {
+                    let pid = child.id();
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    pid
+                })
+            };
+            match killed_pid {
+                Some(pid) => eprintln!(
+                    "dokkaebi-cli: handshake timeout ({}s). Killed spawned instance pid={}.",
+                    HANDSHAKE_TIMEOUT.as_secs(),
+                    pid,
+                ),
+                None => eprintln!(
+                    "dokkaebi-cli: handshake timeout ({}s). No spawned child to kill (pipe path).",
+                    HANDSHAKE_TIMEOUT.as_secs(),
+                ),
+            }
+            std::process::exit(1);
+        })
+        .expect("spawn handshake watchdog thread");
+}
 use tempfile::{NamedTempFile, TempDir};
 use util::paths::PathWithPosition;
 use walkdir::WalkDir;
@@ -149,6 +210,76 @@ struct Args {
     /// 알림 발생 위치 cwd. 다중 워크스페이스 라우팅 힌트로 사용된다.
     #[arg(long, hide = true, value_name = "PATH", requires = "notify_kind")]
     notify_cwd: Option<String>,
+    /// 알림 송신 프로세스의 PID(dispatch.sh의 `$PPID`). 본체가 parent chain을
+    /// 따라가며 정확한 터미널을 식별하는 데 쓴다.
+    #[arg(long, hide = true, value_name = "PID", requires = "notify_kind")]
+    notify_pid: Option<u32>,
+}
+
+/// Windows에서 현재 프로세스(cli)의 Win32 parent chain을 수집한다.
+/// 반환값 `[cli, parent(bash), grandparent(Claude), ..., root]` 형태이며
+/// dispatch.sh가 아직 살아있는 IPC 호출 전 시점에 Toolhelp snapshot으로
+/// 확보하므로 본체 쪽 sysinfo가 exit한 부모를 놓쳐 chain이 끊기는 문제를
+/// 우회한다.
+///
+/// 주의: cli/main.rs 안쪽에 `mod windows {...}` 내부 모듈이 있어 crate root의
+/// `windows` 이름을 shadow하므로 외부 `windows` crate는 `::windows::` 절대
+/// 경로로 접근해야 한다.
+#[cfg(target_os = "windows")]
+fn windows_ancestor_pids() -> Vec<u32> {
+    use ::windows::Win32::Foundation::CloseHandle;
+    use ::windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+        TH32CS_SNAPPROCESS,
+    };
+    use std::collections::HashMap;
+
+    // 1) 전체 프로세스의 (PID, ParentPID) 맵 구축.
+    let mut pid_to_parent: HashMap<u32, u32> = HashMap::new();
+    unsafe {
+        let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
+            return vec![std::process::id()];
+        };
+        let mut entry = PROCESSENTRY32W {
+            dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+            ..Default::default()
+        };
+        if Process32FirstW(snap, &mut entry).is_ok() {
+            loop {
+                pid_to_parent.insert(entry.th32ProcessID, entry.th32ParentProcessID);
+                if Process32NextW(snap, &mut entry).is_err() {
+                    break;
+                }
+            }
+        }
+        let _ = CloseHandle(snap);
+    }
+
+    // 2) 자기 PID부터 parent 연쇄 추적. cycle 방지 guard 64.
+    let mut chain = Vec::with_capacity(8);
+    let mut current = std::process::id();
+    let mut guard = 0usize;
+    loop {
+        if guard > 64 {
+            break;
+        }
+        guard += 1;
+        chain.push(current);
+        let Some(&parent) = pid_to_parent.get(&current) else {
+            break;
+        };
+        // PID 0(System Idle) 또는 자기 루프 방지
+        if parent == 0 || parent == current || chain.contains(&parent) {
+            break;
+        }
+        current = parent;
+    }
+    chain
+}
+
+#[cfg(not(target_os = "windows"))]
+fn windows_ancestor_pids() -> Vec<u32> {
+    Vec::new()
 }
 
 /// Parses a path containing a position (e.g. `path:line:column`)
@@ -464,6 +595,21 @@ fn parse_path_in_wsl(source: &str, wsl: &str) -> Result<String> {
 }
 
 fn main() -> Result<()> {
+    // Claude Code hook이 cli를 백그라운드 실행(`&`)하고 bash/dispatch.sh가
+    // 즉시 종료할 수 있으므로, 부모 프로세스 snapshot은 cli 진입 최상단에서
+    // 바로 찍어야 한다. 늦게 호출하면 bash가 이미 exit 상태라 chain이
+    // 2단계에서 끊긴다. clap 파싱·서버 생성 전 1회 수집 후 전역에 저장.
+    //
+    // 일반 파일 열기 경로(예: `dokkaebi-cli path/to/file`)에서는 ancestor
+    // chain이 필요 없으므로 Toolhelp snapshot(O(전체 프로세스))을 건너뛴다.
+    // notify 호출 여부는 clap 파싱 전에 argv 원본에서 `--notify-kind` 존재
+    // 여부로만 저비용 판정한다.
+    let initial_ancestors = if std::env::args_os().any(|a| a == "--notify-kind") {
+        windows_ancestor_pids()
+    } else {
+        Vec::new()
+    };
+
     #[cfg(unix)]
     util::prevent_root_execution();
 
@@ -665,6 +811,7 @@ fn main() -> Result<()> {
         .spawn({
             let exit_status = exit_status.clone();
             let user_data_dir_for_thread = user_data_dir.clone();
+            let initial_ancestors = initial_ancestors.clone();
             move || {
                 let (_, handshake) = server.accept().context("Handshake after Zed spawn")?;
                 let (tx, rx) = (handshake.requests, handshake.responses);
@@ -685,11 +832,16 @@ fn main() -> Result<()> {
                             "invalid --notify-kind value '{other}', expected one of: stop|idle|permission"
                         ),
                     };
+                    // main 진입 최상단에서 찍은 snapshot 재사용.
+                    let ancestors = initial_ancestors.clone();
+                    let pid = ancestors.get(1).copied().or(args.notify_pid);
                     CliRequest::Notify {
                         kind,
                         title: args.notify_title.unwrap_or_default(),
                         message: args.notify_message.unwrap_or_default(),
                         cwd: args.notify_cwd,
+                        pid,
+                        ancestors,
                     }
                 } else {
                     CliRequest::Open {
@@ -752,7 +904,17 @@ fn main() -> Result<()> {
         app.run_foreground(url, user_data_dir.as_deref())?;
     } else {
         app.launch(url, user_data_dir.as_deref())?;
-        sender.join().unwrap()?;
+
+        // handshake 워치독: `HANDSHAKE_TIMEOUT` 내 sender 스레드가 완료하지
+        // 않으면 UI 초기화에 실패한 좀비 본체로 간주해 spawn된 Child를 kill
+        // 하고 프로세스 종료. pipe 경로(기존 본체 재사용)에서는 Child가 없어
+        // 경고 로그만 남기고 그대로 실패 종료한다.
+        let sender_done = Arc::new(AtomicBool::new(false));
+        spawn_handshake_watchdog(sender_done.clone());
+
+        let sender_result = sender.join().unwrap();
+        sender_done.store(true, Ordering::SeqCst);
+        sender_result?;
         if let Some(handle) = stdin_pipe_handle {
             handle.join().unwrap()?;
         }
@@ -1126,7 +1288,10 @@ mod windows {
                 if let Some(dir) = user_data_dir {
                     cmd.arg("--user-data-dir").arg(dir);
                 }
-                cmd.spawn()?;
+                // spawn된 Child를 전역 슬롯에 보관. 워치독이 handshake 타임아웃
+                // 시 이 Child를 kill해 UI 초기화 실패 좀비가 남지 않게 한다.
+                let child = cmd.spawn()?;
+                crate::spawned_child_slot().lock().replace(child);
             } else {
                 unsafe {
                     let pipe = CreateFileW(

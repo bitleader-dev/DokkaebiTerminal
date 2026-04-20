@@ -61,9 +61,12 @@ if [ -z "$CLI" ]; then
 fi
 
 # Dokkaebi 본체가 실행 중인지 확인 (없으면 cli가 새 본체를 spawn하므로 skip).
-# tasklist는 Windows 명령. MSYS/Git Bash 환경에서 호출 가능.
+# tasklist는 Windows 명령. Git Bash/MSYS는 `/FI` 같은 단일 슬래시 인자를
+# Windows 경로(`C:/Program Files/Git/FI`)로 변환해 tasklist가 "잘못된 인수"로
+# 거부한다. POSIX 스타일 대시 플래그(-FI)는 경로 변환을 우회하면서 cmd.exe
+# 환경에서도 동일하게 동작한다.
 if command -v tasklist >/dev/null 2>&1; then
-  if ! tasklist /FI "IMAGENAME eq dokkaebi.exe" 2>/dev/null | grep -qi "dokkaebi.exe"; then
+  if ! tasklist -FI "IMAGENAME eq dokkaebi.exe" 2>/dev/null | grep -qi "dokkaebi.exe"; then
     exit 0
   fi
 fi
@@ -79,12 +82,35 @@ if [ -n "$PAYLOAD" ]; then
   fi
 fi
 
-# cli 호출 (실패해도 무시). cli는 IPC handshake 후 종료하므로 background 불필요하지만,
-# Claude Code hook 응답 지연을 막기 위해 background로 실행.
+# Claude Code 프로세스 PID = 이 bash script의 부모. Dokkaebi 본체가 이 PID의
+# parent chain을 따라가며 각 터미널의 shell PID와 일치하는 터미널을 정확히
+# 찾아 dot 인디케이터/그룹 배지를 해당 탭 한 곳에만 표시한다. 같은 이름의
+# 터미널이 여러 개이거나 같은 cwd에 여러 탭이 열린 환경에서도 정확한 탭을
+# 식별할 수 있다.
+#
+# MSYS/Git Bash 주의: 일반 `$PPID` 는 MSYS 가상 PID이며 Windows 시스템 프로세스
+# 테이블과 매칭되지 않는다. `/proc/PID/winpid` 가상 파일이 해당 프로세스의
+# Win32 PID를 제공하므로 이를 우선 사용하고, 파일이 없으면 `$PPID` 로 폴백
+# (네이티브 bash 등 MSYS가 아닌 환경 대응).
+CLAUDE_PID=""
+if [ -r "/proc/${PPID}/winpid" ]; then
+  CLAUDE_PID=$(cat "/proc/${PPID}/winpid" 2>/dev/null)
+fi
+if [ -z "$CLAUDE_PID" ]; then
+  CLAUDE_PID="${PPID:-0}"
+fi
+
+# cli 호출을 **동기 실행**한다(`&` 없음). 이유: Dokkaebi 본체는 cli가 전송한
+# Toolhelp snapshot으로 parent chain을 따라 Claude가 실행 중인 터미널을 식별
+# 하는데, background 실행 시 bash/dispatch.sh가 cli와 동시에 종료하면서
+# 그 조상(Claude의 wrapper 등)이 snapshot 시점에 이미 exit해 chain이 중간에
+# 끊긴다. 동기 실행하면 bash가 cli 종료까지 살아있어 전체 chain을 캡처할 수
+# 있다. cli는 IPC handshake 후 즉시 종료하므로 Claude Code hook 응답 지연은
+# 수십 ms 수준으로 무시 가능.
 if [ -n "$CWD" ]; then
-  "$CLI" --notify-kind "$KIND" --notify-title "$TITLE" --notify-message "$MESSAGE" --notify-cwd "$CWD" >/dev/null 2>&1 &
+  "$CLI" --notify-kind "$KIND" --notify-title "$TITLE" --notify-message "$MESSAGE" --notify-cwd "$CWD" --notify-pid "$CLAUDE_PID" >/dev/null 2>&1
 else
-  "$CLI" --notify-kind "$KIND" --notify-title "$TITLE" --notify-message "$MESSAGE" >/dev/null 2>&1 &
+  "$CLI" --notify-kind "$KIND" --notify-title "$TITLE" --notify-message "$MESSAGE" --notify-pid "$CLAUDE_PID" >/dev/null 2>&1
 fi
 
 exit 0

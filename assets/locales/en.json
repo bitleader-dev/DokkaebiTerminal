@@ -1641,6 +1641,8 @@
   "settings_page.desc.claude_code_plugin_install": "Register the plugin that forwards Claude Code task notifications to the Dokkaebi editor by writing to ~/.claude/settings.json.",
   "settings_page.item.claude_code_task_alert": "Task Notification",
   "settings_page.desc.claude_code_task_alert": "Show workspace notifications for Claude Code task completion, idle prompts, and permission requests sent by the plugin.",
+  "settings_page.item.claude_code_task_alert_toast": "Toast Popup Notification",
+  "settings_page.desc.claude_code_task_alert_toast": "Show the toast popup in the bottom-right corner when a Claude Code task completes. When off, the terminal tab dot and group badge remain but the toast is suppressed.",
   "settings_page.label.installed": "Installed",
   "settings_page.label.not_installed": "Not installed",
   "settings_page.action.install": "Install",

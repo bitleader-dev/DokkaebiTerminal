@@ -978,11 +978,21 @@ impl SettingsPageItem {
                 let (field_with_padding, _) =
                     render_setting_item_inner(setting_item, true, false, cx);
 
+                // Claude Code 알림 토글이 플러그인 미설치로 비활성화된 경우,
+                // row 영역이 뒤에 깔린 다른 설정 페이지 패널의 pointer 이벤트
+                // 대상이 되어 클릭 시 "일반" 페이지로 이동해버린다. row 전체를
+                // `.occlude()`로 덮어 이벤트를 흡수한다.
+                let row_disabled = is_claude_notify_toggle_disabled(
+                    setting_item.field.json_path(),
+                    cx,
+                );
+
                 v_flex()
                     .group("setting-item")
                     .px_8()
                     .child(field_with_padding)
                     .when(bottom_border, |this| this.child(Divider::horizontal()))
+                    .when(row_disabled, |this| this.occlude())
                     .into_any_element()
             }
             SettingsPageItem::SubPageLink(sub_page_link) => v_flex()
@@ -4187,8 +4197,15 @@ fn render_toggle_button<B: Into<bool> + From<bool> + Copy>(
         ToggleState::Unselected
     };
 
+    // Claude Code 알림 토글은 플러그인 미설치 시 비활성화한다. 플러그인이
+    // ~/.claude/settings.json 에 등록되어 있지 않으면 IPC 자체가 오지 않으므로
+    // 토글 조작을 허용할 이유가 없다. row 자체의 pointer 이벤트 차단은
+    // `SettingsPageItem::SettingItem` 렌더링 경로에서 처리한다.
+    let is_disabled = is_claude_notify_toggle_disabled(field.json_path, cx);
+
     Switch::new("toggle_button", toggle_state)
         .tab_index(0_isize)
+        .disabled(is_disabled)
         .on_click({
             move |state, window, cx| {
                 telemetry::event!("Settings Change", setting = field.json_path, type = file.setting_type());
@@ -4201,6 +4218,19 @@ fn render_toggle_button<B: Into<bool> + From<bool> + Copy>(
             }
         })
         .into_any_element()
+}
+
+/// Claude Code 알림 토글이 플러그인 미설치로 비활성화되어야 하는지 판정.
+/// `notification.task_alert` / `notification.task_alert_toast` 에만 적용되며
+/// 다른 설정 항목에는 영향이 없다. disabled인 row는 pointer 이벤트가 뒤에
+/// 깔린 다른 설정 페이지 패널로 새어나가지 않도록 `.occlude()` 처리된다.
+fn is_claude_notify_toggle_disabled(json_path: Option<&'static str>, cx: &App) -> bool {
+    json_path.is_some_and(|p| {
+        matches!(
+            p,
+            "notification.task_alert" | "notification.task_alert_toast"
+        )
+    }) && !crate::pages::is_plugin_installed(cx)
 }
 
 fn render_editable_number_field<T: NumberFieldType + Send + Sync>(

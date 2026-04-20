@@ -573,11 +573,18 @@ pub struct NotificationSettingsContent {
     pub claude_code_bell: Option<bool>,
 
     /// Claude Code 플러그인이 보낸 작업 알림(Stop/Notification/PermissionRequest)을
-    /// Dokkaebi 워크스페이스 토스트로 표시할지 여부.
-    /// false이면 IPC 알림이 도착해도 표시하지 않는다.
+    /// Dokkaebi 워크스페이스에 표시할지 여부. false이면 IPC 알림이 도착해도
+    /// 토스트/dot/그룹 배지 모두 표시하지 않는다(완전 차단).
     ///
     /// Default: true
     pub task_alert: Option<bool>,
+
+    /// 작업 알림 토스트 팝업을 표시할지 여부. `task_alert` 가 true일 때만 의미가
+    /// 있으며, false로 두면 dot 인디케이터와 비활성 그룹 배지는 유지되지만
+    /// 화면 우하단 토스트 팝업만 생략된다.
+    ///
+    /// Default: true
+    pub task_alert_toast: Option<bool>,
 }
 
 #[with_fallible_options]

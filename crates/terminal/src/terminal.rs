@@ -2442,6 +2442,18 @@ impl Terminal {
         }
     }
 
+    /// 터미널의 셸 프로세스 PID를 반환한다. Claude Code 알림 IPC에서
+    /// 발송 프로세스의 조상 PID chain과 비교해 정확한 터미널을 식별하는 데 쓴다.
+    pub fn shell_pid(&self) -> Option<u32> {
+        match &self.terminal_type {
+            TerminalType::Pty { info, .. } => {
+                let raw = info.pid_getter().fallback_pid().as_u32();
+                (raw != 0).then_some(raw)
+            }
+            TerminalType::DisplayOnly => None,
+        }
+    }
+
     pub fn wait_for_completed_task(&self, cx: &App) -> Task<Option<ExitStatus>> {
         if let Some(task) = self.task() {
             if task.status == TaskStatus::Running {

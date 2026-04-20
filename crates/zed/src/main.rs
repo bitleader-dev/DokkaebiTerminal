@@ -40,7 +40,7 @@ use parking_lot::Mutex;
 use project::{project_settings::ProjectSettings, trusted_worktrees};
 use proto;
 use recent_projects::{RemoteSettings, open_remote_project};
-use release_channel::{AppCommitSha, AppVersion, ReleaseChannel};
+use release_channel::{AppCommitSha, AppVersion};
 use session::{AppSession, Session};
 use settings::{BaseKeymap, Settings, SettingsStore, watch_config_file};
 use std::{
@@ -375,9 +375,14 @@ fn main() {
 
     let (open_listener, mut open_rx) = OpenListener::new();
 
-    let failed_single_instance_check = if *zed_env_vars::ZED_STATELESS
-        || *release_channel::RELEASE_CHANNEL == ReleaseChannel::Dev
-    {
+    // Dokkaebi는 배포 빌드가 Dev 채널(`crates/zed/RELEASE_CHANNEL = "dev"`)로
+    // 나가므로 상류 Zed의 `ReleaseChannel::Dev` 예외를 제거했다. 상류는 개발 중
+    // 여러 인스턴스를 동시에 띄우기 쉽도록 Dev에서 single instance 체크를
+    // skip하지만, Dokkaebi 배포 빌드에서는 이 skip이 named pipe listener와
+    // mutex 생성을 모두 건너뛰어 cli가 매번 새 dokkaebi.exe를 spawn하고
+    // Claude Code 알림 IPC가 전달되지 않는 버그를 유발한다. 개발 중 여러
+    // 인스턴스가 필요하면 `ZED_STATELESS=1` 환경변수를 사용한다.
+    let failed_single_instance_check = if *zed_env_vars::ZED_STATELESS {
         false
     } else {
         #[cfg(any(target_os = "linux", target_os = "freebsd"))]

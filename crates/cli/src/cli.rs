@@ -41,6 +41,21 @@ pub enum CliRequest {
         message: String,
         /// 알림 발생 위치 (어느 워크스페이스에 표시할지 라우팅 힌트)
         cwd: Option<String>,
+        /// 알림 송신 프로세스 PID (dispatch.sh의 `$PPID` = Claude 프로세스).
+        /// Dokkaebi 본체는 이 PID의 parent chain을 따라가며 각 터미널의
+        /// shell PID와 일치하는 터미널을 정확히 식별한다.
+        ///
+        /// `#[serde(default)]`: 구 cli(해당 필드 없음)에서 새 본체로 IPC 시
+        /// 역직렬화 실패를 막기 위해 누락 시 None으로 처리한다.
+        #[serde(default)]
+        pid: Option<u32>,
+        /// cli 프로세스의 Win32 parent chain(자기 자신 포함, 최상위까지).
+        /// cli는 IPC 호출 전 bash/dispatch.sh가 아직 살아있는 시점에 Toolhelp
+        /// snapshot으로 완전한 chain을 확보한다. 본체는 이 vector를 그대로
+        /// 사용해 각 터미널의 shell PID와 매칭한다(dispatch.sh가 백그라운드
+        /// 실행 후 종료해 본체 쪽 sysinfo에서 parent 추적이 끊기는 문제 해결).
+        #[serde(default)]
+        ancestors: Vec<u32>,
     },
 }
 

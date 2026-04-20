@@ -418,6 +418,17 @@ impl TerminalView {
         self.has_bell
     }
 
+    /// 외부(IPC 알림 등)에서 이 터미널 탭에 알림 인디케이터를 켠다.
+    /// 기존 터미널 벨(`Event::Bell`) 경로와 동일한 상태 변경을 수행하므로,
+    /// 탭 점(dot) + 비활성 워크스페이스 그룹 배지 인프라를 그대로 재사용한다.
+    pub fn set_has_bell(&mut self, cx: &mut Context<Self>) {
+        if !self.has_bell {
+            self.has_bell = true;
+            cx.emit(Event::Wakeup);
+            cx.notify();
+        }
+    }
+
     pub fn custom_title(&self) -> Option<&str> {
         self.custom_title.as_deref()
     }

@@ -28,7 +28,7 @@ use ui::SharedString;
 use util::ResultExt;
 use util::paths::PathWithPosition;
 use workspace::PathList;
-use workspace::item::ItemHandle;
+use workspace::item::{Item, ItemHandle};
 use workspace::notifications::{
     NotificationId, dismiss_app_notification, show_app_notification, simple_message_notification,
 };
@@ -454,30 +454,69 @@ pub async fn handle_cli_connection(
                 kind,
                 title,
                 message,
-                cwd: _,
+                cwd,
+                pid,
+                ancestors,
             } => {
-                handle_notify_request(kind, title, message, &responses, cx).await;
+                handle_notify_request(
+                    NotifyRequestArgs {
+                        kind,
+                        title,
+                        message,
+                        cwd,
+                        pid,
+                        ancestors,
+                    },
+                    &responses,
+                    cx,
+                )
+                .await;
             }
         }
     }
 }
 
-/// Claude Code 플러그인 → Dokkaebi 작업 알림 IPC 처리.
-/// notification.task_alert 설정이 false면 알림을 표시하지 않고 즉시 종료한다.
-async fn handle_notify_request(
+/// Claude Code 플러그인이 cli를 거쳐 전달한 작업 알림 IPC 원본 값을 묶은
+/// 구조체. 필드는 `CliRequest::Notify` variant 와 1:1 대응한다. 메시지 라우팅
+/// 로직이 여러 필드를 조합해 쓰므로 개별 인자로 풀어 전달하면 시그니처가
+/// 길어져 가독성이 떨어진다.
+struct NotifyRequestArgs {
     kind: NotifyKind,
     title: String,
     message: String,
+    cwd: Option<String>,
+    pid: Option<u32>,
+    ancestors: Vec<u32>,
+}
+
+/// Claude Code 플러그인 → Dokkaebi 작업 알림 IPC 처리.
+/// 설정:
+/// - `notification.task_alert`(기본 true): false면 토스트/dot/배지 모두 차단
+/// - `notification.task_alert_toast`(기본 true): false면 토스트만 생략하고
+///   dot 인디케이터와 비활성 그룹 배지는 계속 표시
+async fn handle_notify_request(
+    args: NotifyRequestArgs,
     responses: &IpcSender<CliResponse>,
     cx: &mut AsyncApp,
 ) {
-    // task_alert 토글 확인 (기본값 true)
-    let task_alert_enabled = cx.update(|cx| {
-        SettingsStore::global(cx)
+    let NotifyRequestArgs {
+        kind,
+        title,
+        message,
+        cwd,
+        pid,
+        ancestors,
+    } = args;
+    // 전역 on/off (`task_alert`)와 토스트 전용 on/off (`task_alert_toast`)를
+    // 한 번에 읽는다. 기본값은 모두 true.
+    let (task_alert_enabled, toast_enabled) = cx.update(|cx| {
+        let settings = SettingsStore::global(cx)
             .raw_user_settings()
-            .and_then(|user| user.content.notification.as_ref())
-            .and_then(|n| n.task_alert)
-            .unwrap_or(true)
+            .and_then(|user| user.content.notification.as_ref());
+        (
+            settings.and_then(|n| n.task_alert).unwrap_or(true),
+            settings.and_then(|n| n.task_alert_toast).unwrap_or(true),
+        )
     });
 
     if task_alert_enabled {
@@ -487,36 +526,316 @@ async fn handle_notify_request(
             NotifyKind::Permission => "claude_code.permission".into(),
         };
         let id = NotificationId::named(id_name);
-        let id_for_show = id.clone();
-        let title_for_show = title.clone();
-        let message_for_show = message.clone();
 
-        cx.update(|cx| {
-            show_app_notification(id_for_show, cx, move |cx| {
-                let title_clone = title_for_show.clone();
-                let message_clone = message_for_show.clone();
-                cx.new(|cx| {
-                    simple_message_notification::MessageNotification::new(message_clone, cx)
+        // dot 인디케이터 + 비활성 그룹 배지 적용 및 매칭 터미널의 "그룹 / 탭"
+        // 라벨 수집. cli가 보낸 ancestors가 비어있으면 pid 기반 sysinfo 폴백.
+        let location_label =
+            mark_bell_for_notification(ancestors, pid, cwd.as_deref(), cx);
+
+        // 토스트 팝업은 `task_alert_toast` 가 true 일 때만 표시.
+        if toast_enabled {
+            let id_for_show = id.clone();
+            let title_for_show = title.clone();
+            // 매칭된 터미널이 있으면 메시지 맨 앞에 "그룹 / 탭" 라인을 덧붙여
+            // 어느 워크스페이스의 어떤 터미널에서 온 알림인지 식별 가능하게 함.
+            let message_for_show = match location_label {
+                Some(loc) if !loc.is_empty() => format!("{}\n{}", loc, message),
+                _ => message.clone(),
+            };
+
+            cx.update(|cx| {
+                show_app_notification(id_for_show, cx, move |cx| {
+                    let title_clone = title_for_show.clone();
+                    let message_clone = message_for_show.clone();
+                    cx.new(|cx| {
+                        simple_message_notification::MessageNotification::new(
+                            message_clone,
+                            cx,
+                        )
                         .with_title(title_clone)
                         .show_close_button(true)
-                })
+                    })
+                });
             });
-        });
 
-        // Stop 알림은 5초 자동 dismiss, Idle/Permission은 사용자가 직접 닫을 때까지 유지
-        if matches!(kind, NotifyKind::Stop) {
-            let id_for_dismiss = id.clone();
-            cx.spawn(async move |cx| {
-                cx.background_executor()
-                    .timer(Duration::from_secs(5))
-                    .await;
-                cx.update(|cx| dismiss_app_notification(&id_for_dismiss, cx));
-            })
-            .detach();
+            // Stop 토스트는 5초 자동 dismiss. Idle/Permission은 유지.
+            if matches!(kind, NotifyKind::Stop) {
+                let id_for_dismiss = id.clone();
+                cx.spawn(async move |cx| {
+                    cx.background_executor()
+                        .timer(Duration::from_secs(5))
+                        .await;
+                    cx.update(|cx| dismiss_app_notification(&id_for_dismiss, cx));
+                })
+                .detach();
+            }
         }
     }
 
     responses.send(CliResponse::Exit { status: 0 }).log_err();
+}
+
+/// 프로세스 parent/children 관계 snapshot. 한 번의 `capture()` 결과로 ancestor
+/// chain 추적(`ancestors_of`)과 descendants BFS(`descendants_of`)를 모두 수행할
+/// 수 있어, 알림 1건에서 sysinfo 전체 리프레시를 두 번 돌리던 기존 코드의
+/// 중복 O(N) 비용(N=시스템 프로세스 수)을 단일 스캔으로 축소한다.
+/// - Windows: Toolhelp snapshot 1회 (parent 정보만 필요하므로 sysinfo보다 가벼움)
+/// - 기타 OS: sysinfo fallback (상류 호환 목적, 실사용 대상 아님)
+struct ProcessSnapshot {
+    /// PID → parent PID 매핑. 루트 프로세스는 map에서 누락되거나 0으로 기록.
+    parent_of: std::collections::HashMap<u32, u32>,
+    /// children_of 는 `descendants_of` 호출 시 최초 1회 lazy 빌드.
+    children_of: std::cell::OnceCell<std::collections::HashMap<u32, Vec<u32>>>,
+}
+
+impl ProcessSnapshot {
+    #[cfg(target_os = "windows")]
+    fn capture() -> Self {
+        use std::collections::HashMap;
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::Diagnostics::ToolHelp::{
+            CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+            TH32CS_SNAPPROCESS,
+        };
+
+        let mut parent_of: HashMap<u32, u32> = HashMap::new();
+        unsafe {
+            let Ok(snap) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
+                return Self {
+                    parent_of,
+                    children_of: std::cell::OnceCell::new(),
+                };
+            };
+            let mut entry = PROCESSENTRY32W {
+                dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+                ..Default::default()
+            };
+            if Process32FirstW(snap, &mut entry).is_ok() {
+                loop {
+                    parent_of.insert(entry.th32ProcessID, entry.th32ParentProcessID);
+                    if Process32NextW(snap, &mut entry).is_err() {
+                        break;
+                    }
+                }
+            }
+            let _ = CloseHandle(snap);
+        }
+        Self {
+            parent_of,
+            children_of: std::cell::OnceCell::new(),
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    fn capture() -> Self {
+        use std::collections::HashMap;
+        use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
+
+        let mut sys = System::new();
+        sys.refresh_processes_specifics(
+            ProcessesToUpdate::All,
+            true,
+            ProcessRefreshKind::everything(),
+        );
+        let mut parent_of: HashMap<u32, u32> = HashMap::new();
+        for (pid, proc) in sys.processes() {
+            if let Some(parent) = proc.parent() {
+                parent_of.insert(pid.as_u32(), parent.as_u32());
+            }
+        }
+        Self {
+            parent_of,
+            children_of: std::cell::OnceCell::new(),
+        }
+    }
+
+    /// `start` 자신부터 parent chain을 따라 PID 벡터를 수집한다.
+    /// 시스템 루트 도달, cycle 감지, 최대 깊이(64) 중 하나가 맞으면 중단.
+    fn ancestors_of(&self, start: u32) -> Vec<u32> {
+        let mut chain = Vec::with_capacity(8);
+        let mut current = start;
+        let mut guard = 0usize;
+        loop {
+            if guard > 64 {
+                break;
+            }
+            guard += 1;
+            chain.push(current);
+            let Some(&parent) = self.parent_of.get(&current) else {
+                break;
+            };
+            if parent == 0 || parent == current || chain.contains(&parent) {
+                break;
+            }
+            current = parent;
+        }
+        chain
+    }
+
+    fn children_map(&self) -> &std::collections::HashMap<u32, Vec<u32>> {
+        self.children_of.get_or_init(|| {
+            let mut children: std::collections::HashMap<u32, Vec<u32>> =
+                std::collections::HashMap::new();
+            for (&child, &parent) in &self.parent_of {
+                children.entry(parent).or_default().push(child);
+            }
+            children
+        })
+    }
+
+    /// `root` 로부터 BFS 로 descendants 집합 수집. 최대 방문 1024 로 cycle 가드.
+    fn descendants_of(&self, root: u32) -> std::collections::HashSet<u32> {
+        let children = self.children_map();
+        let mut result = std::collections::HashSet::new();
+        let mut queue = vec![root];
+        let mut guard = 0usize;
+        while let Some(p) = queue.pop() {
+            if guard > 1024 {
+                break;
+            }
+            guard += 1;
+            if !result.insert(p) {
+                continue;
+            }
+            if let Some(kids) = children.get(&p) {
+                queue.extend(kids.iter().copied());
+            }
+        }
+        result
+    }
+}
+
+/// Claude Code 작업 알림으로 터미널 dot 인디케이터 + 비활성 그룹 배지를 설정한다.
+///
+/// 매칭은 양방향 PID 검사를 모두 수행한다:
+///   1) 터미널 shell_pid가 cli의 ancestor chain에 포함(위 방향)
+///   2) 터미널 shell의 descendants 트리에 ancestor chain의 어떤 PID가 포함(아래 방향)
+///
+/// 둘 중 어느 쪽이든 일치하면 해당 터미널만 dot + 그룹 배지를 받는다. cwd 기반
+/// fallback은 동명 탭이 여러 개일 때 과다 매칭을 유발하므로 제거했다. 매칭
+/// 실패 시 토스트만 뜨고 dot/배지는 표시되지 않는다.
+/// 매칭된 첫 터미널의 "그룹 이름 / 탭 이름" 형식의 location 라벨을 반환한다.
+/// 호출자는 이 값을 토스트 본문 앞에 덧붙여 사용자가 어느 워크스페이스 그룹의
+/// 어떤 터미널 탭에서 알림이 왔는지 식별할 수 있게 한다.
+fn mark_bell_for_notification(
+    ancestors: Vec<u32>,
+    pid: Option<u32>,
+    _cwd_str: Option<&str>,
+    cx: &mut AsyncApp,
+) -> Option<String> {
+    use std::collections::HashSet;
+    use terminal_view::TerminalView;
+
+    // 프로세스 관계 snapshot 1회 캡처. ancestor fallback 과 descendants BFS 를
+    // 동일 snapshot 위에서 수행해 기존의 sysinfo 이중 리프레시 중복을 제거한다.
+    let snapshot = ProcessSnapshot::capture();
+
+    // cli가 보낸 ancestors가 비어있지 않으면 그대로 사용 (bash exit 후에도 유효).
+    // 비어있으면 구 cli 호환을 위해 본체 snapshot 으로 재수집.
+    let ancestor_pids: Vec<u32> = if !ancestors.is_empty() {
+        ancestors
+    } else {
+        match pid {
+            Some(p) => snapshot.ancestors_of(p),
+            None => Vec::new(),
+        }
+    };
+
+    if ancestor_pids.is_empty() {
+        return None;
+    }
+
+    let ancestor_set: HashSet<u32> = ancestor_pids.iter().copied().collect();
+
+    let by_pid = |tv: &gpui::Entity<TerminalView>, cx: &App| -> bool {
+        let Some(s) = tv.read(cx).entity().read(cx).shell_pid() else {
+            return false;
+        };
+        // 1) shell_pid가 ancestors에 포함(cli로부터 위로 올라간 chain에 shell이 있음).
+        if ancestor_set.contains(&s) {
+            return true;
+        }
+        // 2) shell의 descendants 트리에 ancestors 원소 포함(shell로부터 아래로
+        //    내려간 자식 트리에 cli 혹은 중간 프로세스가 있음). Toolhelp chain이
+        //    중간에서 끊기는 경우까지 커버한다.
+        let desc = snapshot.descendants_of(s);
+        ancestor_set.iter().any(|a| desc.contains(a))
+    };
+
+    // 매칭 터미널 엔티티와 소속 그룹 인덱스를 함께 수집하여 첫 매칭의
+    // "그룹 / 탭" 라벨을 토스트에 노출할 수 있도록 한다.
+    let mut location_label: Option<String> = None;
+
+    cx.update(|cx| {
+        for window in cx.windows() {
+            let Some(multi_handle) = window.downcast::<MultiWorkspace>() else {
+                continue;
+            };
+            multi_handle
+                .update(cx, |multi_ws, _window, cx| {
+                    let workspaces: Vec<_> = multi_ws.workspaces().to_vec();
+                    for workspace_entity in workspaces {
+                        workspace_entity.update(cx, |workspace, cx| {
+                            let active_index = workspace.active_group_index();
+                            // (TerminalView, 그룹 인덱스) 쌍으로 수집
+                            let mut matched: Vec<(gpui::Entity<TerminalView>, usize)> =
+                                workspace
+                                    .items_of_type::<TerminalView>(cx)
+                                    .filter(|tv| by_pid(tv, cx))
+                                    .map(|tv| (tv, active_index))
+                                    .collect();
+                            {
+                                let groups = workspace.workspace_groups();
+                                for (i, group) in groups.iter().enumerate() {
+                                    if i == active_index {
+                                        continue;
+                                    }
+                                    for pane in &group.panes {
+                                        for tv in
+                                            pane.read(cx).items_of_type::<TerminalView>()
+                                        {
+                                            if by_pid(&tv, cx) {
+                                                matched.push((tv, i));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 첫 매칭에서 "그룹 / 탭" 라벨 결정.
+                            // 이후 매칭들은 bell/배지만 적용한다.
+                            if location_label.is_none()
+                                && let Some((tv, group_idx)) = matched.first()
+                            {
+                                let tab_name =
+                                    tv.read(cx).tab_content_text(0, cx).to_string();
+                                let group_name = workspace
+                                    .workspace_groups()
+                                    .get(*group_idx)
+                                    .map(|g| g.name.clone())
+                                    .unwrap_or_default();
+                                location_label = Some(if group_name.is_empty() {
+                                    tab_name
+                                } else {
+                                    format!("{} / {}", group_name, tab_name)
+                                });
+                            }
+
+                            for (tv, _) in matched {
+                                let item_id = tv.entity_id();
+                                tv.update(cx, |terminal_view, cx| {
+                                    terminal_view.set_has_bell(cx);
+                                });
+                                workspace.notify_bell_for_item(item_id, cx);
+                            }
+                        });
+                    }
+                })
+                .log_err();
+        }
+    });
+
+    location_label
 }
 
 async fn open_workspaces(

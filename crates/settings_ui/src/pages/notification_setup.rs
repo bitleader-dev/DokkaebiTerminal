@@ -1,6 +1,8 @@
 use gpui::App;
 use serde_json::Value;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 /// Claude Code 글로벌 설정 파일 경로를 반환한다. (~/.claude/settings.json)
 fn claude_code_settings_path() -> Option<PathBuf> {
@@ -95,32 +97,55 @@ const PLUGIN_NAME: &str = "dokkaebi-notify-bridge";
 const MARKETPLACE_NAME: &str = "dokkaebi-local";
 const ENABLED_KEY: &str = "dokkaebi-notify-bridge@dokkaebi-local";
 
-/// 플러그인 source 디렉터리 위치를 결정한다.
-/// 1순위: 인스톨러로 설치된 환경 — `<exe_dir>/plugins/dokkaebi-notify-bridge`
-/// 2순위: 개발 환경 — `<cwd>/assets/claude-plugins/dokkaebi-notify-bridge`
-fn plugin_source_dir() -> Option<PathBuf> {
+/// 마켓플레이스 루트 디렉터리 위치를 결정한다.
+/// Claude Code의 directory source는 `.claude-plugin/marketplace.json` 카탈로그가
+/// 있는 **마켓플레이스 루트**를 기대하므로, 단일 플러그인 디렉터리가 아니라
+/// 상위 디렉터리를 반환한다.
+///
+/// 1순위: 인스톨러로 설치된 환경 — `<exe_dir>/plugins`
+/// 2순위: 개발 환경 — `<cwd>/assets/claude-plugins`
+///
+/// 각 후보는 다음 두 파일이 모두 존재할 때만 유효:
+/// - `<root>/.claude-plugin/marketplace.json`
+/// - `<root>/dokkaebi-notify-bridge/.claude-plugin/plugin.json`
+fn marketplace_root_dir() -> Option<PathBuf> {
+    fn is_valid(root: &Path) -> bool {
+        root.join(".claude-plugin")
+            .join("marketplace.json")
+            .is_file()
+            && root
+                .join(PLUGIN_NAME)
+                .join(".claude-plugin")
+                .join("plugin.json")
+                .is_file()
+    }
+
     if let Ok(exe) = std::env::current_exe()
         && let Some(exe_dir) = exe.parent()
     {
-        let installed = exe_dir.join("plugins").join(PLUGIN_NAME);
-        if installed.is_dir() {
+        let installed = exe_dir.join("plugins");
+        if is_valid(&installed) {
             return Some(installed);
         }
     }
     if let Ok(cwd) = std::env::current_dir() {
-        let dev_path = cwd
-            .join("assets")
-            .join("claude-plugins")
-            .join(PLUGIN_NAME);
-        if dev_path.is_dir() {
+        let dev_path = cwd.join("assets").join("claude-plugins");
+        if is_valid(&dev_path) {
             return Some(dev_path);
         }
     }
     None
 }
 
-/// `~/.claude/settings.json`의 `enabledPlugins`에 dokkaebi-notify-bridge 항목이 있는지 확인.
-pub fn is_plugin_installed(_cx: &App) -> bool {
+/// `is_plugin_installed` 결과 캐시. `PLUGIN_INSTALLED_TTL` 동안 파일 재파싱을
+/// 생략한다. 설정 페이지 렌더 1회에서 최대 4회 호출되며 재렌더 빈도가 낮지
+/// 않아 매번 `~/.claude/settings.json` 을 읽으면 디스크 I/O + JSON 파싱이
+/// 반복된다. install/uninstall 직후에는 `invalidate_plugin_installed_cache()`
+/// 로 즉시 무효화해 사용자가 토글 상태가 반영되지 않은 UI 를 보지 않게 한다.
+static PLUGIN_INSTALLED_CACHE: Mutex<Option<(Instant, bool)>> = Mutex::new(None);
+const PLUGIN_INSTALLED_TTL: Duration = Duration::from_millis(500);
+
+fn plugin_installed_uncached() -> bool {
     let Some(settings) = read_claude_code_settings() else {
         return false;
     };
@@ -134,12 +159,39 @@ pub fn is_plugin_installed(_cx: &App) -> bool {
         })
 }
 
+/// install_plugin / uninstall_plugin 성공 시 호출되어 캐시를 즉시 무효화한다.
+/// 호출 누락 시에도 TTL 만료로 수백 ms 내에 자동 반영되지만, 토글 즉시 반영을
+/// 위해 변경 경로에서 명시적으로 호출한다.
+fn invalidate_plugin_installed_cache() {
+    if let Ok(mut cache) = PLUGIN_INSTALLED_CACHE.lock() {
+        *cache = None;
+    }
+}
+
+/// `~/.claude/settings.json`의 `enabledPlugins`에 dokkaebi-notify-bridge 항목이 있는지 확인.
+/// TTL 캐시를 통해 렌더 경로에서 반복되는 디스크 I/O + JSON 파싱 비용을 제거한다.
+pub fn is_plugin_installed(_cx: &App) -> bool {
+    let now = Instant::now();
+    if let Ok(mut cache) = PLUGIN_INSTALLED_CACHE.lock() {
+        if let Some((at, value)) = *cache
+            && now.duration_since(at) < PLUGIN_INSTALLED_TTL
+        {
+            return value;
+        }
+        let value = plugin_installed_uncached();
+        *cache = Some((now, value));
+        return value;
+    }
+    // lock poisoning — 안전한 최후 폴백
+    plugin_installed_uncached()
+}
+
 /// 플러그인을 `~/.claude/settings.json`에 등록.
 /// - `extraKnownMarketplaces.dokkaebi-local`: 로컬 디렉터리 source
 /// - `enabledPlugins.dokkaebi-notify-bridge@dokkaebi-local`: true
 pub fn install_plugin() -> Result<(), String> {
-    let source_dir =
-        plugin_source_dir().ok_or_else(|| "플러그인 source 디렉터리를 찾을 수 없습니다".to_string())?;
+    let source_dir = marketplace_root_dir()
+        .ok_or_else(|| "플러그인 마켓플레이스 디렉터리를 찾을 수 없습니다".to_string())?;
 
     let mut settings =
         read_claude_code_settings().unwrap_or_else(|| Value::Object(Default::default()));
@@ -174,6 +226,7 @@ pub fn install_plugin() -> Result<(), String> {
     if !write_claude_code_settings(&settings) {
         return Err("settings.json 저장 실패".to_string());
     }
+    invalidate_plugin_installed_cache();
     Ok(())
 }
 
@@ -210,5 +263,6 @@ pub fn uninstall_plugin() -> Result<(), String> {
     if !write_claude_code_settings(&settings) {
         return Err("settings.json 저장 실패".to_string());
     }
+    invalidate_plugin_installed_cache();
     Ok(())
 }

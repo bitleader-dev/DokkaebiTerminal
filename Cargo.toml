@@ -22,6 +22,7 @@ members = [
     "crates/breadcrumbs",
     "crates/buffer_diff",
 
+    "crates/claude_plugin_registry",
     "crates/cli",
     "crates/client",
     "crates/clock",
@@ -265,6 +266,7 @@ bedrock = { path = "crates/bedrock" }
 breadcrumbs = { path = "crates/breadcrumbs" }
 buffer_diff = { path = "crates/buffer_diff" }
 
+claude_plugin_registry = { path = "crates/claude_plugin_registry" }
 cli = { path = "crates/cli" }
 client = { path = "crates/client" }
 clock = { path = "crates/clock" }

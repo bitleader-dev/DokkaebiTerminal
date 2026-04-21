@@ -1,137 +1,62 @@
-# 토스트 팝업 표시 시간 설정 추가 (5~300초, 기본 5)
+# /simplify 후속 — Claude plugin registry 공유 크레이트 추출 (옵션 B)
 
 ## 목표
-설정 > 알림 페이지에 **"토스트 팝업"** 섹션을 신설하고 그 안에 **"토스트 팝업 표시 시간"** 숫자 입력 항목 추가. 값 범위 5~300초, 기본 5초. 설정값은 Claude Code 작업 알림 토스트(Stop/Idle)의 auto-dismiss 타이머에 반영된다. Permission 토스트는 기존대로 수동 dismiss 유지(자동 dismiss 없음).
+`uninstall_claude_plugin_registration()`(cli) 과 `uninstall_plugin()`(settings_ui) 의 중복된 JSON 편집 로직 + 상수(`PLUGIN_NAME`/`MARKETPLACE_NAME`/`ENABLED_KEY`)를 신규 경량 크레이트로 추출한다. 어느 한쪽이 바뀌면 다른 쪽이 조용히 깨지는 드리프트 위험을 구조적으로 제거.
 
-## 이전 작업 상태 (참고, 이 plan 과 독립)
-- 2026-04-21 "발신 터미널 타겟팅" 작업은 코드 수정 + 문서 갱신 완료, 수동 검증/커밋 대기. 이번 작업과 겹치는 파일은 `crates/zed/src/zed/open_listener.rs` 1곳뿐이고 수정 지점이 다르므로 충돌 없음. notes.md/release_notes.md 에 이미 해당 항목 존재.
-- 커밋 분리 방침(승인 #3-A)은 유효. 이번 작업도 자체 커밋 대상이며 사용자 명시 요청 시에만 실행.
+## 배경
+- /simplify 1차 정리에서 `KEEP IN SYNC` 주석만으로 완화했던 should-fix 1 항목.
+- 사용자 B 옵션 승인 (2026-04-21).
 
-## 수정 범위 (파일 4개)
+## 설계
 
-### 1. `crates/settings_content/src/settings_content.rs`
-`NotificationSettingsContent` 에 `toast_display_seconds: Option<u32>` 필드 신규. 한글 doc 주석.
-```rust
-/// 작업 알림 토스트 팝업(Stop/Idle)의 auto-dismiss 시간(초).
-/// 5~300 범위로 사용되며, 범위 밖 값은 런타임에서 clamp 처리된다.
-/// Permission 토스트는 승인 응답이 필요하므로 이 설정의 영향을 받지 않는다.
-///
-/// Default: 5
-pub toast_display_seconds: Option<u32>,
-```
-- 이 파일의 이 struct 는 `#[with_fallible_options]` + `MergeFrom` 적용이므로 필드 추가만으로 JSON schema/merge 경로가 자동 반영됨(기존 `task_alert_toast` 패턴과 동일).
+### 신규 크레이트 `crates/claude_plugin_registry`
+- **공개 상수**: `PLUGIN_NAME` / `MARKETPLACE_NAME` / `ENABLED_KEY`
+- **공개 함수**:
+  - `settings_path() -> Option<PathBuf>` — `~/.claude/settings.json` 경로 (`dirs::home_dir` 기반)
+  - `read_settings() -> Option<Value>` — 파일 부재/파싱 실패 시 None
+  - `write_settings(&Value) -> bool` — parent dir 생성 + pretty write
+  - `remove_plugin_registration() -> Result<bool, String>` — `Ok(true)` 변경+저장 성공 / `Ok(false)` 변경 대상 없음 (파일 부재·손상 포함) / `Err` 저장 실패
+  - `is_plugin_installed() -> bool` — `enabledPlugins` 에 prefix 매칭
+- **의존성**: `serde_json.workspace = true`, `dirs.workspace = true`. gpui/util 등은 의존하지 않음 (cli 경로 가볍게 유지).
 
-### 2. `crates/settings_ui/src/page_data.rs`
-`notification_page()` 안에 신규 내부 함수 + 섹션 결합 추가.
+### cli 측
+- `crates/cli/src/main.rs::uninstall_claude_plugin_registration()` 제거
+- `crates/cli/src/main.rs::prune_object_if_empty` 제거
+- 호출부를 `claude_plugin_registry::remove_plugin_registration()` 로 교체
+- `util::paths::home_dir()` 사용 종료 (공유 크레이트가 `dirs` 사용)
 
-```rust
-// 토스트 표시 시간 기본값. 설정 미지정 시 5초로 동작.
-static DEFAULT_TOAST_DISPLAY_SECONDS: u32 = 5;
+### settings_ui 측
+- `notification_setup.rs::claude_code_settings_path` / `read_claude_code_settings` / `write_claude_code_settings` 제거 → 공유 함수 호출
+- 상수 3개 제거 → 공유 크레이트 상수 사용
+- `plugin_installed_uncached()` → `claude_plugin_registry::is_plugin_installed()` 호출
+- `install_plugin()` 은 유지 (marketplace 디렉터리 탐색은 settings_ui 전용 로직)하되 내부 JSON I/O는 공유 함수 사용
+- `uninstall_plugin()` 은 thin wrapper로 축소 + 캐시 무효화만 유지
+- `cleanup_legacy_marker_hook` 의 settings 읽기/쓰기도 공유 함수 사용
 
-fn toast_popup_section() -> [SettingsPageItem; 2] {
-    [
-        SettingsPageItem::SectionHeader("settings_page.section.toast_popup"),
-        SettingsPageItem::SettingItem(SettingItem {
-            title: "settings_page.item.toast_display_seconds",
-            description: "settings_page.desc.toast_display_seconds",
-            field: Box::new(SettingField {
-                json_path: Some("notification.toast_display_seconds"),
-                pick: |settings_content| {
-                    Some(
-                        settings_content
-                            .notification
-                            .as_ref()
-                            .and_then(|n| n.toast_display_seconds.as_ref())
-                            .unwrap_or(&DEFAULT_TOAST_DISPLAY_SECONDS),
-                    )
-                },
-                write: |settings_content, value| {
-                    settings_content
-                        .notification
-                        .get_or_insert_with(Default::default)
-                        .toast_display_seconds = value;
-                },
-            }),
-            metadata: None,
-            files: USER,
-        }),
-    ]
-}
-```
-
-- `concat_sections![claude_code_section()]` → `concat_sections![claude_code_section(), toast_popup_section()]` 로 확장.
-- `u32` 는 `init_renderers` 의 `add_basic_renderer::<u32>(render_editable_number_field)` 로 자동 렌더되므로 추가 UI 코드 불필요.
-
-### 3. `crates/zed/src/zed/open_listener.rs`
-- `handle_notify_request` 의 설정 읽기 블록을 3-tuple 로 확장:
-  ```rust
-  let (task_alert_enabled, toast_enabled, toast_display_secs) = cx.update(|cx| {
-      let settings = SettingsStore::global(cx)
-          .raw_user_settings()
-          .and_then(|user| user.content.notification.as_ref());
-      (
-          settings.and_then(|n| n.task_alert).unwrap_or(true),
-          settings.and_then(|n| n.task_alert_toast).unwrap_or(true),
-          settings
-              .and_then(|n| n.toast_display_seconds)
-              .unwrap_or(5)
-              .clamp(5, 300),
-      )
-  });
-  ```
-- Stop/Idle auto-dismiss 타이머 `Duration::from_secs(5)` 를 `Duration::from_secs(toast_display_secs as u64)` 로 교체.
-- 기존 주석 "Stop/Idle 토스트는 5초 자동 dismiss. Permission 은 승인 응답이 필요하므로..." 를 "Stop/Idle 토스트는 `toast_display_seconds` (기본 5초, 5~300 clamp) 경과 후 자동 dismiss" 로 갱신.
-
-### 4. i18n — `assets/locales/ko.json` + `assets/locales/en.json`
-3개 키 추가 (ko/en 양쪽):
-- `settings_page.section.toast_popup` — "토스트 팝업" / "Toast Popup"
-- `settings_page.item.toast_display_seconds` — "토스트 팝업 표시 시간 (초)" / "Toast Popup Display Duration (sec)"
-- `settings_page.desc.toast_display_seconds` — "작업 완료·입력 대기 토스트가 자동으로 닫히기까지의 시간(초). 5~300초 범위, 기본 5초. 권한 요청 토스트는 이 설정의 영향을 받지 않음." / 영문 동등 표현
-
-## 수정하지 않음
-- `assets/settings/default.json` — 기존 `notification` 섹션에 `task_alert` / `task_alert_toast` 키가 없이도 런타임 기본값으로 동작하는 패턴을 따라 `toast_display_seconds` 도 default.json 에 명시하지 않는다(추가하면 기존 노이즈와 다르게 튀고, Option::None 처리가 기본 경로).
-- `render_editable_number_field` 렌더러 자체 — UI 수준 min/max 강제는 현재 `SettingsFieldMetadata` 에 필드가 없어 구조 변경이 필요하며, 본 작업 범위를 넘음. 사용자가 범위 밖 값을 입력하면 open_listener.rs 의 `clamp(5, 300)` 로 보정되고 설명 문구가 범위를 안내.
-- Permission 토스트 auto-dismiss 동작 — 변경 없음(설정 무관하게 수동 dismiss 유지).
-- 설정 UI 의 "Claude Code" 섹션(플러그인/작업 알림/토스트 팝업 알림 3항목) — 그대로 유지. 신규 "토스트 팝업" 섹션은 그 아래에 별도 추가.
-
-## 영향 범위
-- **공개 API**: `NotificationSettingsContent` 에 Optional 필드 추가. 기존 소비자 영향 없음(모두 Option 기본 None).
-- **스키마**: JSON schema 는 `with_fallible_options` 매크로로 자동 반영.
-- **런타임**: Stop/Idle 토스트 dismiss 지연시간만 바뀜. 미설정/default 에서는 기존 5초와 동일.
-- **i18n**: ko/en 에 키 3개 추가.
-
-## 승인 필요 사항 (CLAUDE.md 1단계)
-- 공개 설정 스키마(`NotificationSettingsContent`) 필드 추가 → **승인 필요 조건 "공개 API 변경"에 해당**.
-- 설정 UI 섹션 신설 → 화면 구성 변경(사용자 체감).
-
-### 승인 요청 항목
-1. **UI 배치** — 새 "토스트 팝업" 섹션을 기존 "Claude Code" 섹션 **아래**에 추가 (권장). 섹션 순서를 바꾸거나 "Claude Code" 섹션 안에 병합하길 원하시면 알려주세요.
-2. **범위 밖 입력 처리** — UI 수준 강제 없이 백엔드 `clamp(5, 300)` 으로만 보정(권장). 또는 `SettingsFieldMetadata` 에 min/max 필드를 추가해 UI 에서 입력 단계부터 막는 안(→ 별도 구조 변경 작업 필요).
-3. **표시 단위** — 설정 라벨·설명 문구를 "초(sec)" 단위로 표기(권장). 분 단위 원하시면 수정.
-
-## 검증
-1. `cargo check -p Dokkaebi -p settings_ui -p settings_content` 클린.
-2. 수동:
-   - (T1) 설정 > 알림 진입 → "토스트 팝업" 섹션 표시 + 숫자 입력 필드가 5로 표시되는지.
-   - (T2) 값을 30 으로 변경 → Claude Code 작업 완료 시 토스트가 약 30초 뒤 사라지는지.
-   - (T3) 값을 2(범위 밖) 입력 → settings.json 에는 2 저장되지만 런타임은 5로 dismiss (clamp).
-   - (T4) 값을 500(범위 밖) 입력 → 런타임은 300으로 dismiss.
-   - (T5) Permission 토스트는 시간 경과해도 자동 dismiss 되지 않는지.
-   - (T6) 입력 대기(Idle) 토스트에도 동일 시간 적용되는지.
-
-## 승인 결과 (사용자 지시 "승인" → 모든 권장안 채택)
-- **#1 UI 배치**: "토스트 팝업" 별도 섹션을 "Claude Code" 섹션 아래에 추가.
-- **#2 범위 밖 입력**: UI 강제 없이 백엔드 `clamp(5, 300)` 만.
-- **#3 표시 단위**: 초(sec) 단위 표기.
+### workspace
+- 루트 `Cargo.toml` members 에 `"crates/claude_plugin_registry"` 추가 (알파벳 순 `buffer_diff` 다음)
+- 루트 `Cargo.toml` `[workspace.dependencies]` 에 `claude_plugin_registry = { path = "crates/claude_plugin_registry" }` 추가
 
 ## 작업 단계
-- [x] 1. 승인 완료
-- [x] 2. `NotificationSettingsContent::toast_display_seconds` 필드 추가
-- [x] 3. `page_data.rs` `toast_popup_section()` 추가 + `notification_page()` 결합
-- [x] 4. `open_listener.rs` 설정 읽기 3-tuple 확장 + `Duration::from_secs(5)` → 동적
-- [x] 5. i18n ko/en 키 3개 추가
-- [x] 6. `cargo check -p Dokkaebi -p settings_ui -p settings_content` 클린 (44.63s, 신규 경고/에러 0건)
-- [x] 7. `notes.md` 항목 추가
-- [x] 8. `release_notes.md` "알림 메뉴 재구성" 항목 보강 (기본 5초 + 5~300초 조정 가능 안내 삽입)
-- [/] 9. 수동 검증 — **사용자 검증 대기**
-- [ ] 10. 커밋 — 사용자 명시 요청 시에만
+
+- [x] (1) `crates/claude_plugin_registry/Cargo.toml` + `src/lib.rs` 생성
+- [x] (2) 루트 `Cargo.toml` members + workspace.dependencies 추가
+- [x] (3) `crates/cli/Cargo.toml` 에 `claude_plugin_registry.workspace = true` 추가
+- [x] (4) `crates/cli/src/main.rs` 수정 (함수 2개 제거, 호출부 교체)
+- [x] (5) `crates/settings_ui/Cargo.toml` 에 `claude_plugin_registry.workspace = true` 추가
+- [x] (6) `crates/settings_ui/src/pages/notification_setup.rs` 공유 함수 호출로 리팩토링
+- [x] (7) 검증: `cargo check -p cli -p settings_ui -p Dokkaebi` 클린
+
+## 검증 방법
+- `cargo check -p cli` — cli 경로 빌드 + 신규 deps 정합
+- `cargo check -p settings_ui` — settings_ui 경로 + 공유 함수 호출
+- `cargo check -p Dokkaebi` — 통합 빌드, 신규 경고/에러 0건 확인
+
+## 수정하지 않음
+- `marketplace_root_dir()` / `install_plugin()` 의 plugin 디렉터리 탐색 로직은 settings_ui 전용이라 공유 안 함.
+- `is_plugin_installed` 의 TTL 캐시(`PLUGIN_INSTALLED_CACHE` Mutex)는 settings_ui 전용 (GPU 렌더 경로 최적화용). 공유 크레이트는 uncached 버전만 노출.
+- `cleanup_legacy_marker_hook` 의 마이그레이션 로직은 settings_ui 전용 유지 (다음 메이저에서 제거 예정).
+
+## 승인 필요 사항
+- 신규 크레이트 생성 + workspace 구조 변경 + 의존성 추가 → CLAUDE.md 1단계 승인 대상
+- **사용자 승인 완료** (2026-04-21, 옵션 B 선택)

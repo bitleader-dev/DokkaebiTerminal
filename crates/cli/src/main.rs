@@ -201,12 +201,6 @@ struct Args {
     /// 값: "stop" | "idle" | "permission"
     #[arg(long, hide = true, value_name = "KIND")]
     notify_kind: Option<String>,
-    /// 알림 제목 (notify-kind와 함께 사용)
-    #[arg(long, hide = true, value_name = "TITLE", requires = "notify_kind")]
-    notify_title: Option<String>,
-    /// 알림 본문 (notify-kind와 함께 사용)
-    #[arg(long, hide = true, value_name = "MESSAGE", requires = "notify_kind")]
-    notify_message: Option<String>,
     /// 알림 발생 위치 cwd. 다중 워크스페이스 라우팅 힌트로 사용된다.
     #[arg(long, hide = true, value_name = "PATH", requires = "notify_kind")]
     notify_cwd: Option<String>,
@@ -214,6 +208,27 @@ struct Args {
     /// 따라가며 정확한 터미널을 식별하는 데 쓴다.
     #[arg(long, hide = true, value_name = "PID", requires = "notify_kind")]
     notify_pid: Option<u32>,
+    /// Stop 이벤트용 사용자 프롬프트 요약 (200자 truncate 권장).
+    #[arg(long, hide = true, value_name = "PROMPT", requires = "notify_kind")]
+    notify_prompt: Option<String>,
+    /// Stop 이벤트용 어시스턴트 응답 요약 (200자 truncate 권장).
+    #[arg(long, hide = true, value_name = "RESPONSE", requires = "notify_kind")]
+    notify_response: Option<String>,
+    /// Permission 이벤트용 도구 이름.
+    #[arg(long, hide = true, value_name = "TOOL", requires = "notify_kind")]
+    notify_tool_name: Option<String>,
+    /// Permission 이벤트용 도구 입력 preview (command/file_path 등, 120자 truncate 권장).
+    #[arg(long, hide = true, value_name = "PREVIEW", requires = "notify_kind")]
+    notify_tool_preview: Option<String>,
+    /// Idle 이벤트용 Claude Code 원본 메시지.
+    #[arg(long, hide = true, value_name = "SUMMARY", requires = "notify_kind")]
+    notify_idle_summary: Option<String>,
+
+    /// 인스톨러 언인스톨 훅 전용. 지정 시 다른 인자를 무시하고
+    /// ~/.claude/settings.json 에서 Dokkaebi 알림 브리지 등록 항목을
+    /// 제거한 뒤 즉시 종료한다. 사용자 직접 호출 경로가 아니므로 hidden.
+    #[arg(long, hide = true)]
+    uninstall_claude_plugin: bool,
 }
 
 /// Windows에서 현재 프로세스(cli)의 Win32 parent chain을 수집한다.
@@ -638,6 +653,18 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
+    // 인스톨러 언인스톨 훅 전용. IPC/서버 초기화 없이 JSON 파일만 편집하고 즉시 종료.
+    // 실패해도 언인스톨러 전체 실패로 번지지 않도록 exit code 만 구분한다.
+    if args.uninstall_claude_plugin {
+        return match claude_plugin_registry::remove_plugin_registration() {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                eprintln!("warning: failed to clean up Claude Code plugin registration: {e}");
+                std::process::exit(1);
+            }
+        };
+    }
+
     // Set custom data directory before any path operations
     let user_data_dir = args.user_data_dir.clone();
     if let Some(dir) = &user_data_dir {
@@ -837,11 +864,14 @@ fn main() -> Result<()> {
                     let pid = ancestors.get(1).copied().or(args.notify_pid);
                     CliRequest::Notify {
                         kind,
-                        title: args.notify_title.unwrap_or_default(),
-                        message: args.notify_message.unwrap_or_default(),
                         cwd: args.notify_cwd,
                         pid,
                         ancestors,
+                        notify_prompt: args.notify_prompt,
+                        notify_response: args.notify_response,
+                        notify_tool_name: args.notify_tool_name,
+                        notify_tool_preview: args.notify_tool_preview,
+                        notify_idle_summary: args.notify_idle_summary,
                     }
                 } else {
                     CliRequest::Open {

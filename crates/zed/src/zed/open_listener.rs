@@ -451,20 +451,26 @@ pub async fn handle_cli_connection(
             }
             CliRequest::Notify {
                 kind,
-                title,
-                message,
                 cwd,
                 pid,
                 ancestors,
+                notify_prompt,
+                notify_response,
+                notify_tool_name,
+                notify_tool_preview,
+                notify_idle_summary,
             } => {
                 handle_notify_request(
                     NotifyRequestArgs {
                         kind,
-                        title,
-                        message,
                         cwd,
                         pid,
                         ancestors,
+                        notify_prompt,
+                        notify_response,
+                        notify_tool_name,
+                        notify_tool_preview,
+                        notify_idle_summary,
                     },
                     &responses,
                     cx,
@@ -476,16 +482,17 @@ pub async fn handle_cli_connection(
 }
 
 /// Claude Code 플러그인이 cli를 거쳐 전달한 작업 알림 IPC 원본 값을 묶은
-/// 구조체. 필드는 `CliRequest::Notify` variant 와 1:1 대응한다. 메시지 라우팅
-/// 로직이 여러 필드를 조합해 쓰므로 개별 인자로 풀어 전달하면 시그니처가
-/// 길어져 가독성이 떨어진다.
+/// 구조체. 필드는 `CliRequest::Notify` variant 와 1:1 대응한다.
 struct NotifyRequestArgs {
     kind: NotifyKind,
-    title: String,
-    message: String,
     cwd: Option<String>,
     pid: Option<u32>,
     ancestors: Vec<u32>,
+    notify_prompt: Option<String>,
+    notify_response: Option<String>,
+    notify_tool_name: Option<String>,
+    notify_tool_preview: Option<String>,
+    notify_idle_summary: Option<String>,
 }
 
 /// Claude Code 플러그인 → Dokkaebi 작업 알림 IPC 처리.
@@ -498,14 +505,6 @@ async fn handle_notify_request(
     responses: &IpcSender<CliResponse>,
     cx: &mut AsyncApp,
 ) {
-    let NotifyRequestArgs {
-        kind,
-        title,
-        message,
-        cwd,
-        pid,
-        ancestors,
-    } = args;
     // 전역 on/off (`task_alert`)와 토스트 전용 on/off (`task_alert_toast`),
     // 토스트 auto-dismiss 시간(`toast_display_seconds`, 5~300 clamp, 기본 5)을
     // 한 번에 읽는다.
@@ -524,12 +523,26 @@ async fn handle_notify_request(
     });
 
     if task_alert_enabled {
-        let id_name: SharedString = match kind {
+        let id_name: SharedString = match args.kind {
             NotifyKind::Stop => "claude_code.stop".into(),
             NotifyKind::Idle => "claude_code.idle".into(),
             NotifyKind::Permission => "claude_code.permission".into(),
         };
         let id = NotificationId::named(id_name);
+
+        // 제목/본문은 본체가 UI 언어에 맞춰 i18n 으로 생성한다. destructure 전에
+        // `&args` 참조로 먼저 조립해야 compose 호출 이후에도 나머지 필드를 이동할 수 있다.
+        let (display_title, display_body) = cx.update(|cx| {
+            compose_claude_notification_text(&args, cx)
+        });
+
+        let NotifyRequestArgs {
+            kind,
+            cwd,
+            pid,
+            ancestors,
+            ..
+        } = args;
 
         // dot 인디케이터 + 비활성 그룹 배지 적용 및 매칭 터미널의 "그룹 / 탭"
         // 라벨 + 소속 (윈도우, 워크스페이스) 타겟 수집.
@@ -565,15 +578,15 @@ async fn handle_notify_request(
             }
 
             // 매칭된 터미널의 "그룹 / 탭" 라벨을 본문 앞에 덧붙여 발신 위치를
-            // 토스트에 표기. 라벨이 비면 원본 메시지만 표시.
+            // 토스트에 표기. 라벨이 비면 원본 본문만 표시.
             let message_for_show = if location_label.is_empty() {
-                message.clone()
+                display_body
             } else {
-                format!("{}\n{}", location_label, message)
+                format!("{}\n{}", location_label, display_body)
             };
 
             let id_for_show = id.clone();
-            let title_for_show = title.clone();
+            let title_for_show = display_title;
             let workspace_for_show = workspace.clone();
             let window_for_show = window;
             window_for_show
@@ -624,6 +637,52 @@ async fn handle_notify_request(
     }
 
     responses.send(CliResponse::Exit { status: 0 }).log_err();
+}
+
+/// Claude Code 알림 토스트의 제목/본문을 현재 UI 언어에 맞춰 i18n 으로 조립한다.
+/// 동적 필드가 비었으면 종류별 `default_body` 키로 폴백.
+fn compose_claude_notification_text(
+    args: &NotifyRequestArgs,
+    cx: &App,
+) -> (String, String) {
+    let prompt = args.notify_prompt.as_deref();
+    let response = args.notify_response.as_deref();
+    let tool_name = args.notify_tool_name.as_deref();
+    let tool_preview = args.notify_tool_preview.as_deref();
+    let idle_summary = args.notify_idle_summary.as_deref();
+
+    match args.kind {
+        NotifyKind::Stop => {
+            let title = i18n::t("claude_code.notify.stop.title", cx).to_string();
+            let body = match (prompt, response) {
+                (Some(q), Some(r)) if !q.is_empty() && !r.is_empty() => format!("{} → {}", q, r),
+                (Some(q), _) if !q.is_empty() => q.to_string(),
+                (_, Some(r)) if !r.is_empty() => r.to_string(),
+                _ => i18n::t("claude_code.notify.stop.default_body", cx).to_string(),
+            };
+            (title, body)
+        }
+        NotifyKind::Idle => {
+            let title = i18n::t("claude_code.notify.idle.title", cx).to_string();
+            let body = match idle_summary {
+                Some(s) if !s.is_empty() => s.to_string(),
+                _ => i18n::t("claude_code.notify.idle.default_body", cx).to_string(),
+            };
+            (title, body)
+        }
+        NotifyKind::Permission => {
+            let title = i18n::t("claude_code.notify.permission.title", cx).to_string();
+            let label = i18n::t("claude_code.notify.permission.label", cx);
+            let body = match (tool_name, tool_preview) {
+                (Some(tool), Some(preview)) if !tool.is_empty() && !preview.is_empty() => {
+                    format!("{}: {} ({})", label, tool, preview)
+                }
+                (Some(tool), _) if !tool.is_empty() => format!("{}: {}", label, tool),
+                _ => i18n::t("claude_code.notify.permission.default_body", cx).to_string(),
+            };
+            (title, body)
+        }
+    }
 }
 
 /// 프로세스 parent/children 관계 snapshot. 한 번의 `capture()` 결과로 ancestor

@@ -33,12 +33,10 @@ pub enum CliRequest {
         env: Option<HashMap<String, String>>,
         user_data_dir: Option<String>,
     },
-    /// Claude Code 플러그인 → Dokkaebi 작업 알림 전달
-    /// 워크스페이스 토스트 또는 전역 알림으로 표시한다.
+    /// Claude Code 플러그인 → Dokkaebi 작업 알림 전달.
+    /// 제목/본문 생성 규칙은 본체 `compose_claude_notification_text` 참조.
     Notify {
         kind: NotifyKind,
-        title: String,
-        message: String,
         /// 알림 발생 위치 (어느 워크스페이스에 표시할지 라우팅 힌트)
         cwd: Option<String>,
         /// 알림 송신 프로세스 PID (dispatch.sh의 `$PPID` = Claude 프로세스).
@@ -56,6 +54,21 @@ pub enum CliRequest {
         /// 실행 후 종료해 본체 쪽 sysinfo에서 parent 추적이 끊기는 문제 해결).
         #[serde(default)]
         ancestors: Vec<u32>,
+        /// Stop 이벤트: 사용자가 직전에 입력한 프롬프트 요약 (최대 200자 truncate).
+        #[serde(default)]
+        notify_prompt: Option<String>,
+        /// Stop 이벤트: 어시스턴트 마지막 응답 요약 (최대 200자 truncate).
+        #[serde(default)]
+        notify_response: Option<String>,
+        /// Permission 이벤트: 요청 도구 이름 (예: "Bash", "Edit").
+        #[serde(default)]
+        notify_tool_name: Option<String>,
+        /// Permission 이벤트: 도구 입력 preview (command / file_path 등, 최대 120자 truncate).
+        #[serde(default)]
+        notify_tool_preview: Option<String>,
+        /// Idle 이벤트: Claude Code가 hook payload 로 보낸 원본 메시지.
+        #[serde(default)]
+        notify_idle_summary: Option<String>,
     },
 }
 

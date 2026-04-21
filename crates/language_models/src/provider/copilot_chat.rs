@@ -405,7 +405,12 @@ impl LanguageModel for CopilotChatLanguageModel {
                 if model.supports_adaptive_thinking() {
                     if anthropic_request.thinking.is_some() {
                         anthropic_request.thinking = Some(anthropic::Thinking::Adaptive);
-                        anthropic_request.output_config = Some(anthropic::OutputConfig { effort });
+                        // Copilot proxy는 Anthropic보다 검증이 엄격해서 effort 없이 output_config만 있으면 거부한다.
+                        // effort가 있을 때만 output_config를 설정한다. (상류 Zed PR #54103 / v0.232.3 PR #54105)
+                        anthropic_request.output_config =
+                            effort.map(|effort| anthropic::OutputConfig {
+                                effort: Some(effort),
+                            });
                     }
                 }
 

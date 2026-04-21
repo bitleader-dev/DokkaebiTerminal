@@ -204,6 +204,27 @@ begin
   Result := True;
 end;
 
+// 제거 usUninstall 단계(파일 삭제 직전)에서 Claude Code 훅을 정리한다.
+// dokkaebi-cli.exe --uninstall-claude-plugin 이 사용자 프로필의
+// ~/.claude/settings.json 에서 Dokkaebi 플러그인 등록 항목만 안전하게 제거한다.
+// silent 언인스톨(앱 자동 업데이트의 재설치 경로)에서는 skip 해야 업데이트 후
+// 사용자가 [설치] 버튼을 다시 눌러야 하는 UX 회귀를 피한다.
+// cli.exe 가 없거나 실행에 실패해도 언인스톨 자체는 계속 진행한다.
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ResultCode: Integer;
+  CliPath: String;
+begin
+  if CurUninstallStep <> usUninstall then
+    Exit;
+  if UninstallSilent() then
+    Exit;
+  CliPath := ExpandConstant('{app}\dokkaebi-cli.exe');
+  if not FileExists(CliPath) then
+    Exit;
+  Exec(CliPath, '--uninstall-claude-plugin', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+end;
+
 // https://docs.microsoft.com/en-us/windows-server/administration/windows-commands/icacls
 // https://docs.microsoft.com/en-US/windows/security/identity-protection/access-control/security-identifiers
 procedure DisableAppDirInheritance();

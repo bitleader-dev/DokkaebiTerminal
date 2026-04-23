@@ -6,7 +6,7 @@ use crate::{
 };
 use acp_thread::AgentSessionInfo;
 use agent::ThreadStore;
-use agent_client_protocol as acp;
+use agent_client_protocol::schema as acp;
 use agent_settings::AgentSettings;
 use chrono::{DateTime, Datelike as _, Local, NaiveDate, TimeDelta, Utc};
 use editor::Editor;

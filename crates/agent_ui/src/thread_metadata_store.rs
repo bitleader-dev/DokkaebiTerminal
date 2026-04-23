@@ -2,7 +2,7 @@ use std::{path::Path, sync::Arc};
 
 use acp_thread::AgentSessionInfo;
 use agent::{ThreadStore, ZED_AGENT_ID};
-use agent_client_protocol as acp;
+use agent_client_protocol::schema as acp;
 use anyhow::Context as _;
 use chrono::{DateTime, Utc};
 use collections::HashMap;
@@ -563,7 +563,7 @@ mod tests {
     use acp_thread::{AgentConnection, StubAgentConnection};
     use action_log::ActionLog;
     use agent::DbThread;
-    use agent_client_protocol as acp;
+    use agent_client_protocol::schema as acp;
     use feature_flags::FeatureFlagAppExt;
     use gpui::TestAppContext;
     use project::FakeFs;

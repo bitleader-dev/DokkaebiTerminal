@@ -1,6 +1,6 @@
 use acp_thread::{MentionUri, selection_name};
 use agent::{ThreadStore, outline};
-use agent_client_protocol as acp;
+use agent_client_protocol::schema as acp;
 use agent_servers::{AgentServer, AgentServerDelegate};
 use anyhow::{Context as _, Result, anyhow};
 use assistant_slash_commands::{codeblock_fence_for_path, collect_diagnostics_output};

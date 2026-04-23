@@ -472,7 +472,9 @@ pub struct LanguageModelRequest {
     pub speed: Option<Speed>,
 }
 
-#[derive(Clone, Copy, Default, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(
+    Clone, Copy, Default, Debug, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum Speed {
     #[default]
@@ -485,6 +487,24 @@ impl Speed {
         match self {
             Speed::Standard => Speed::Fast,
             Speed::Fast => Speed::Standard,
+        }
+    }
+
+    /// 런타임 `Speed` 를 설정 저장용 `settings_content::Speed` 로 변환한다.
+    /// 역방향 변환(설정 → 런타임) 은 `From<settings_content::Speed> for Speed`.
+    pub fn to_settings(self) -> settings_content::Speed {
+        match self {
+            Speed::Standard => settings_content::Speed::Standard,
+            Speed::Fast => settings_content::Speed::Fast,
+        }
+    }
+}
+
+impl From<settings_content::Speed> for Speed {
+    fn from(speed: settings_content::Speed) -> Self {
+        match speed {
+            settings_content::Speed::Standard => Speed::Standard,
+            settings_content::Speed::Fast => Speed::Fast,
         }
     }
 }

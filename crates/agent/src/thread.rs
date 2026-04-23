@@ -1045,6 +1045,13 @@ impl Thread {
             .default_model
             .as_ref()
             .and_then(|model| model.effort.clone());
+        // 설정 파일에 저장된 Speed 는 `settings_content::agent::Speed` 타입이므로
+        // 런타임 `language_model::Speed` 로 변환한다.
+        let speed = settings
+            .default_model
+            .as_ref()
+            .and_then(|model| model.speed)
+            .map(language_model::Speed::from);
         let (prompt_capabilities_tx, prompt_capabilities_rx) =
             watch::channel(Self::prompt_capabilities(model.as_deref()));
         Self {
@@ -1077,7 +1084,7 @@ impl Thread {
             model,
             summarization_model: None,
             thinking_enabled: enable_thinking,
-            speed: None,
+            speed,
             thinking_effort,
             prompt_capabilities_tx,
             prompt_capabilities_rx,

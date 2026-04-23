@@ -99,6 +99,48 @@ impl AgentSettings {
     }
 }
 
+/// 모델과 기존 설정(Option)을 바탕으로 `LanguageModelSelection` 을 생성한다.
+/// `override_selection` 이 있으면 그 값의 thinking/effort/speed 를 존중하되
+/// 모델이 지원하지 않는 값은 기본값(default_effort_level / supports_* 플래그) 으로 대체한다.
+pub fn language_model_to_selection(
+    model: &Arc<dyn LanguageModel>,
+    override_selection: Option<&LanguageModelSelection>,
+) -> LanguageModelSelection {
+    let provider = model.provider_id().0.to_string().into();
+    let model_name = model.id().0.to_string();
+    match override_selection {
+        Some(current) => LanguageModelSelection {
+            provider,
+            model: model_name,
+            enable_thinking: current.enable_thinking && model.supports_thinking(),
+            effort: current
+                .effort
+                .clone()
+                .filter(|value| {
+                    model
+                        .supported_effort_levels()
+                        .iter()
+                        .any(|level| level.value.as_ref() == value.as_str())
+                })
+                .or_else(|| {
+                    model
+                        .default_effort_level()
+                        .map(|effort| effort.value.to_string())
+                }),
+            speed: current.speed.filter(|_| model.supports_fast_mode()),
+        },
+        None => LanguageModelSelection {
+            provider,
+            model: model_name,
+            enable_thinking: model.supports_thinking(),
+            effort: model
+                .default_effort_level()
+                .map(|effort| effort.value.to_string()),
+            speed: None,
+        },
+    }
+}
+
 #[derive(Debug, PartialEq, Eq, Hash, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct AgentProfileId(pub Arc<str>);
 

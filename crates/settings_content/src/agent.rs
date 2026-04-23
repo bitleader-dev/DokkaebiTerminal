@@ -211,6 +211,7 @@ impl AgentSettingsContent {
             model,
             enable_thinking: false,
             effort: None,
+            speed: None,
         });
     }
 
@@ -223,13 +224,35 @@ impl AgentSettingsContent {
     }
 
     pub fn add_favorite_model(&mut self, model: LanguageModelSelection) {
-        if !self.favorite_models.contains(&model) {
+        // 주의: 의도적으로 `PartialEq` 로 비교하지 않는다. 전체 동등성 비교를 쓰면
+        // thinking/effort/speed 만 다른 항목이 별개로 취급되어 중복이 조용히 생성된다.
+        if !self
+            .favorite_models
+            .iter()
+            .any(|m| m.provider == model.provider && m.model == model.model)
+        {
             self.favorite_models.push(model);
         }
     }
 
     pub fn remove_favorite_model(&mut self, model: &LanguageModelSelection) {
-        self.favorite_models.retain(|m| m != model);
+        self.favorite_models
+            .retain(|m| !(m.provider == model.provider && m.model == model.model));
+    }
+
+    /// 기존 favorite 항목의 thinking/effort/speed 를 갱신한다.
+    /// 해당 provider + model 조합의 favorite 가 없으면 아무 일도 하지 않는다.
+    pub fn update_favorite_model<F>(&mut self, provider: &str, model: &str, f: F)
+    where
+        F: FnOnce(&mut LanguageModelSelection),
+    {
+        if let Some(entry) = self
+            .favorite_models
+            .iter_mut()
+            .find(|m| m.provider.0 == provider && m.model == model)
+        {
+            f(entry);
+        }
     }
 
     pub fn set_tool_default_permission(&mut self, tool_id: &str, mode: ToolPermissionMode) {
@@ -329,6 +352,22 @@ pub struct LanguageModelSelection {
     #[serde(default)]
     pub enable_thinking: bool,
     pub effort: Option<String>,
+    pub speed: Option<Speed>,
+}
+
+/// 설정 파일에 저장되는 속도 모드. 런타임 타입 `language_model::Speed` 와
+/// 동일한 variant/serde 표현을 유지하되, `settings_content` 가 `language_model`
+/// 을 의존하면 순환이 발생하므로 별도 타입으로 둔다. 변환은 `language_model`
+/// 쪽에 `From<settings_content::agent::Speed> for Speed` + `Speed::to_settings()`
+/// 로 제공한다.
+#[derive(
+    Clone, Copy, Default, Debug, Serialize, Deserialize, PartialEq, Eq, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Speed {
+    #[default]
+    Standard,
+    Fast,
 }
 
 #[with_fallible_options]

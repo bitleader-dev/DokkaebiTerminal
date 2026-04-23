@@ -56,6 +56,7 @@ merge_from_overwrites!(
     std::sync::Arc<str>,
     std::path::PathBuf,
     std::sync::Arc<std::path::Path>,
+    crate::agent::Speed,
 );
 
 impl<T: Clone + MergeFrom> MergeFrom for Option<T> {

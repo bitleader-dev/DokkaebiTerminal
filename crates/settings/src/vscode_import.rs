@@ -199,7 +199,7 @@ impl VsCodeSettings {
             log: None,
             message_editor: None,
             node: self.node_binary_settings(),
-            notification: None,
+            claude_code: None,
             notification_panel: None,
             notepad_panel: None,
             workspace_group_panel: None,

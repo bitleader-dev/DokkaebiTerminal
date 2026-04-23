@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "Dokkaebi"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "acp_thread",
  "acp_tools",
@@ -23,6 +23,8 @@ dependencies = [
  "breadcrumbs",
  "chrono",
  "clap",
+ "claude_plugin_registry",
+ "claude_subagent_view",
  "cli",
  "client",
  "clock",
@@ -152,6 +154,7 @@ dependencies = [
  "uuid",
  "vim",
  "vim_mode_setting",
+ "walkdir",
  "watch",
  "web_search",
  "web_search_providers",
@@ -2641,6 +2644,23 @@ version = "0.1.0"
 dependencies = [
  "dirs 4.0.0",
  "serde_json",
+]
+
+[[package]]
+name = "claude_subagent_view"
+version = "0.1.0"
+dependencies = [
+ "collections",
+ "editor",
+ "gpui",
+ "i18n",
+ "language",
+ "log",
+ "serde",
+ "settings",
+ "ui",
+ "util",
+ "workspace",
 ]
 
 [[package]]
@@ -8961,6 +8981,7 @@ dependencies = [
  "anyhow",
  "editor",
  "gpui",
+ "i18n",
  "language",
  "log",
  "markdown",

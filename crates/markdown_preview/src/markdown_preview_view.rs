@@ -734,7 +734,13 @@ impl Item for MarkdownPreviewView {
             .map(|editor_state| {
                 let buffer = editor_state.editor.read(cx).buffer().read(cx);
                 let title = buffer.title(cx);
-                format!("Preview {}", title).into()
+                // 로케일별 탭 제목 포맷: en = "Preview {title}", ko = "{title}"
+                i18n::t_args(
+                    "markdown_preview.tab_title",
+                    &[("title", title.as_ref())],
+                    cx,
+                )
+                .into()
             })
             .unwrap_or_else(|| SharedString::from("Markdown Preview"))
     }

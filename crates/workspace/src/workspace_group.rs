@@ -23,6 +23,8 @@ pub struct WorkspaceGroupState {
     pub panes_by_item: HashMap<EntityId, WeakEntity<Pane>>,
     /// 비활성 상태에서 알림(bell 등) 발생 여부
     pub has_notification: bool,
+    /// 아이콘 색상 팔레트 인덱스. None 이면 기본 시맨틱(Default/Muted) 사용
+    pub color: Option<u8>,
 }
 
 impl WorkspaceGroupState {
@@ -35,6 +37,7 @@ impl WorkspaceGroupState {
         last_active_center_pane: &Option<WeakEntity<Pane>>,
         panes_by_item: &HashMap<EntityId, WeakEntity<Pane>>,
         has_notification: bool,
+        color: Option<u8>,
     ) -> Self {
         Self {
             name,
@@ -44,6 +47,7 @@ impl WorkspaceGroupState {
             last_active_center_pane: last_active_center_pane.clone(),
             panes_by_item: panes_by_item.clone(),
             has_notification,
+            color,
         }
     }
 }

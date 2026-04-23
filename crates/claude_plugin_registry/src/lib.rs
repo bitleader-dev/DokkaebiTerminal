@@ -22,6 +22,12 @@ pub fn settings_path() -> Option<PathBuf> {
     dirs::home_dir().map(|home| home.join(".claude").join("settings.json"))
 }
 
+/// Claude Code 세션 transcript 루트 경로. (`~/.claude/projects`)
+/// transcript tail / 자동 정리 모듈이 공통으로 사용한다.
+pub fn projects_root() -> Option<PathBuf> {
+    dirs::home_dir().map(|home| home.join(".claude").join("projects"))
+}
+
 /// settings.json 을 읽어 JSON 값으로 반환.
 /// 파일 부재/읽기 실패/파싱 실패 모두 None 으로 묶어 사용자 파일을 건드리지 않도록 한다.
 pub fn read_settings() -> Option<Value> {

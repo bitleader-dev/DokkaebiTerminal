@@ -1,62 +1,45 @@
-# /simplify 후속 — Claude plugin registry 공유 크레이트 추출 (옵션 B)
+# 서브에이전트 탭 잘못된 워크스페이스 그룹 배치 수정 — 계획
 
-## 목표
-`uninstall_claude_plugin_registration()`(cli) 과 `uninstall_plugin()`(settings_ui) 의 중복된 JSON 편집 로직 + 상수(`PLUGIN_NAME`/`MARKETPLACE_NAME`/`ENABLED_KEY`)를 신규 경량 크레이트로 추출한다. 어느 한쪽이 바뀌면 다른 쪽이 조용히 깨지는 드리프트 위험을 구조적으로 제거.
+> **현재 단계**: 검증 완료 (2026-04-23, 사용자 확인 "잘됨").
 
-## 배경
-- /simplify 1차 정리에서 `KEEP IN SYNC` 주석만으로 완화했던 should-fix 1 항목.
-- 사용자 B 옵션 승인 (2026-04-21).
+## 문제
+워크스페이스 그룹 1(WS1)에서 멀티에이전트 실행 후, WS2에서 멀티에이전트를 실행하면 첫 서브에이전트 탭만 WS2에 생기고 나머지가 WS1의 기존 서브에이전트 pane으로 들러붙는다.
 
-## 설계
+## 근본 원인
+- `mark_bell_for_notification` (open_listener.rs:1042~)은 매칭 터미널의 `group_idx`를 알지만 `NotifyTarget`에 담지 않는다.
+- `open_subagent_view` (claude_subagent_view/src/view.rs:324~)와 `scan_panes`는 `workspace.active_pane()`/`workspace.panes()`만 사용 → **현재 활성 그룹의 panes 만 본다**.
+- 결과: IPC 처리 시점에 활성 그룹이 발신 터미널이 속한 그룹과 다르면, 새 탭이 활성 그룹의 서브에이전트 pane(또는 split 결과)에 잘못 부착된다.
 
-### 신규 크레이트 `crates/claude_plugin_registry`
-- **공개 상수**: `PLUGIN_NAME` / `MARKETPLACE_NAME` / `ENABLED_KEY`
-- **공개 함수**:
-  - `settings_path() -> Option<PathBuf>` — `~/.claude/settings.json` 경로 (`dirs::home_dir` 기반)
-  - `read_settings() -> Option<Value>` — 파일 부재/파싱 실패 시 None
-  - `write_settings(&Value) -> bool` — parent dir 생성 + pretty write
-  - `remove_plugin_registration() -> Result<bool, String>` — `Ok(true)` 변경+저장 성공 / `Ok(false)` 변경 대상 없음 (파일 부재·손상 포함) / `Err` 저장 실패
-  - `is_plugin_installed() -> bool` — `enabledPlugins` 에 prefix 매칭
-- **의존성**: `serde_json.workspace = true`, `dirs.workspace = true`. gpui/util 등은 의존하지 않음 (cli 경로 가볍게 유지).
-
-### cli 측
-- `crates/cli/src/main.rs::uninstall_claude_plugin_registration()` 제거
-- `crates/cli/src/main.rs::prune_object_if_empty` 제거
-- 호출부를 `claude_plugin_registry::remove_plugin_registration()` 로 교체
-- `util::paths::home_dir()` 사용 종료 (공유 크레이트가 `dirs` 사용)
-
-### settings_ui 측
-- `notification_setup.rs::claude_code_settings_path` / `read_claude_code_settings` / `write_claude_code_settings` 제거 → 공유 함수 호출
-- 상수 3개 제거 → 공유 크레이트 상수 사용
-- `plugin_installed_uncached()` → `claude_plugin_registry::is_plugin_installed()` 호출
-- `install_plugin()` 은 유지 (marketplace 디렉터리 탐색은 settings_ui 전용 로직)하되 내부 JSON I/O는 공유 함수 사용
-- `uninstall_plugin()` 은 thin wrapper로 축소 + 캐시 무효화만 유지
-- `cleanup_legacy_marker_hook` 의 settings 읽기/쓰기도 공유 함수 사용
-
-### workspace
-- 루트 `Cargo.toml` members 에 `"crates/claude_plugin_registry"` 추가 (알파벳 순 `buffer_diff` 다음)
-- 루트 `Cargo.toml` `[workspace.dependencies]` 에 `claude_plugin_registry = { path = "crates/claude_plugin_registry" }` 추가
+## 수정 방향 (A안 — 사용자 시야 비침습)
+타겟 그룹 인덱스를 IPC 경로 끝까지 전파하고, `open_subagent_view`가 해당 그룹(활성/비활성 모두) 의 pane 상태를 직접 읽고 쓰도록 한다.
 
 ## 작업 단계
+- [x] 1. `crates/workspace/src/workspace.rs` — 타겟 그룹 기준 헬퍼 2개 추가
+  - `panes_in_group(group_idx) -> Option<&[Entity<Pane>]>` (활성이면 `&self.panes`, 비활성이면 `workspace_groups[idx].panes`)
+  - `split_pane_in_group(group_idx, direction, window, cx) -> Option<Entity<Pane>>` (활성이면 기존 `split_pane` 위임; 비활성이면 `create_inactive_pane` + 그룹 center.split + 그룹 panes.push)
+- [x] 2. `crates/zed/src/zed/open_listener.rs`
+  - `NotifyTarget`에 `group_idx: usize` 추가
+  - `mark_bell_for_notification`에서 첫 매칭 시 `group_idx`도 함께 저장
+  - `handle_subagent_request`의 `open_subagent_view` 호출에 `target.group_idx` 전달
+- [x] 3. `crates/claude_subagent_view/src/view.rs`
+  - `open_subagent_view` 시그니처에 `target_group_idx: usize` 추가
+  - `scan_panes`가 `panes_in_group(target_group_idx)` 사용
+  - split fallback이 `split_pane_in_group(target_group_idx, ...)` 사용
 
-- [x] (1) `crates/claude_plugin_registry/Cargo.toml` + `src/lib.rs` 생성
-- [x] (2) 루트 `Cargo.toml` members + workspace.dependencies 추가
-- [x] (3) `crates/cli/Cargo.toml` 에 `claude_plugin_registry.workspace = true` 추가
-- [x] (4) `crates/cli/src/main.rs` 수정 (함수 2개 제거, 호출부 교체)
-- [x] (5) `crates/settings_ui/Cargo.toml` 에 `claude_plugin_registry.workspace = true` 추가
-- [x] (6) `crates/settings_ui/src/pages/notification_setup.rs` 공유 함수 호출로 리팩토링
-- [x] (7) 검증: `cargo check -p cli -p settings_ui -p Dokkaebi` 클린
+## 검증
+- [x] `cargo check -p Dokkaebi` 통과 (4.99s, 신규 경고/에러 0건)
+- [x] `cargo check -p workspace` 통과
+- [x] `cargo check -p claude_subagent_view` 통과
+- [x] 런타임 검증 완료 (2026-04-23, 사용자 확인): WS1·WS2 멀티에이전트 순차 실행 시 각 그룹의 발신 터미널 소속 그룹에 탭이 정확히 부착됨
 
-## 검증 방법
-- `cargo check -p cli` — cli 경로 빌드 + 신규 deps 정합
-- `cargo check -p settings_ui` — settings_ui 경로 + 공유 함수 호출
-- `cargo check -p Dokkaebi` — 통합 빌드, 신규 경고/에러 0건 확인
+## 승인 필요
+없음 — 사용자가 A안 진행 승인 (2026-04-23).
 
-## 수정하지 않음
-- `marketplace_root_dir()` / `install_plugin()` 의 plugin 디렉터리 탐색 로직은 settings_ui 전용이라 공유 안 함.
-- `is_plugin_installed` 의 TTL 캐시(`PLUGIN_INSTALLED_CACHE` Mutex)는 settings_ui 전용 (GPU 렌더 경로 최적화용). 공유 크레이트는 uncached 버전만 노출.
-- `cleanup_legacy_marker_hook` 의 마이그레이션 로직은 settings_ui 전용 유지 (다음 메이저에서 제거 예정).
+## 영향 범위 외 (변경 없음)
+- 활성 그룹에서의 기존 동작: 그룹 인덱스가 active와 같으면 기존 `split_pane`/`workspace.panes()` 경로 그대로 위임 → 회귀 없음.
+- 설정 기본값·JSON 스키마: 변경 없음.
+- IPC 와이어 포맷: `NotifyTarget`은 본체 내부 구조라 wire 무관.
+- 비활성 그룹 `panes_by_item`: 서브에이전트 뷰는 bell 알림 발신처가 아니므로 갱신 생략(영향 없음).
 
-## 승인 필요 사항
-- 신규 크레이트 생성 + workspace 구조 변경 + 의존성 추가 → CLAUDE.md 1단계 승인 대상
-- **사용자 승인 완료** (2026-04-21, 옵션 B 선택)
+## 릴리즈 노트
+v0.4.0 신규 기능 개발 중 발견·수정된 버그 → `assets/release_notes.md` 기재 제외 (CLAUDE.md 규칙).

@@ -6895,7 +6895,7 @@ fn notification_page() -> SettingsPage {
 
     fn claude_code_section() -> [SettingsPageItem; 4] {
         [
-            SettingsPageItem::SectionHeader("settings_page.section.claude_code"),
+            SettingsPageItem::SectionHeader("settings_page.section.general"),
             // 플러그인 설치/제거 토글.
             // 미설치: "설치 안 됨" 라벨 + [설치] 버튼
             // 설치됨: "설치됨" 라벨 + [제거] 버튼
@@ -6929,11 +6929,11 @@ fn notification_page() -> SettingsPage {
                 title: "settings_page.item.claude_code_task_alert",
                 description: "settings_page.desc.claude_code_task_alert",
                 field: Box::new(SettingField {
-                    json_path: Some("notification.task_alert"),
+                    json_path: Some("claude_code.task_alert"),
                     pick: |settings_content| {
                         Some(
                             settings_content
-                                .notification
+                                .claude_code
                                 .as_ref()
                                 .and_then(|n| n.task_alert.as_ref())
                                 .unwrap_or(&DEFAULT_TASK_ALERT),
@@ -6941,7 +6941,7 @@ fn notification_page() -> SettingsPage {
                     },
                     write: |settings_content, value| {
                         settings_content
-                            .notification
+                            .claude_code
                             .get_or_insert_with(Default::default)
                             .task_alert = value;
                     },
@@ -6956,11 +6956,11 @@ fn notification_page() -> SettingsPage {
                 title: "settings_page.item.claude_code_task_alert_toast",
                 description: "settings_page.desc.claude_code_task_alert_toast",
                 field: Box::new(SettingField {
-                    json_path: Some("notification.task_alert_toast"),
+                    json_path: Some("claude_code.task_alert_toast"),
                     pick: |settings_content| {
                         Some(
                             settings_content
-                                .notification
+                                .claude_code
                                 .as_ref()
                                 .and_then(|n| n.task_alert_toast.as_ref())
                                 .unwrap_or(&DEFAULT_TASK_ALERT_TOAST),
@@ -6968,7 +6968,7 @@ fn notification_page() -> SettingsPage {
                     },
                     write: |settings_content, value| {
                         settings_content
-                            .notification
+                            .claude_code
                             .get_or_insert_with(Default::default)
                             .task_alert_toast = value;
                     },
@@ -6988,11 +6988,11 @@ fn notification_page() -> SettingsPage {
                 title: "settings_page.item.toast_display_seconds",
                 description: "settings_page.desc.toast_display_seconds",
                 field: Box::new(SettingField {
-                    json_path: Some("notification.toast_display_seconds"),
+                    json_path: Some("claude_code.toast_display_seconds"),
                     pick: |settings_content| {
                         Some(
                             settings_content
-                                .notification
+                                .claude_code
                                 .as_ref()
                                 .and_then(|n| n.toast_display_seconds.as_ref())
                                 .unwrap_or(&DEFAULT_TOAST_DISPLAY_SECONDS),
@@ -7004,7 +7004,7 @@ fn notification_page() -> SettingsPage {
                         // 범위 밖 값을 입력해도 저장 직후 UI 에 올바른 값이 반영된다.
                         let clamped = value.map(|v| v.clamp(5, 300));
                         settings_content
-                            .notification
+                            .claude_code
                             .get_or_insert_with(Default::default)
                             .toast_display_seconds = clamped;
                     },
@@ -7015,9 +7015,164 @@ fn notification_page() -> SettingsPage {
         ]
     }
 
+    // Claude Code 서브에이전트 뷰 패널 섹션 — 자동 탭 생성 토글 + 배치 위치 dropdown.
+    static DEFAULT_SUBAGENT_VIEW: bool = false;
+    static DEFAULT_SUBAGENT_PANEL_POSITION: settings::SubagentPanelPositionContent =
+        settings::SubagentPanelPositionContent::Right;
+    // 서브에이전트 뷰 본문의 가로 스크롤바 기본값 — off(soft-wrap).
+    static DEFAULT_SUBAGENT_HORIZONTAL_SCROLLBAR: bool = false;
+
+    fn panel_section() -> [SettingsPageItem; 4] {
+        [
+            SettingsPageItem::SectionHeader("settings_page.section.notification_panel"),
+            // 서브에이전트 뷰 탭 자동 생성 토글. off 시 훅 IPC 는 수신되지만 탭 자동
+            // 생성만 건너뛴다(기존 열린 탭 유지).
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "settings_page.item.claude_code_subagent_view",
+                description: "settings_page.desc.claude_code_subagent_view",
+                field: Box::new(SettingField {
+                    json_path: Some("claude_code.subagent_view"),
+                    pick: |settings_content| {
+                        Some(
+                            settings_content
+                                .claude_code
+                                .as_ref()
+                                .and_then(|n| n.subagent_view.as_ref())
+                                .unwrap_or(&DEFAULT_SUBAGENT_VIEW),
+                        )
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .claude_code
+                            .get_or_insert_with(Default::default)
+                            .subagent_view = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            // 서브에이전트 뷰 탭 배치 위치 dropdown.
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "settings_page.item.claude_code_subagent_panel_position",
+                description: "settings_page.desc.claude_code_subagent_panel_position",
+                field: Box::new(SettingField {
+                    json_path: Some("claude_code.subagent_panel_position"),
+                    pick: |settings_content| {
+                        Some(
+                            settings_content
+                                .claude_code
+                                .as_ref()
+                                .and_then(|n| n.subagent_panel_position.as_ref())
+                                .unwrap_or(&DEFAULT_SUBAGENT_PANEL_POSITION),
+                        )
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .claude_code
+                            .get_or_insert_with(Default::default)
+                            .subagent_panel_position = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            // 서브에이전트 뷰 본문 가로 스크롤바 토글. on 이면 긴 줄을 줄바꿈 없이
+            // 가로 스크롤로 보여주고, off 면 Editor 너비에 맞춰 soft-wrap.
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "settings_page.item.claude_code_subagent_horizontal_scrollbar",
+                description: "settings_page.desc.claude_code_subagent_horizontal_scrollbar",
+                field: Box::new(SettingField {
+                    json_path: Some("claude_code.subagent_horizontal_scrollbar"),
+                    pick: |settings_content| {
+                        Some(
+                            settings_content
+                                .claude_code
+                                .as_ref()
+                                .and_then(|n| n.subagent_horizontal_scrollbar.as_ref())
+                                .unwrap_or(&DEFAULT_SUBAGENT_HORIZONTAL_SCROLLBAR),
+                        )
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .claude_code
+                            .get_or_insert_with(Default::default)
+                            .subagent_horizontal_scrollbar = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+        ]
+    }
+
+    // 세션 기록 섹션 — ~/.claude/projects/**/*.jsonl 자동 정리 설정.
+    static DEFAULT_TRANSCRIPT_CLEANUP_ENABLED: bool = false;
+    static DEFAULT_TRANSCRIPT_RETENTION_DAYS: u32 = 60;
+
+    fn transcript_section() -> [SettingsPageItem; 3] {
+        [
+            SettingsPageItem::SectionHeader("settings_page.section.transcript"),
+            // 자동 정리 토글.
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "settings_page.item.transcript_cleanup_enabled",
+                description: "settings_page.desc.transcript_cleanup_enabled",
+                field: Box::new(SettingField {
+                    json_path: Some("claude_code.transcript_cleanup_enabled"),
+                    pick: |settings_content| {
+                        Some(
+                            settings_content
+                                .claude_code
+                                .as_ref()
+                                .and_then(|c| c.transcript_cleanup_enabled.as_ref())
+                                .unwrap_or(&DEFAULT_TRANSCRIPT_CLEANUP_ENABLED),
+                        )
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .claude_code
+                            .get_or_insert_with(Default::default)
+                            .transcript_cleanup_enabled = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            // 보관 기간(일) 숫자 입력. 런타임에서 7~365 clamp.
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "settings_page.item.transcript_retention_days",
+                description: "settings_page.desc.transcript_retention_days",
+                field: Box::new(SettingField {
+                    json_path: Some("claude_code.transcript_retention_days"),
+                    pick: |settings_content| {
+                        Some(
+                            settings_content
+                                .claude_code
+                                .as_ref()
+                                .and_then(|c| c.transcript_retention_days.as_ref())
+                                .unwrap_or(&DEFAULT_TRANSCRIPT_RETENTION_DAYS),
+                        )
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .claude_code
+                            .get_or_insert_with(Default::default)
+                            .transcript_retention_days = value.map(|v| v.clamp(7, 365));
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+        ]
+    }
+
     SettingsPage {
-        title: "settings_page.item.notifications",
-        items: concat_sections!(claude_code_section(), toast_popup_section()),
+        title: "settings_page.item.claude_code",
+        items: concat_sections!(
+            claude_code_section(),
+            toast_popup_section(),
+            panel_section(),
+            transcript_section()
+        ),
     }
 }
 

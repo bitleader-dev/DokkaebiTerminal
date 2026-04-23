@@ -968,7 +968,7 @@
     // Default width of the notepad panel in pixels.
     "default_width": 250,
     // Whether to restore notepad content on app startup.
-    "restore": false,
+    "restore": true,
     // 자동 줄바꿈 대신 가로 스크롤을 표시합니다.
     "horizontal_scroll": false,
   },

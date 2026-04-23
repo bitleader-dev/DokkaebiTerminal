@@ -1,5 +1,7 @@
 mod app_menus;
 mod auto_start;
+mod claude_subagent_tail;
+pub mod claude_transcript_cleanup;
 #[cfg(target_os = "macos")]
 pub(crate) mod mac_only_instance;
 mod migrate;
@@ -2297,11 +2299,18 @@ fn open_release_notes_preview(
     use markdown_preview::markdown_preview_view::{MarkdownPreviewMode, MarkdownPreviewView};
     use workspace::item::Item as _;
 
+    // 로케일 기준 기대 탭 제목을 동적으로 계산해 중복 탭 여부를 판정한다.
+    let expected_title = i18n::t("release_notes.tab_title", cx);
+    let expected_tab_text = i18n::t_args(
+        "markdown_preview.tab_title",
+        &[("title", expected_title.as_ref())],
+        cx,
+    );
     let existing = workspace
         .items_of_type::<MarkdownPreviewView>(cx)
         .find(|view| {
             view.read_with(cx, |view, cx| {
-                view.tab_content_text(0, cx).as_ref() == "Preview Release Notes"
+                view.tab_content_text(0, cx).as_ref() == expected_tab_text.as_str()
             })
         });
     if let Some(existing) = existing {
@@ -2314,6 +2323,8 @@ fn open_release_notes_preview(
 
     let text = asset_str::<Assets>("release_notes.md");
     let language = workspace.app_state().languages.language_for_name("Markdown");
+    // 로케일별 MultiBuffer 제목(탭 표시명의 title 부분). spawn 내부에서 cx 접근이 제한되므로 미리 계산.
+    let release_notes_title = i18n::t("release_notes.tab_title", cx).to_string();
     cx.spawn_in(window, async move |workspace, cx| {
         let language = language.await.log_err();
         workspace
@@ -2329,7 +2340,7 @@ fn open_release_notes_preview(
                         buffer.set_capability(Capability::ReadOnly, cx);
                     });
                     let multi_buffer = cx.new(|cx| {
-                        MultiBuffer::singleton(buffer, cx).with_title("Release Notes".into())
+                        MultiBuffer::singleton(buffer, cx).with_title(release_notes_title)
                     });
                     workspace.update_in(cx, |workspace, window, cx| {
                         let editor = cx.new(|cx| {

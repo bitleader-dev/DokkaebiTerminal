@@ -134,12 +134,15 @@ impl RenderOnce for SectionButton {
     }
 }
 
-/// 환영 탭 도움말 섹션의 정보 행. 클릭 불가하며 좌측 아이콘·설명, 우측 안내 텍스트를 보여준다.
+/// 환영 탭 도움말 섹션의 정보 행. 클릭 불가하며 좌측 아이콘·설명 + 우측 안내 텍스트를 보여준다.
+/// `stacked = true` 인 경우 우측 안내가 길어 한 줄에 담기 어려울 때 라벨 아래로 내려
+/// full-width 로 렌더한다(행 사이 겹침 방지).
 #[derive(IntoElement)]
 struct InfoRow {
     label: SharedString,
     value: SharedString,
     icon: IconName,
+    stacked: bool,
 }
 
 impl InfoRow {
@@ -152,43 +155,71 @@ impl InfoRow {
             label: label.into(),
             value: value.into(),
             icon,
+            stacked: false,
+        }
+    }
+
+    /// 안내 문구가 길어 한 줄에 들어가지 않을 때 라벨 아래로 내려 표시.
+    fn new_stacked(
+        label: impl Into<SharedString>,
+        value: impl Into<SharedString>,
+        icon: IconName,
+    ) -> Self {
+        Self {
+            label: label.into(),
+            value: value.into(),
+            icon,
+            stacked: true,
         }
     }
 }
 
 impl RenderOnce for InfoRow {
     fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
-        // 우측 값은 Label 대신 div+text 스타일로 직접 렌더해야 flex 자식의 min-content 제약을
-        // 받지 않고 자유롭게 줄바꿈된다.
+        // 값 텍스트는 Label 대신 div+text 로 렌더해 flex 자식 min-content 제약을 회피한다.
         let value_color = Color::Muted.color(cx);
         let value_font = theme::theme_settings(cx).buffer_font(cx).clone();
-        h_flex()
-            .w_full()
-            .min_h(rems_from_px(28.))
-            .px_2()
-            .gap_4()
-            .items_start()
+
+        // 아이콘 + 라벨 묶음은 스택형/인라인형 양쪽에서 동일하게 재사용.
+        let icon_label = h_flex()
+            .gap_2()
             .child(
-                h_flex()
-                    .flex_shrink_0()
-                    .gap_2()
-                    .child(
-                        Icon::new(self.icon)
-                            .color(Color::Muted)
-                            .size(IconSize::Small),
-                    )
-                    .child(Label::new(self.label)),
+                Icon::new(self.icon)
+                    .color(Color::Muted)
+                    .size(IconSize::Small),
             )
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .text_right()
-                    .text_ui_sm(cx)
-                    .text_color(value_color)
-                    .font(value_font)
-                    .child(self.value),
-            )
+            .child(Label::new(self.label));
+
+        // 값 텍스트. 스택형은 w_full + text_right, 인라인형은 flex_1 + min_w_0 + text_right.
+        let value = div()
+            .text_right()
+            .text_ui_sm(cx)
+            .text_color(value_color)
+            .font(value_font)
+            .child(self.value);
+
+        if self.stacked {
+            // 스택형: 아이콘+라벨 한 행 + value 한 행. value div 가 v_flex 자식이라
+            // 너비가 확정되어 Taffy 측정 시 올바른 wrap 높이를 보고한다.
+            v_flex()
+                .w_full()
+                .px_2()
+                .py_1()
+                .gap_0p5()
+                .child(icon_label)
+                .child(value.w_full())
+                .into_any_element()
+        } else {
+            h_flex()
+                .w_full()
+                .min_h(rems_from_px(28.))
+                .px_2()
+                .gap_4()
+                .items_center()
+                .child(icon_label.flex_shrink_0())
+                .child(value.flex_1().min_w_0())
+                .into_any_element()
+        }
     }
 }
 
@@ -520,10 +551,15 @@ impl WelcomePage {
                 t("welcome.help.terminal_history.value", cx),
                 IconName::HistoryRerun,
             ))
-            .child(InfoRow::new(
+            .child(InfoRow::new_stacked(
                 t("welcome.help.claude_code_sound.label", cx),
                 t("welcome.help.claude_code_sound.value", cx),
                 IconName::Bell,
+            ))
+            .child(InfoRow::new_stacked(
+                t("welcome.help.subagent_view.label", cx),
+                t("welcome.help.subagent_view.value", cx),
+                IconName::ListTree,
             ))
             .child(InfoRow::new(
                 t("welcome.help.background_image.label", cx),
@@ -634,57 +670,67 @@ impl Render for WelcomePage {
                     .px_12()
                     .max_w(px(1100.))
                     .child(
-                        v_flex()
+                        // 콘텐츠가 뷰포트보다 작으면 내부 v_flex 의 justify_center 로
+                        // 수직 중앙 정렬되고, 초과하면 이 래퍼에서 세로 스크롤된다.
+                        div()
+                            .id("welcome-scroll")
                             .flex_1()
-                            .justify_center()
-                            .max_w_128()
-                            .mx_auto()
-                            .gap_6()
+                            .h_full()
+                            .overflow_y_scroll()
                             .overflow_x_hidden()
                             .child(
-                                h_flex()
-                                    .w_full()
+                                v_flex()
+                                    .min_h_full()
                                     .justify_center()
-                                    .mb_4()
-                                    .gap_4()
+                                    .max_w_128()
+                                    .mx_auto()
+                                    .gap_6()
+                                    .py_6()
                                     .child(
-                                        img("icons/icon.png")
-                                            .w(rems_from_px(70.))
-                                            .h(rems_from_px(70.))
-                                            .flex_none(),
+                                        h_flex()
+                                            .w_full()
+                                            .justify_center()
+                                            .mb_4()
+                                            .gap_4()
+                                            .child(
+                                                img("icons/icon.png")
+                                                    .w(rems_from_px(70.))
+                                                    .h(rems_from_px(70.))
+                                                    .flex_none(),
+                                            )
+                                            .child(
+                                                v_flex().child(Headline::new(welcome_label)).child(
+                                                    Label::new(t("welcome.tagline", cx))
+                                                        .size(LabelSize::Small)
+                                                        .color(Color::Muted)
+                                                        .italic(),
+                                                ),
+                                            ),
                                     )
-                                    .child(
-                                        v_flex().child(Headline::new(welcome_label)).child(
-                                            Label::new(t("welcome.tagline", cx))
-                                                .size(LabelSize::Small)
-                                                .color(Color::Muted)
-                                                .italic(),
-                                        ),
-                                    ),
-                            )
-                            .child(first_section.render(
-                                Default::default(),
-                                &self.focus_handle,
-                                first_section_disabled,
-                                cx,
-                            ))
-                            .child(second_section)
-                            .when(!self.fallback_to_recent_projects, |this| {
-                                this.child(self.render_help_section(cx)).child(
-                                    v_flex().gap_1().child(Divider::horizontal()).child(
-                                        Button::new("welcome-exit", t("welcome.return_to_onboarding", cx))
-                                            .tab_index(last_index as isize)
-                                            .full_width()
-                                            .label_size(LabelSize::XSmall)
-                                            .on_click(|_, window, cx| {
-                                                window.dispatch_action(
-                                                    OpenOnboarding.boxed_clone(),
-                                                    cx,
-                                                );
-                                            }),
-                                    ),
-                                )
-                            }),
+                                    .child(first_section.render(
+                                        Default::default(),
+                                        &self.focus_handle,
+                                        first_section_disabled,
+                                        cx,
+                                    ))
+                                    .child(second_section)
+                                    .when(!self.fallback_to_recent_projects, |this| {
+                                        this.child(self.render_help_section(cx)).child(
+                                            v_flex().gap_1().child(Divider::horizontal()).child(
+                                                Button::new("welcome-exit", t("welcome.return_to_onboarding", cx))
+                                                    .tab_index(last_index as isize)
+                                                    .full_width()
+                                                    .label_size(LabelSize::XSmall)
+                                                    .on_click(|_, window, cx| {
+                                                        window.dispatch_action(
+                                                            OpenOnboarding.boxed_clone(),
+                                                            cx,
+                                                        );
+                                                    }),
+                                            ),
+                                        )
+                                    }),
+                            ),
                     ),
             )
     }

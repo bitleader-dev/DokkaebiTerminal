@@ -41,6 +41,43 @@ pub fn init(cx: &mut App) {
     WorkspaceGroupPanelSettings::register(cx);
 }
 
+// ── 아이콘 색상 팔레트 ─────────────────────────────────────────────
+// 시맨틱 Color 매핑(테마 자동 대응). 인덱스는 DB에 저장되므로 순서는 변경 금지,
+// 신규 색상은 배열 끝에만 추가한다.
+// 주황은 ui::Color 에 대응 variant 가 없어 Custom Hsla 로 직접 지정(테마 비연동).
+/// 워크스페이스 그룹 아이콘의 최종 색상을 계산한다.
+/// 사용자 지정 슬롯이 있으면 해당 색상을, 없으면 활성/비활성 상태에 따라
+/// Default/Muted 를 반환한다.
+pub(crate) fn resolve_group_icon_color(slot: Option<u8>, is_active: bool) -> ui::Color {
+    if let Some((color, _)) =
+        slot.and_then(|idx| WORKSPACE_GROUP_COLOR_SLOTS.get(idx as usize))
+    {
+        *color
+    } else if is_active {
+        ui::Color::Default
+    } else {
+        ui::Color::Muted
+    }
+}
+
+pub(crate) const WORKSPACE_GROUP_COLOR_SLOTS: &[(ui::Color, &str)] = &[
+    (ui::Color::Error, "workspace_group.color.error"),
+    (ui::Color::Success, "workspace_group.color.success"),
+    (ui::Color::Warning, "workspace_group.color.warning"),
+    (ui::Color::Info, "workspace_group.color.info"),
+    (ui::Color::Accent, "workspace_group.color.accent"),
+    (ui::Color::Hint, "workspace_group.color.hint"),
+    (
+        ui::Color::Custom(gpui::Hsla {
+            h: 30.0 / 360.0,
+            s: 0.90,
+            l: 0.55,
+            a: 1.0,
+        }),
+        "workspace_group.color.orange",
+    ),
+];
+
 // ── 인라인 이름 편집기 ──────────────────────────────────────────────
 
 /// 인라인 텍스트 편집기 — 워크스페이스 그룹 이름 변경 시 사용
@@ -767,6 +804,31 @@ impl WorkspaceGroupPanel {
         cx.notify();
     }
 
+    /// 팔레트 dot 클릭 처리 — 이미 선택된 색이면 해제, 아니면 해당 색 적용
+    fn toggle_color(
+        &mut self,
+        index: usize,
+        slot: u8,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(workspace) = self.workspace.upgrade() else {
+            return;
+        };
+        let current = workspace
+            .read(cx)
+            .workspace_groups()
+            .get(index)
+            .and_then(|g| g.color);
+        let new_color = if current == Some(slot) { None } else { Some(slot) };
+        workspace.update(cx, |ws, cx| {
+            ws.set_workspace_group_color(index, new_color, window, cx);
+        });
+        // 선택 후 컨텍스트 메뉴 닫기
+        self.context_menu.take();
+        cx.notify();
+    }
+
     /// 우클릭 컨텍스트 메뉴 표시
     fn deploy_context_menu(
         &mut self,
@@ -774,6 +836,7 @@ impl WorkspaceGroupPanel {
         index: usize,
         name: String,
         group_count: usize,
+        current_color: Option<u8>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -802,6 +865,56 @@ impl WorkspaceGroupPanel {
                             });
                         }
                     })
+            })
+            // 아이콘 색상 팔레트 — 클릭 시 해당 색상 적용, 이미 선택된 색상을 다시 클릭하면 해제
+            .separator()
+            .custom_row({
+                let entity = entity.clone();
+                move |_window, cx| {
+                    let mut row = gpui::div()
+                        .flex()
+                        .flex_row()
+                        .items_center()
+                        .gap(px(8.))
+                        .px_2()
+                        .py(px(6.));
+                    for (slot_idx, (color_variant, label_key)) in
+                        WORKSPACE_GROUP_COLOR_SLOTS.iter().enumerate()
+                    {
+                        let slot_idx_u8 = slot_idx as u8;
+                        let hsla = color_variant.color(cx);
+                        let tooltip_text = t(*label_key, cx);
+                        let is_selected = current_color == Some(slot_idx_u8);
+                        let entity = entity.clone();
+                        // dot: 테두리 없이 원형 배경 + 선택 시 검정 체크 아이콘만 얹음
+                        // (테두리를 추가하면 SDF+border 가 픽셀 경계에서 계단형으로 보임)
+                        let dot = gpui::div()
+                            .id(("wg-color-slot", slot_idx))
+                            .size(px(20.))
+                            .rounded_full()
+                            .bg(hsla)
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .cursor_pointer()
+                            .tooltip(Tooltip::text(tooltip_text))
+                            .when(is_selected, |el| {
+                                el.child(
+                                    ui::Icon::new(IconName::Check)
+                                        .size(ui::IconSize::Small)
+                                        .color(ui::Color::Custom(gpui::black())),
+                                )
+                            })
+                            .on_mouse_down(MouseButton::Left, move |_event, window, cx| {
+                                let entity = entity.clone();
+                                entity.update(cx, |this, cx| {
+                                    this.toggle_color(index, slot_idx_u8, window, cx);
+                                });
+                            });
+                        row = row.child(dot);
+                    }
+                    row.into_any_element()
+                }
             })
         });
 
@@ -880,11 +993,11 @@ impl Render for WorkspaceGroupPanel {
         let (groups, active_index, group_count) =
             if let Some(workspace) = self.workspace.upgrade() {
                 let ws = workspace.read(cx);
-                let groups: Vec<(usize, String, bool)> = ws
+                let groups: Vec<(usize, String, bool, Option<u8>)> = ws
                     .workspace_groups()
                     .iter()
                     .enumerate()
-                    .map(|(i, g)| (i, g.name.clone(), g.has_notification))
+                    .map(|(i, g)| (i, g.name.clone(), g.has_notification, g.color))
                     .collect();
                 let active = ws.active_group_index();
                 let count = ws.workspace_group_count();
@@ -958,13 +1071,14 @@ impl Render for WorkspaceGroupPanel {
                     .py_1()
                     // 항목 간 4픽셀 세로 간격
                     .gap(px(4.))
-                    .children(groups.into_iter().map(|(index, name, has_notification)| {
+                    .children(groups.into_iter().map(|(index, name, has_notification, color)| {
                         let is_active = index == active_index;
                         let is_editing = editing_index == Some(index);
                         let can_delete = group_count > 1;
                         let name_for_menu = name.clone();
                         let name_for_rename = name.clone();
                         let name_shared: SharedString = name.clone().into();
+                        let current_color_for_menu = color;
 
                         // 드래그 데이터·리스너를 미리 생성
                         let drag_data = DraggedWorkspaceGroup {
@@ -1025,6 +1139,7 @@ impl Render for WorkspaceGroupPanel {
                                         index,
                                         name_for_menu.clone(),
                                         group_count,
+                                        current_color_for_menu,
                                         window,
                                         cx,
                                     );
@@ -1036,6 +1151,14 @@ impl Render for WorkspaceGroupPanel {
                                     .min_w_0()
                                     .flex_1()
                                     .overflow_x_hidden()
+                                    // 터미널 아이콘 — 이름 앞에 표시 (터미널 탭 아이콘과 동일)
+                                    // Small(14px) 대비 50% 확대해 21px 크기로 표시.
+                                    // 사용자 지정 색(color)이 있으면 그 색으로, 없으면 활성=Default/비활성=Muted.
+                                    .child(
+                                        ui::Icon::new(IconName::Terminal)
+                                            .size(ui::IconSize::Custom(rems_from_px(21.)))
+                                            .color(resolve_group_icon_color(color, is_active)),
+                                    )
                                     .child(if is_editing {
                                         // 인라인 편집기 표시
                                         let editor = self.editing.as_ref().unwrap().1.clone();

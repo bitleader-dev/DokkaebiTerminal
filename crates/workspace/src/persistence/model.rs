@@ -75,12 +75,14 @@ pub struct SerializedMultiWorkspace {
     pub state: MultiWorkspaceState,
 }
 
-/// 직렬화된 워크스페이스 그룹 (이름 + 패인 트리 + 활성 여부)
+/// 직렬화된 워크스페이스 그룹 (이름 + 패인 트리 + 활성 여부 + 아이콘 색상 슬롯)
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) struct SerializedWorkspaceGroup {
     pub(crate) name: String,
     pub(crate) center_group: SerializedPaneGroup,
     pub(crate) active: bool,
+    /// 사용자가 지정한 아이콘 색상 팔레트 인덱스. None 이면 기본 시맨틱(Default/Muted) 사용
+    pub(crate) color: Option<u8>,
 }
 
 #[derive(Debug, PartialEq, Clone)]

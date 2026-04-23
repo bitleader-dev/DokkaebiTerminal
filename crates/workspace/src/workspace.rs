@@ -1688,6 +1688,7 @@ impl Workspace {
             last_active_center_pane: Some(center_pane.downgrade()),
             panes_by_item: Default::default(),
             has_notification: false,
+            color: None,
         };
 
         Workspace {
@@ -5349,6 +5350,52 @@ impl Workspace {
         self.workspace_groups.len()
     }
 
+    /// 지정한 워크스페이스 그룹의 패인 목록을 반환한다.
+    /// 활성 그룹이면 `self.panes`(현재 라이브 상태)를, 비활성 그룹이면
+    /// `workspace_groups[idx].panes`(스냅샷)를 반환한다. 인덱스가 범위를
+    /// 벗어나면 `None`. 서브에이전트 탭 배치처럼 발신 터미널이 속한 그룹의
+    /// pane 을 활성 여부와 무관하게 조회해야 할 때 사용한다.
+    pub fn panes_in_group(&self, group_idx: usize) -> Option<&[Entity<Pane>]> {
+        if group_idx == self.active_group_index {
+            return Some(&self.panes);
+        }
+        self.workspace_groups
+            .get(group_idx)
+            .map(|g| g.panes.as_slice())
+    }
+
+    /// 지정한 워크스페이스 그룹의 활성 패인을 `direction` 방향으로 split 해
+    /// 새 패인을 만든다. 활성 그룹이면 기존 `split_pane` 에 위임. 비활성 그룹
+    /// 이면 `create_inactive_pane` 으로 패인을 만들고 그룹의 center PaneGroup
+    /// 와 panes 벡터를 직접 갱신한다(현재 활성 그룹 상태는 건드리지 않음).
+    /// 서브에이전트 탭이 발신 터미널이 속한 그룹에 부착되도록 하는 용도.
+    pub fn split_pane_in_group(
+        &mut self,
+        group_idx: usize,
+        direction: SplitDirection,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<Entity<Pane>> {
+        if group_idx == self.active_group_index {
+            let active_pane = self.active_pane.clone();
+            return Some(self.split_pane(active_pane, direction, window, cx));
+        }
+        if group_idx >= self.workspace_groups.len() {
+            return None;
+        }
+        // 비활성 그룹은 self.panes/self.center 와 별도 보관된 스냅샷을 직접
+        // 변경한다. 사용자가 해당 그룹으로 전환하면 switch_workspace_group 이
+        // 이 스냅샷을 self.panes/self.center 로 복원하므로 새 패인이 자연스레
+        // 표시된다.
+        let new_pane = self.create_inactive_pane(window, cx);
+        let group = &mut self.workspace_groups[group_idx];
+        let pane_to_split = group.active_pane.clone();
+        group.center.split(&pane_to_split, &new_pane, direction, cx);
+        group.panes.push(new_pane.clone());
+        cx.notify();
+        Some(new_pane)
+    }
+
     /// 비활성 그룹에 속한 아이템의 알림(bell)을 설정한다.
     /// terminal_view에서 마커 파일 감지 시 호출된다.
     pub fn notify_bell_for_item(
@@ -5371,6 +5418,8 @@ impl Workspace {
     /// 현재 상태를 활성 그룹에 동기화
     fn sync_active_group(&mut self) {
         if self.active_group_index < self.workspace_groups.len() {
+            // 기존 색상 슬롯은 보존
+            let current_color = self.workspace_groups[self.active_group_index].color;
             self.workspace_groups[self.active_group_index] = WorkspaceGroupState::capture(
                 self.workspace_groups[self.active_group_index].name.clone(),
                 &self.center,
@@ -5379,6 +5428,7 @@ impl Workspace {
                 &self.last_active_center_pane,
                 &self.panes_by_item,
                 false, // 활성 그룹은 알림 불필요
+                current_color,
             );
         }
     }
@@ -5480,6 +5530,7 @@ impl Workspace {
             last_active_center_pane: Some(new_pane.downgrade()),
             panes_by_item: HashMap::default(),
             has_notification: false,
+            color: None,
         };
         self.workspace_groups.push(new_group);
 
@@ -5535,6 +5586,30 @@ impl Workspace {
         self.serialize_workspace(window, cx);
         cx.notify();
         true
+    }
+
+    /// 워크스페이스 그룹 아이콘 색상 슬롯 설정.
+    /// `Some(idx)` 는 팔레트 인덱스(0..=5), `None` 이면 기본 시맨틱 색상으로 복귀한다.
+    pub fn set_workspace_group_color(
+        &mut self,
+        index: usize,
+        color: Option<u8>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if index >= self.workspace_groups.len() {
+            return;
+        }
+        if self.workspace_groups[index].color == color {
+            return;
+        }
+        self.workspace_groups[index].color = color;
+        // 색 선택은 debounce 없이 즉시 DB에 반영해 재시작 후 확실히 유지되도록 함.
+        // (기존 debounce 경로는 사용자가 선택 직후 앱을 종료할 때 누락 가능)
+        self._schedule_serialize_workspace.take();
+        self._serialize_workspace_task =
+            Some(self.serialize_workspace_internal(window, cx));
+        cx.notify();
     }
 
     /// 워크스페이스 그룹 순서 이동 (from → to)
@@ -6824,6 +6899,7 @@ impl Workspace {
                         name: group.name.clone(),
                         center_group: group_center,
                         active: is_active,
+                        color: group.color,
                     });
                 }
 
@@ -7153,6 +7229,7 @@ impl Workspace {
                     // 모든 그룹을 순서대로 재구성
                     let total = serialized_workspace.workspace_groups.len();
                     for i in 0..total {
+                        let stored_color = serialized_workspace.workspace_groups.get(i).and_then(|g| g.color);
                         if i == active_idx {
                             // 활성 그룹: center에 속한 패인만 캡처 (비활성 그룹 패인 혼입 방지)
                             workspace.workspace_groups.push(WorkspaceGroupState {
@@ -7163,6 +7240,7 @@ impl Workspace {
                                 last_active_center_pane: workspace.last_active_center_pane.clone(),
                                 panes_by_item: active_panes_by_item.clone(),
                                 has_notification: false,
+                                color: stored_color,
                             });
                         } else if let Some(pos) = restored_groups.iter().position(|(idx, _, _, _)| *idx == i) {
                             let (_, name, member, active_pane_opt) = restored_groups.remove(pos);
@@ -7190,6 +7268,7 @@ impl Workspace {
                                 last_active_center_pane: Some(group_active_pane.downgrade()),
                                 panes_by_item,
                                 has_notification: false,
+                                color: stored_color,
                             });
                         } else {
                             // 역직렬화 실패한 그룹 — 빈 패인으로 복원하여 그룹 자체는 유지
@@ -7224,6 +7303,7 @@ impl Workspace {
                                 last_active_center_pane: Some(fallback_pane.downgrade()),
                                 panes_by_item: HashMap::default(),
                                 has_notification: false,
+                                color: stored_color,
                             });
                         }
                     }

@@ -17,6 +17,39 @@ pub enum NotifyKind {
     Idle,
     /// 도구 사용 권한 요청 (PermissionRequest hook)
     Permission,
+    /// 서브에이전트 시작 (PreToolUse hook, matcher: Task)
+    SubagentStart,
+    /// 서브에이전트 완료 (PostToolUse hook, matcher: Task)
+    SubagentStop,
+}
+
+/// Subagent(Task 도구) 이벤트 전용 payload. SubagentStart/Stop 에만 채워지며,
+/// 일반 토스트(Stop/Idle/Permission)에는 None 으로 전달된다.
+/// 이전에는 동일한 7개 필드를 CliRequest/Args/NotifyRequestArgs 3곳에 병렬 선언해
+/// 파라미터 sprawl 이 발생했다. 단일 구조체로 묶어 변경 비용 집중화.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct SubagentPayload {
+    /// Claude Code session id (hook payload `session_id`). 동일 세션의 시작/종료 매칭 보조용.
+    #[serde(default)]
+    pub session_id: Option<String>,
+    /// Claude Code transcript JSONL 경로. 본체가 tail 리더로 진행 상황을 실시간 읽을 때 사용.
+    #[serde(default)]
+    pub transcript_path: Option<String>,
+    /// tool_input 기반 안정적 해시 id. PreToolUse/PostToolUse 에서 동일 id 로 매칭.
+    #[serde(default)]
+    pub subagent_id: Option<String>,
+    /// Start: tool_input.subagent_type (서브에이전트 유형 이름).
+    #[serde(default)]
+    pub subagent_type: Option<String>,
+    /// Start: tool_input.description (간단 요약, ~200자 권장).
+    #[serde(default)]
+    pub description: Option<String>,
+    /// Start: tool_input.prompt (실제 지시문, ~500자 권장).
+    #[serde(default)]
+    pub prompt: Option<String>,
+    /// Stop: tool_response 를 텍스트로 평탄화한 최종 결과 (~1000자 권장).
+    #[serde(default)]
+    pub result: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -69,6 +102,9 @@ pub enum CliRequest {
         /// Idle 이벤트: Claude Code가 hook payload 로 보낸 원본 메시지.
         #[serde(default)]
         notify_idle_summary: Option<String>,
+        /// Subagent 이벤트 전용 payload. SubagentStart/Stop 에만 Some.
+        #[serde(default)]
+        subagent: Option<SubagentPayload>,
     },
 }
 

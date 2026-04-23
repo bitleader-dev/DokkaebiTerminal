@@ -3,7 +3,7 @@
 #define AppGuid "{B8F4E2A1-7C3D-4E5F-9A1B-6D8E0F2C3A4B}"
 #define AppId "{" + AppGuid
 #define AppName "Dokkaebi"
-#define Version "0.3.0"
+#define Version "0.4.0"
 #define AppSetupName "Dokkaebi-Setup-v" + Version
 #define AppMutex "Dokkaebi-Instance-Mutex"
 #define AppIconName "app-icon-dokkaebi"
@@ -73,6 +73,12 @@ english.WelcomeLabel2=A Windows-focused terminal workspace for AI coding agents,
 english.DowngradeWarningText=A newer version (%1) of Dokkaebi is already installed.%nIf you continue, it will be downgraded to version %2.%n%nDo you want to continue?
 korean.DowngradeWarningText=이미 설치된 버전(%1)이 설치하려는 버전(%2)보다 높습니다.%n계속 진행하면 이전 버전으로 되돌립니다.%n%n계속하시겠습니까?
 
+[Registry]
+; 앱이 런타임에 기록하는 자동 실행 레지스트리 값(HKCU\...\Run\Dokkaebi)을 언인스톨 시 함께 제거.
+; 설치·업그레이드 시에는 값을 건드리지 않고(ValueType: none) 사용자가 앱에서 토글한 상태를 보존한다.
+; 값이 없을 때도 uninsdeletevalue 는 조용히 통과한다.
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "Dokkaebi"; Flags: uninsdeletevalue
+
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}\x64"
 Type: filesandordirs; Name: "{app}\arm64"
@@ -110,6 +116,13 @@ Source: "{#ResourcesDir}\conpty.dll"; DestDir: "{app}"; Flags: ignoreversion
 ; cargo bin name이 "dokkaebi-cli"로 빌드되므로 별도 리네임 불필요.
 #ifexist ResourcesDir + "\dokkaebi-cli.exe"
 Source: "{#ResourcesDir}\dokkaebi-cli.exe"; DestDir: "{app}"; Flags: ignoreversion
+#endif
+; jq.exe — Claude Code 훅 스크립트(dispatch.sh)가 JSON payload 파싱에 사용.
+; 사용자 환경에 jq 설치 여부와 무관하게 동작하도록 번들. dispatch.sh는 사용자 PATH
+; 의 jq를 먼저 찾고 없으면 {app}\jq.exe를 폴백으로 사용한다.
+; 라이선스: MIT (jqlang/jq). 출처: https://github.com/jqlang/jq/releases
+#ifexist ResourcesDir + "\jq.exe"
+Source: "{#ResourcesDir}\jq.exe"; DestDir: "{app}"; Flags: ignoreversion
 #endif
 ; Claude Code 작업 알림 브리지 플러그인 (로컬 마켓플레이스 구조).
 ; Claude Code의 directory source는 `.claude-plugin/marketplace.json` 카탈로그가 있는

@@ -5,15 +5,8 @@ $CARGO_ABOUT_VERSION="0.8.2"
 $outputFile=$args[0] ? $args[0] : "$(Get-Location)/assets/licenses.md"
 $templateFile="script/licenses/template.md.hbs"
 
-New-Item -Path "$outputFile" -ItemType File -Value "" -Force
-
-@(
-    "# ###### THEME LICENSES ######\n"
-    Get-Content assets/themes/LICENSES
-    "\n# ###### ICON LICENSES ######\n"
-    Get-Content assets/icons/LICENSES
-    "\n# ###### CODE LICENSES ######\n"
-) | Add-Content -Path $outputFile
+# cargo about 는 -o 로 파일을 덮어쓰므로, 먼저 cargo about 이 생성한 본문을 생성한 뒤
+# 테마/아이콘/번들 라이선스 섹션을 파일 앞에 prepend 하는 순서로 처리한다.
 
 $needsInstall = $false
 try {
@@ -37,6 +30,23 @@ Write-Host "Generating cargo licenses"
 $failFlag = $env:ALLOW_MISSING_LICENSES ? "--fail" : ""
 $args = @('about', 'generate', $failFlag, '-c', 'script/licenses/zed-licenses.toml', $templateFile, '-o', $outputFile) | Where-Object { $_ }
 cargo @args
+
+Write-Host "Prepending theme/icon/bundled license sections"
+$headerLines = @()
+$headerLines += "# ###### THEME LICENSES ######"
+$headerLines += Get-Content assets/themes/LICENSES
+$headerLines += ""
+$headerLines += "# ###### ICON LICENSES ######"
+$headerLines += Get-Content assets/icons/LICENSES
+$headerLines += ""
+$headerLines += Get-Content assets/bundled-licenses.md
+$headerLines += ""
+$headerLines += "# ###### CODE LICENSES ######"
+$headerLines += ""
+
+$cargoContent = Get-Content $outputFile
+$combined = $headerLines + $cargoContent
+$combined | Set-Content -Path $outputFile
 
 Write-Host "Applying replacements"
 $replacements = @{

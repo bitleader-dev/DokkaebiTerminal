@@ -9,7 +9,7 @@
 
 use anyhow::{Context as _, Result};
 use clap::Parser;
-use cli::{CliRequest, CliResponse, IpcHandshake, NotifyKind, ipc::IpcOneShotServer};
+use cli::{CliRequest, CliResponse, IpcHandshake, NotifyKind, SubagentPayload, ipc::IpcOneShotServer};
 use parking_lot::Mutex;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -198,7 +198,7 @@ struct Args {
 
     /// Claude Code 플러그인 → Dokkaebi 작업 알림 전달용 인자.
     /// 지정 시 paths/wait/diff 등 다른 인자는 무시되고 알림 IPC만 송신 후 즉시 종료한다.
-    /// 값: "stop" | "idle" | "permission"
+    /// 값: "stop" | "idle" | "permission" | "subagent-start" | "subagent-stop"
     #[arg(long, hide = true, value_name = "KIND")]
     notify_kind: Option<String>,
     /// 알림 발생 위치 cwd. 다중 워크스페이스 라우팅 힌트로 사용된다.
@@ -223,6 +223,27 @@ struct Args {
     /// Idle 이벤트용 Claude Code 원본 메시지.
     #[arg(long, hide = true, value_name = "SUMMARY", requires = "notify_kind")]
     notify_idle_summary: Option<String>,
+    /// Subagent 이벤트용 Claude Code session id.
+    #[arg(long, hide = true, value_name = "SESSION_ID", requires = "notify_kind")]
+    notify_session_id: Option<String>,
+    /// Subagent 이벤트용 transcript JSONL 경로.
+    #[arg(long, hide = true, value_name = "PATH", requires = "notify_kind")]
+    notify_transcript_path: Option<String>,
+    /// Subagent 이벤트용 tool_input 기반 안정적 해시 id.
+    #[arg(long, hide = true, value_name = "ID", requires = "notify_kind")]
+    notify_subagent_id: Option<String>,
+    /// Subagent 시작용 subagent_type.
+    #[arg(long, hide = true, value_name = "TYPE", requires = "notify_kind")]
+    notify_subagent_type: Option<String>,
+    /// Subagent 시작용 description (200자 truncate 권장).
+    #[arg(long, hide = true, value_name = "DESC", requires = "notify_kind")]
+    notify_subagent_description: Option<String>,
+    /// Subagent 시작용 prompt (500자 truncate 권장).
+    #[arg(long, hide = true, value_name = "PROMPT", requires = "notify_kind")]
+    notify_subagent_prompt: Option<String>,
+    /// Subagent 종료용 최종 결과 텍스트 (1000자 truncate 권장).
+    #[arg(long, hide = true, value_name = "RESULT", requires = "notify_kind")]
+    notify_subagent_result: Option<String>,
 
     /// 인스톨러 언인스톨 훅 전용. 지정 시 다른 인자를 무시하고
     /// ~/.claude/settings.json 에서 Dokkaebi 알림 브리지 등록 항목을
@@ -855,13 +876,32 @@ fn main() -> Result<()> {
                         "stop" => NotifyKind::Stop,
                         "idle" => NotifyKind::Idle,
                         "permission" => NotifyKind::Permission,
+                        "subagent-start" => NotifyKind::SubagentStart,
+                        "subagent-stop" => NotifyKind::SubagentStop,
                         other => anyhow::bail!(
-                            "invalid --notify-kind value '{other}', expected one of: stop|idle|permission"
+                            "invalid --notify-kind value '{other}', expected one of: stop|idle|permission|subagent-start|subagent-stop"
                         ),
                     };
                     // main 진입 최상단에서 찍은 snapshot 재사용.
                     let ancestors = initial_ancestors.clone();
                     let pid = ancestors.get(1).copied().or(args.notify_pid);
+                    // Subagent payload 는 SubagentStart/Stop 때만 의미 있지만, Args 는
+                    // 훅 진입 시점에 어떤 kind 인지 구분 없이 플래그를 채워 오므로 kind 로
+                    // 분기해 채운다. 그 외 토스트 경로는 None.
+                    let subagent = match kind {
+                        NotifyKind::SubagentStart | NotifyKind::SubagentStop => {
+                            Some(SubagentPayload {
+                                session_id: args.notify_session_id,
+                                transcript_path: args.notify_transcript_path,
+                                subagent_id: args.notify_subagent_id,
+                                subagent_type: args.notify_subagent_type,
+                                description: args.notify_subagent_description,
+                                prompt: args.notify_subagent_prompt,
+                                result: args.notify_subagent_result,
+                            })
+                        }
+                        _ => None,
+                    };
                     CliRequest::Notify {
                         kind,
                         cwd: args.notify_cwd,
@@ -872,6 +912,7 @@ fn main() -> Result<()> {
                         notify_tool_name: args.notify_tool_name,
                         notify_tool_preview: args.notify_tool_preview,
                         notify_idle_summary: args.notify_idle_summary,
+                        subagent,
                     }
                 } else {
                     CliRequest::Open {

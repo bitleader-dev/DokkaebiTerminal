@@ -464,6 +464,7 @@ fn init_renderers(cx: &mut App) {
         .add_basic_renderer::<settings::RestoreOnStartupBehavior>(render_dropdown)
         .add_basic_renderer::<settings::BottomDockLayout>(render_dropdown)
         .add_basic_renderer::<settings::OnLastWindowClosed>(render_dropdown)
+        .add_basic_renderer::<settings::SubagentPanelPositionContent>(render_dropdown)
         .add_basic_renderer::<settings::CloseWindowWhenNoItems>(render_dropdown)
         .add_basic_renderer::<settings::TextRenderingMode>(render_dropdown)
         .add_basic_renderer::<settings::FontFamilyName>(render_font_picker)
@@ -4221,14 +4222,14 @@ fn render_toggle_button<B: Into<bool> + From<bool> + Copy>(
 }
 
 /// Claude Code 알림 토글이 플러그인 미설치로 비활성화되어야 하는지 판정.
-/// `notification.task_alert` / `notification.task_alert_toast` 에만 적용되며
+/// `claude_code.task_alert` / `claude_code.task_alert_toast` 에만 적용되며
 /// 다른 설정 항목에는 영향이 없다. disabled인 row는 pointer 이벤트가 뒤에
 /// 깔린 다른 설정 페이지 패널로 새어나가지 않도록 `.occlude()` 처리된다.
 fn is_claude_notify_toggle_disabled(json_path: Option<&'static str>, cx: &App) -> bool {
     json_path.is_some_and(|p| {
         matches!(
             p,
-            "notification.task_alert" | "notification.task_alert_toast"
+            "claude_code.task_alert" | "claude_code.task_alert_toast"
         )
     }) && !crate::pages::is_plugin_installed(cx)
 }

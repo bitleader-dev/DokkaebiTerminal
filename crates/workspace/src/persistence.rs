@@ -895,6 +895,10 @@ impl Domain for WorkspaceDb {
             ALTER TABLE panes ADD COLUMN workspace_group_id INTEGER
                 REFERENCES workspace_groups(workspace_group_id) ON DELETE CASCADE;
         ),
+        // 워크스페이스 그룹 아이콘 색상 선택: NULL 이면 기본 시맨틱 색상 사용, 값(0..=5)은 팔레트 인덱스
+        sql!(
+            ALTER TABLE workspace_groups ADD COLUMN color INTEGER;
+        ),
     ];
 
     // Allow recovering from bad migration that was initially shipped to nightly
@@ -1367,14 +1371,15 @@ impl WorkspaceDb {
                             group.center_group.item_count()
                         );
                         let wg_id: i64 = conn.select_row_bound::<_, i64>(sql!(
-                            INSERT INTO workspace_groups(workspace_id, name, position, active)
-                            VALUES (?, ?, ?, ?)
+                            INSERT INTO workspace_groups(workspace_id, name, position, active, color)
+                            VALUES (?, ?, ?, ?, ?)
                             RETURNING workspace_group_id
                         ))?((
                             workspace.id,
                             group.name.clone(),
                             position,
                             group.active,
+                            group.color.map(|c| c as i64),
                         ))?
                         .context("Could not insert workspace_group")?;
 
@@ -1865,8 +1870,8 @@ impl WorkspaceDb {
 
     /// 워크스페이스 그룹 목록 로드
     fn get_workspace_groups(&self, workspace_id: WorkspaceId) -> Result<Vec<SerializedWorkspaceGroup>> {
-        let rows: Vec<(i64, String, i64, bool)> = self.select_bound(sql!(
-            SELECT workspace_group_id, name, position, active
+        let rows: Vec<(i64, String, i64, bool, Option<i64>)> = self.select_bound(sql!(
+            SELECT workspace_group_id, name, position, active, color
             FROM workspace_groups
             WHERE workspace_id = ?
             ORDER BY position
@@ -1878,16 +1883,21 @@ impl WorkspaceDb {
         );
 
         let mut groups = Vec::new();
-        for (wg_id, name, _position, active) in rows {
+        for (wg_id, name, _position, active, color) in rows {
             let center_group = self.get_center_pane_group_for_wg(workspace_id, Some(wg_id))?;
             log::debug!(
                 "  그룹 wg_id={}, name='{}', active={}, center_items/children={}",
                 wg_id, name, active, center_group.item_count()
             );
+            // DB의 color 컬럼은 팔레트 인덱스(0..=5). 범위 밖이면 무시해 기본 시맨틱 색상으로 복귀
+            let color = color
+                .and_then(|c| u8::try_from(c).ok())
+                .filter(|c| (*c as usize) < crate::workspace_group_panel::WORKSPACE_GROUP_COLOR_SLOTS.len());
             groups.push(SerializedWorkspaceGroup {
                 name,
                 center_group,
                 active,
+                color,
             });
         }
         Ok(groups)

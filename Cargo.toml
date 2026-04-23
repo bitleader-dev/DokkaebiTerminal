@@ -23,6 +23,7 @@ members = [
     "crates/buffer_diff",
 
     "crates/claude_plugin_registry",
+    "crates/claude_subagent_view",
     "crates/cli",
     "crates/client",
     "crates/clock",
@@ -267,6 +268,7 @@ breadcrumbs = { path = "crates/breadcrumbs" }
 buffer_diff = { path = "crates/buffer_diff" }
 
 claude_plugin_registry = { path = "crates/claude_plugin_registry" }
+claude_subagent_view = { path = "crates/claude_subagent_view" }
 cli = { path = "crates/cli" }
 client = { path = "crates/client" }
 clock = { path = "crates/clock" }

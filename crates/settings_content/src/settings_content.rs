@@ -179,8 +179,8 @@ pub struct SettingsContent {
     /// Configuration for Node-related features
     pub node: Option<NodeBinarySettings>,
 
-    /// 알림 관련 설정
-    pub notification: Option<NotificationSettingsContent>,
+    /// Claude Code 통합 설정 (플러그인·알림·서브에이전트 뷰 등).
+    pub claude_code: Option<ClaudeCodeSettingsContent>,
 
     /// Configuration for the Notification Panel
     pub notification_panel: Option<NotificationPanelSettingsContent>,
@@ -563,7 +563,7 @@ pub struct ScrollbarSettings {
 
 #[with_fallible_options]
 #[derive(Clone, Default, Serialize, Deserialize, JsonSchema, MergeFrom, Debug, PartialEq)]
-pub struct NotificationSettingsContent {
+pub struct ClaudeCodeSettingsContent {
     /// Claude Code 작업 완료 시 터미널에 벨 알림을 보낸다.
     /// ~/.claude/settings.json의 Stop 훅에 벨 명령을 추가/제거한다.
     ///
@@ -593,6 +593,63 @@ pub struct NotificationSettingsContent {
     ///
     /// Default: 5
     pub toast_display_seconds: Option<u32>,
+
+    /// Claude Code 서브에이전트(Task 도구) 실행 시 서브에이전트 뷰 탭을
+    /// 자동으로 열지 여부. false면 훅 IPC 는 계속 수신하지만 새 서브에이전트
+    /// 이벤트 발생 시 탭을 자동 생성하지 않는다. 이미 열린 탭은 유지된다.
+    ///
+    /// Default: false (사용자가 명시적으로 켜야 자동 생성)
+    pub subagent_view: Option<bool>,
+
+    /// Claude Code 서브에이전트 뷰 탭의 배치 위치.
+    /// - `right`: 활성 pane 을 오른쪽으로 split 해 우측 pane 에 탭 추가
+    /// - `bottom`: 활성 pane 을 아래쪽으로 split 해 하단 pane 에 탭 추가
+    ///
+    /// Default: right
+    pub subagent_panel_position: Option<SubagentPanelPositionContent>,
+
+    /// Claude Code 서브에이전트 뷰의 본문 Editor 가 긴 줄을 가로 스크롤로 보여줄지 여부.
+    /// true 면 줄바꿈 없이 가로 스크롤바 표시, false 면 Editor 너비에 맞춰 soft-wrap.
+    ///
+    /// Default: false (soft-wrap)
+    pub subagent_horizontal_scrollbar: Option<bool>,
+
+    /// Claude Code 세션 transcript(`~/.claude/projects/**/*.jsonl`) 자동 정리 활성화.
+    /// true 면 Dokkaebi 시작 시 `transcript_retention_days` 를 지난 파일을 백그라운드에서
+    /// 조용히 삭제한다. false 면 정리하지 않음(사용자가 수동 관리).
+    ///
+    /// Default: false (사용자가 명시적으로 켜야 동작)
+    pub transcript_cleanup_enabled: Option<bool>,
+
+    /// transcript 자동 정리 시 보관 기간(일). 파일 mtime 이 이 일수를 지난 것들만 삭제.
+    /// 범위 7~365 로 런타임 clamp.
+    ///
+    /// Default: 60
+    pub transcript_retention_days: Option<u32>,
+}
+
+/// Claude Code 서브에이전트 뷰 탭 위치.
+#[derive(
+    Copy,
+    Clone,
+    Default,
+    Serialize,
+    Deserialize,
+    JsonSchema,
+    MergeFrom,
+    PartialEq,
+    Eq,
+    Debug,
+    strum::VariantArray,
+    strum::VariantNames,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum SubagentPanelPositionContent {
+    /// 활성 pane 을 오른쪽으로 split 해 우측 pane 에 탭 추가.
+    #[default]
+    Right,
+    /// 활성 pane 을 아래쪽으로 split 해 하단 pane 에 탭 추가.
+    Bottom,
 }
 
 #[with_fallible_options]

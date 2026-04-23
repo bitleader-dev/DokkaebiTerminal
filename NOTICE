@@ -70,6 +70,44 @@ see assets/licenses.md (regenerate by installing cargo-about
 (`cargo install cargo-about@0.8.2`) and running
 `script/generate-licenses.ps1` under PowerShell 7+).
 
+------------------------------------------------------------------
+Bundled binaries (not Cargo dependencies)
+------------------------------------------------------------------
+
+The Dokkaebi Windows installer bundles the following third-party
+binary redistributed alongside Dokkaebi's executables:
+
+* jq (jq-windows-amd64.exe, v1.8.1) — https://github.com/jqlang/jq
+  Copyright (C) 2012 Stephen Dolan
+  Licensed under the MIT License. Used by the Claude Code notify
+  bridge plugin (assets/claude-plugins/dokkaebi-notify-bridge/) to
+  parse hook payload JSON when the user has no jq on PATH. The
+  upstream MIT license text is reproduced below.
+
+  -----------------------------------------------------------------
+  Copyright (C) 2012 Stephen Dolan
+
+  Permission is hereby granted, free of charge, to any person
+  obtaining a copy of this software and associated documentation
+  files (the "Software"), to deal in the Software without
+  restriction, including without limitation the rights to use, copy,
+  modify, merge, publish, distribute, sublicense, and/or sell copies
+  of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be
+  included in all copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+  EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+  MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+  NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+  HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+  WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+  DEALINGS IN THE SOFTWARE.
+  -----------------------------------------------------------------
+
 The `docs/` directory in the source repository retains upstream Zed's
 user documentation, which describes Zed's features and is authored by
 "The Zed Team" (see docs/book.toml). It is preserved for attribution

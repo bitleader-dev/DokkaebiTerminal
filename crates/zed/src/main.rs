@@ -770,6 +770,11 @@ fn main() {
         audio::init(cx);
         workspace::init(app_state.clone(), cx);
         ui_prompt::init(cx);
+        // Claude Code 서브에이전트 뷰 상태 저장소 초기화.
+        // workspace::init 이후에 호출해 gpui Global 순서 의존을 일으키지 않는다.
+        claude_subagent_view::init(cx);
+        // Claude Code transcript 자동 정리 (설정에서 ON 인 경우 백그라운드 실행).
+        zed::claude_transcript_cleanup::run_cleanup_if_enabled(cx);
 
         go_to_line::init(cx);
         file_finder::init(cx);

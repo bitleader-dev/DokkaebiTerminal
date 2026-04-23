@@ -2,7 +2,7 @@ use crate::handle_open_request;
 use crate::restore_or_create_workspace;
 use agent_ui::ExternalSourcePrompt;
 use anyhow::{Context as _, Result, anyhow};
-use cli::{CliRequest, CliResponse, NotifyKind, ipc::IpcSender};
+use cli::{CliRequest, CliResponse, NotifyKind, SubagentPayload, ipc::IpcSender};
 use cli::{IpcHandshake, ipc};
 use client::parse_zed_link;
 use db::kvp::KeyValueStore;
@@ -14,12 +14,12 @@ use futures::future;
 
 use futures::{FutureExt, SinkExt, StreamExt};
 use git_ui::{file_diff_view::FileDiffView, multi_diff_view::MultiDiffView};
-use gpui::{App, AppContext, AsyncApp, Entity, Global, ReadGlobal, WindowHandle};
+use gpui::{App, AppContext, AsyncApp, Entity, Global, WindowHandle};
 use onboarding::FIRST_OPEN;
 use onboarding::show_onboarding_view;
 use recent_projects::{RemoteSettings, navigate_to_positions, open_remote_project};
 use remote::{RemoteConnectionOptions, WslConnectionOptions};
-use settings::{Settings, SettingsStore};
+use settings::Settings;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
@@ -459,6 +459,7 @@ pub async fn handle_cli_connection(
                 notify_tool_name,
                 notify_tool_preview,
                 notify_idle_summary,
+                subagent,
             } => {
                 handle_notify_request(
                     NotifyRequestArgs {
@@ -471,6 +472,7 @@ pub async fn handle_cli_connection(
                         notify_tool_name,
                         notify_tool_preview,
                         notify_idle_summary,
+                        subagent,
                     },
                     &responses,
                     cx,
@@ -493,25 +495,36 @@ struct NotifyRequestArgs {
     notify_tool_name: Option<String>,
     notify_tool_preview: Option<String>,
     notify_idle_summary: Option<String>,
+    /// Subagent 전용 payload. SubagentStart/Stop 때만 Some.
+    subagent: Option<SubagentPayload>,
 }
 
 /// Claude Code 플러그인 → Dokkaebi 작업 알림 IPC 처리.
 /// 설정:
-/// - `notification.task_alert`(기본 true): false면 토스트/dot/배지 모두 차단
-/// - `notification.task_alert_toast`(기본 true): false면 토스트만 생략하고
+/// - `claude_code.task_alert`(기본 true): false면 토스트/dot/배지 모두 차단
+/// - `claude_code.task_alert_toast`(기본 true): false면 토스트만 생략하고
 ///   dot 인디케이터와 비활성 그룹 배지는 계속 표시
+/// - `claude_code.subagent_view`(기본 true): false면 서브에이전트 이벤트 수신 시
+///   탭 자동 생성 차단. 이미 열린 탭은 유지
 async fn handle_notify_request(
     args: NotifyRequestArgs,
     responses: &IpcSender<CliResponse>,
     cx: &mut AsyncApp,
 ) {
+    // Subagent 이벤트는 토스트 알림과 무관한 별도 경로(서브에이전트 뷰 탭).
+    // 기존 task_alert/task_alert_toast 설정과 충돌하지 않도록 먼저 분기 처리.
+    if matches!(
+        args.kind,
+        NotifyKind::SubagentStart | NotifyKind::SubagentStop
+    ) {
+        handle_subagent_request(args, responses, cx).await;
+        return;
+    }
     // 전역 on/off (`task_alert`)와 토스트 전용 on/off (`task_alert_toast`),
     // 토스트 auto-dismiss 시간(`toast_display_seconds`, 5~300 clamp, 기본 5)을
     // 한 번에 읽는다.
     let (task_alert_enabled, toast_enabled, toast_display_secs) = cx.update(|cx| {
-        let settings = SettingsStore::global(cx)
-            .raw_user_settings()
-            .and_then(|user| user.content.notification.as_ref());
+        let settings = claude_subagent_view::claude_code_settings(cx);
         (
             settings.and_then(|n| n.task_alert).unwrap_or(true),
             settings.and_then(|n| n.task_alert_toast).unwrap_or(true),
@@ -527,6 +540,10 @@ async fn handle_notify_request(
             NotifyKind::Stop => "claude_code.stop".into(),
             NotifyKind::Idle => "claude_code.idle".into(),
             NotifyKind::Permission => "claude_code.permission".into(),
+            // Subagent* 는 handle_notify_request 상단 early-return 으로 도달 불가.
+            NotifyKind::SubagentStart | NotifyKind::SubagentStop => {
+                unreachable!("subagent 변이는 handle_subagent_request 로 분기됨")
+            }
         };
         let id = NotificationId::named(id_name);
 
@@ -560,6 +577,7 @@ async fn handle_notify_request(
                 location_label,
                 window,
                 workspace,
+                ..
             } = target;
 
             // Stop 알림 수신 시 같은 워크스페이스의 Idle 토스트를 먼저 정리한다.
@@ -639,6 +657,191 @@ async fn handle_notify_request(
     responses.send(CliResponse::Exit { status: 0 }).log_err();
 }
 
+/// dispatch.sh 의 `jq @tsv` 이스케이프(`\n`/`\t`/`\r`/`\\`) 를 원문으로 복원한다.
+/// @tsv 는 실제 개행을 `\n` 리터럴(2글자 `\` + `n`) 로 바꿔 한 행에 담도록 설계돼 있어,
+/// bash read 로 받은 문자열을 그대로 cli → 본체로 전달하면 서브에이전트 뷰에
+/// 백슬래시-n 이 보인다. 복원 순서 주의 — 백슬래시 자체는 마커로 잠시 빼둔 뒤 마지막에
+/// 되돌려야 원문에 들어있던 literal `\n` 두 글자가 개행으로 오역되지 않는다.
+fn unescape_tsv_value(s: &str) -> String {
+    // Private-Use Area(U+E000) — 실사용 문자열에 등장할 확률 0. 임시 마커로 사용.
+    const BACKSLASH_MARKER: &str = "\u{E000}";
+    s.replace("\\\\", BACKSLASH_MARKER)
+        .replace("\\n", "\n")
+        .replace("\\t", "\t")
+        .replace("\\r", "\r")
+        .replace(BACKSLASH_MARKER, "\\")
+}
+
+/// Claude Code 서브에이전트 시작/종료 IPC 전용 처리.
+/// - Start: `ClaudeSubagentStore::upsert_start` + 대상 워크스페이스에서 탭 오픈
+/// - Stop:  `ClaudeSubagentStore::mark_stopped`. 탭은 사용자가 닫을 때까지 유지
+/// 설정 `claude_code.subagent_view` 가 false 면 탭 자동 생성만 차단(상태는 기록).
+async fn handle_subagent_request(
+    args: NotifyRequestArgs,
+    responses: &IpcSender<CliResponse>,
+    cx: &mut AsyncApp,
+) {
+    use claude_subagent_view::{
+        SubagentPanelPosition, contains as store_contains, mark_stopped, open_subagent_view,
+        upsert_start,
+    };
+
+    // 진단용 트레이스. 필요 시 `RUST_LOG=Dokkaebi=debug` 로 활성화.
+    log::debug!(
+        "[subagent-diag] handle_subagent_request 진입 kind={:?} has_payload={} cwd={:?} pid={:?} ancestors_len={}",
+        args.kind,
+        args.subagent.is_some(),
+        args.cwd,
+        args.pid,
+        args.ancestors.len()
+    );
+
+    let Some(payload) = args.subagent.as_ref() else {
+        // SubagentStart/Stop 인데 payload 가 없는 것은 IPC 오용 (구 cli 와이어 포맷 등) → 조용히 종료.
+        log::debug!("[subagent-diag] subagent payload 누락 — IPC 와이어 불일치 가능(cli 재빌드 필요?)");
+        responses.send(CliResponse::Exit { status: 0 }).log_err();
+        return;
+    };
+    let Some(subagent_id) = payload.subagent_id.clone().filter(|s| !s.is_empty()) else {
+        // id 생성 실패(dispatch.sh @tsv 파싱 실패 등). 서브에이전트 매칭 불가 → 조용히 종료.
+        log::debug!("[subagent-diag] subagent 이벤트에 id 누락. 무시.");
+        responses.send(CliResponse::Exit { status: 0 }).log_err();
+        return;
+    };
+
+    // 설정값 읽기 — subagent_view 토글 + 패널 위치.
+    let (auto_open, panel_position) = cx.update(|cx| {
+        let settings = claude_subagent_view::claude_code_settings(cx);
+        let auto_open = settings.and_then(|n| n.subagent_view).unwrap_or(false);
+        let position = settings
+            .and_then(|n| n.subagent_panel_position)
+            .map(|p| match p {
+                settings::SubagentPanelPositionContent::Right => SubagentPanelPosition::Right,
+                settings::SubagentPanelPositionContent::Bottom => SubagentPanelPosition::Bottom,
+            })
+            .unwrap_or_default();
+        (auto_open, position)
+    });
+    log::debug!(
+        "[subagent-diag] settings auto_open={} panel_position={:?}",
+        auto_open,
+        panel_position
+    );
+
+    match args.kind {
+        NotifyKind::SubagentStart => {
+            let session_id = payload.session_id.clone();
+            let subagent_type = payload.subagent_type.clone().unwrap_or_default();
+            // dispatch.sh 의 `jq @tsv` 는 실제 개행을 `\n` 리터럴로 이스케이프해 전달한다.
+            // 본체 렌더 전에 복원해야 뷰에 백슬래시-n 이 그대로 보이지 않는다.
+            let description = payload
+                .description
+                .as_deref()
+                .map(unescape_tsv_value)
+                .unwrap_or_default();
+            let prompt = payload
+                .prompt
+                .as_deref()
+                .map(unescape_tsv_value)
+                .unwrap_or_default();
+            let transcript_path_opt = payload.transcript_path.clone();
+            let cwd = args.cwd.clone();
+            let pid = args.pid;
+
+            // 재진입(동일 subagent Start IPC 재수신) 시 tail task 를 중복 spawn 하지 않도록
+            // upsert 전에 기존 엔트리 존재 여부를 확인한다. 기존 엔트리가 있으면 이전 Start 때
+            // 이미 tail 이 돌고 있으므로 두 번째 spawn 을 건너뛴다.
+            let is_reentry = cx.update(|cx| store_contains(cx, &subagent_id));
+            let tail_path = transcript_path_opt
+                .clone()
+                .filter(|p| !is_reentry && !p.is_empty());
+            // id 는 이후 tail/open 호출에서 필요한 만큼만 clone. upsert_start 로 원본을 소비.
+            let id_for_tail = tail_path.as_ref().map(|_| subagent_id.clone());
+            let id_for_open = auto_open.then(|| subagent_id.clone());
+            let _ = cx.update(|cx| {
+                upsert_start(
+                    cx,
+                    subagent_id,
+                    session_id,
+                    subagent_type,
+                    description,
+                    prompt,
+                    transcript_path_opt,
+                    cwd,
+                    pid,
+                );
+            });
+
+            // transcript tail 백그라운드 task 시작 — 서브에이전트 완료 + grace 후 자동 종료.
+            // 재진입이면 동일 id 의 tail 이 이미 동작 중이므로 spawn 생략.
+            if let Some(id) = id_for_tail
+                && let Some(path_str) = tail_path
+            {
+                let path = std::path::PathBuf::from(path_str);
+                crate::zed::claude_subagent_tail::spawn_transcript_tail(id, path, cx);
+            }
+
+            if let Some(id_for_open) = id_for_open {
+                // 탭 오픈 타겟 워크스페이스는 기존 ancestor/PID 매칭으로 식별한 것과
+                // 동일 워크스페이스(= 발신 터미널이 속한 MultiWorkspace 의 active).
+                // mark_bell_for_notification 은 내부에서 cx.update 를 사용하므로
+                // AsyncApp 을 그대로 넘긴다. 다만 이 호출은 dot/배지도 함께 찍으므로
+                // 서브에이전트만 추적하는 가벼운 타겟 탐색이 아닌 기존 notify 흐름과
+                // 동일한 동작이라는 점을 유의(중복 호출 없이 Start 시점 1회만 수행).
+                let ancestors_for_match = args.ancestors.clone();
+                let cwd_for_match = args.cwd.clone();
+                let pid_for_match = args.pid;
+                let target = mark_bell_for_notification(
+                    ancestors_for_match,
+                    pid_for_match,
+                    cwd_for_match.as_deref(),
+                    cx,
+                );
+                log::debug!(
+                    "[subagent-diag] mark_bell_for_notification target_found={}",
+                    target.is_some()
+                );
+                if let Some(NotifyTarget { window, workspace, group_idx, .. }) = target {
+                    let _ = cx.update(|cx| {
+                        window
+                            .update(cx, move |_, window, cx| {
+                                workspace.update(cx, move |ws, cx| {
+                                    open_subagent_view(
+                                        id_for_open,
+                                        panel_position,
+                                        group_idx,
+                                        ws,
+                                        window,
+                                        cx,
+                                    );
+                                });
+                            })
+                            .log_err();
+                    });
+                }
+            } else {
+                log::debug!(
+                    "[subagent-diag] auto_open=false 또는 id 누락 — 탭 생성 건너뜀 (auto_open={})",
+                    auto_open
+                );
+            }
+        }
+        NotifyKind::SubagentStop => {
+            let id_for_mark = subagent_id;
+            // dispatch.sh `jq @tsv` 이스케이프 복원 — 결과 텍스트의 개행이 리터럴로 노출되지 않도록.
+            let result = payload.result.as_deref().map(unescape_tsv_value);
+            let _ = cx.update(|cx| {
+                mark_stopped(cx, id_for_mark, result);
+            });
+        }
+        _ => {
+            // early-return 이므로 여기는 도달하지 않음.
+        }
+    }
+
+    responses.send(CliResponse::Exit { status: 0 }).log_err();
+}
+
 /// Claude Code 알림 토스트의 제목/본문을 현재 UI 언어에 맞춰 i18n 으로 조립한다.
 /// 동적 필드가 비었으면 종류별 `default_body` 키로 폴백.
 fn compose_claude_notification_text(
@@ -681,6 +884,10 @@ fn compose_claude_notification_text(
                 _ => i18n::t("claude_code.notify.permission.default_body", cx).to_string(),
             };
             (title, body)
+        }
+        // Subagent 이벤트는 호출처에서 별도 분기로 처리하므로 여기 도달하지 않는다.
+        NotifyKind::SubagentStart | NotifyKind::SubagentStop => {
+            unreachable!("subagent 변이는 handle_subagent_request 로 분기됨")
         }
     }
 }
@@ -826,6 +1033,10 @@ struct NotifyTarget {
     window: WindowHandle<MultiWorkspace>,
     /// 발신 터미널이 속한 Workspace 엔티티.
     workspace: Entity<Workspace>,
+    /// 발신 터미널이 속한 워크스페이스 그룹 인덱스.
+    /// 서브에이전트 탭을 활성 그룹이 아니라 발신 터미널이 속한 그룹에 부착하기
+    /// 위해 사용한다. 토스트 알림 경로는 이 값을 사용하지 않는다.
+    group_idx: usize,
 }
 
 /// Claude Code 작업 알림으로 터미널 dot 인디케이터 + 비활성 그룹 배지를 설정한다.
@@ -931,7 +1142,10 @@ fn mark_bell_for_notification(
                             }
 
                             // 첫 매칭에서 "그룹 / 탭" 라벨 + 소속 윈도우/워크스페이스
-                            // 타겟을 기록. 이후 매칭들은 bell/배지만 적용한다.
+                            // + 발신 터미널이 속한 그룹 인덱스를 기록. 이후 매칭들은
+                            // bell/배지만 적용한다. group_idx 는 서브에이전트 탭이
+                            // 활성 그룹이 아니라 발신 그룹에 정확히 부착되도록 하는데
+                            // 사용된다.
                             if target.is_none()
                                 && let Some((tv, group_idx)) = matched.first()
                             {
@@ -951,6 +1165,7 @@ fn mark_bell_for_notification(
                                     location_label,
                                     window: window_for_target,
                                     workspace: workspace_for_target,
+                                    group_idx: *group_idx,
                                 });
                             }
 

@@ -34,9 +34,15 @@ mod text_thread_history;
 mod thread_history;
 mod thread_history_view;
 pub mod thread_metadata_store;
+// TODO(phase-8i): thread_worktree_archive는 상류 신규 API
+// (Repository::create_worktree_detached/head_sha/checkout_branch_in_worktree 등)에
+// 의존하므로 Dokkaebi에 해당 API가 이식된 뒤 mod를 활성화한다.
+// pub mod thread_worktree_archive;
+mod thread_worktree_picker;
 pub mod threads_archive_view;
 mod ui;
 
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -91,6 +97,8 @@ actions!(
         ToggleNewThreadMenu,
         /// Cycles through the options for where new threads start (current project or new worktree).
         CycleStartThreadIn,
+        /// Toggles the worktree selector popover for choosing which worktree to use.
+        ToggleWorktreeSelector,
         /// Toggles the navigation menu for switching between threads and views.
         ToggleNavigationMenu,
         /// Toggles the options menu for agent settings and preferences.
@@ -284,6 +292,40 @@ pub enum StartThreadIn {
     #[default]
     LocalProject,
     NewWorktree,
+}
+
+/// 워크트리 생성 시 사용할 브랜치 소스.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+pub enum NewWorktreeBranchTarget {
+    /// 현재 체크아웃된 브랜치를 기준으로 분기.
+    #[default]
+    CurrentBranch,
+    /// 이미 존재하는 브랜치 이름.
+    ExistingBranch { name: String },
+    /// 새 브랜치 이름.
+    NewBranch { name: String },
+}
+
+/// 새 git 워크트리를 만들고 워크스페이스를 전환한다.
+/// 통합 워크트리 피커에서 "새 워크트리 생성" 항목을 선택하면 디스패치된다.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Action)]
+#[action(namespace = agent)]
+#[serde(deny_unknown_fields)]
+pub struct CreateWorktree {
+    /// None이면 워크트리 이름이 자동 생성된다.
+    pub worktree_name: Option<String>,
+    pub branch_target: NewWorktreeBranchTarget,
+}
+
+/// 이미 존재하는 연결된 워크트리로 워크스페이스를 전환한다.
+/// 통합 워크트리 피커에서 기존 워크트리를 선택하면 디스패치된다.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Action)]
+#[action(namespace = agent)]
+#[serde(deny_unknown_fields)]
+pub struct SwitchWorktree {
+    pub path: PathBuf,
+    pub display_name: String,
 }
 
 /// Content to initialize new external agent with.

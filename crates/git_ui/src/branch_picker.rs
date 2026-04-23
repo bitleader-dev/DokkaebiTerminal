@@ -896,7 +896,7 @@ impl PickerDelegate for BranchListDelegate {
                 } else if branch.is_remote() {
                     IconName::Screen
                 } else {
-                    IconName::GitBranchAlt
+                    IconName::GitBranch
                 }
             }
         };

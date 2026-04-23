@@ -430,6 +430,7 @@ impl GitRepository for FakeGitRepository {
                 ref_name: Some(branch_ref.into()),
                 sha: head_sha.into(),
                 is_main: true,
+                is_bare: false,
             };
             let mut all = vec![main_worktree];
             all.extend(state.worktrees.iter().cloned());
@@ -472,6 +473,7 @@ impl GitRepository for FakeGitRepository {
                         ref_name: Some(ref_name.into()),
                         sha: sha.into(),
                         is_main: false,
+                        is_bare: false,
                     });
                     state.branches.insert(branch_name);
                     Ok::<(), anyhow::Error>(())

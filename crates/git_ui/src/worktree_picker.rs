@@ -745,6 +745,7 @@ impl PickerDelegate for WorktreeListDelegate {
                                 ref_name: Some(format!("refs/heads/{query}").into()),
                                 sha: Default::default(),
                                 is_main: false,
+                                is_bare: false,
                             },
                             positions: Vec::new(),
                             is_new: true,

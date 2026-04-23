@@ -1077,11 +1077,19 @@ impl GitGraph {
                     }
                 }
             }
-            RepositoryEvent::BranchChanged => {
+            RepositoryEvent::HeadChanged | RepositoryEvent::BranchListChanged => {
                 self.pending_select_sha = None;
                 // Only invalidate if we scanned atleast once,
                 // meaning we are not inside the initial repo loading state
                 // NOTE: this fixes an loading performance regression
+                if repository.read(cx).scan_id > 1 {
+                    self.invalidate_state(cx);
+                }
+            }
+            // Stash push/pop 은 "모든 커밋 + stash" 뷰에서만 의미가 있으므로
+            // 해당 로그 소스일 때만 그래프를 갱신한다.
+            RepositoryEvent::StashEntriesChanged if self.log_source == LogSource::All => {
+                self.pending_select_sha = None;
                 if repository.read(cx).scan_id > 1 {
                     self.invalidate_state(cx);
                 }
@@ -3602,8 +3610,8 @@ mod tests {
         assert!(
             observed_repository_events
                 .iter()
-                .any(|event| matches!(event, RepositoryEvent::BranchChanged)),
-            "initial repository scan should emit BranchChanged"
+                .any(|event| matches!(event, RepositoryEvent::HeadChanged)),
+            "initial repository scan should emit HeadChanged"
         );
         let commit_count_after = repository.read_with(cx, |repo, _| {
             repo.get_graph_data(crate::LogSource::default(), crate::LogOrder::default())

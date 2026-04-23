@@ -415,6 +415,105 @@ Phase 8A ACP SDK 이식 착수. plan.md §11.8 기준.
   - (a) 64 변경분 main commit 후 `phase-8-acp-sdk` 브랜치 생성
   - (b) 64 변경분을 `phase-8-acp-sdk` 브랜치로 이동 (main 은 baseline 유지)
 
+## 11.9. Phase 9 — #53094 `git_graph: Refresh UI when stash/branch list has changed` 이식 (2026-04-23 착수)
+
+### 11.9.1. 배경 및 결정
+- **상류 PR**: #53094 (2026-04-06 머지, merge SHA `7748047`). 상류 최초 포함 stable = **v0.232.2**.
+- **누락 사유**: v0.232.2 Dokkaebi 선별 백포트 시 검토 대상에 포함되지 않아 누락 (명시적 보류가 아닌 단순 미이식).
+- **v0.233.7 검토 중 재발견**: v0.233.7 `#54575 git: Fix remote branch picker`(SSH remote 한정)가 #53094 인프라에 종속. Dokkaebi 로컬 1인 모드에서 #54575 가치는 낮으나, #53094는 로컬 git 체감 버그 수정.
+- **사용자 결정 (2026-04-23)**: #53094 단독 이식. #54575는 별도 판단.
+
+### 11.9.2. PR #53094 수정 내용 요약
+상류 patch: 6 파일, +186 / -20.
+1. **`RepositoryEvent::BranchChanged` → `HeadChanged` 리네임** — HEAD 포인터 변경 의미 명확화.
+2. **`RepositoryEvent::BranchListChanged` 신규** — 브랜치 목록 변경 분리 이벤트.
+3. **`RepositorySnapshot.branch_list: Arc<[Branch]>` 필드 신규** — 이전까지 브랜치 목록은 별도 보관 없이 `branches()` 호출마다 새로 가져옴.
+4. **`compute_snapshot()` 재작성** — branches 를 `branch_list` 로 보관, `head_changed` / `branch_list_changed` 분리 감지 → 각각 이벤트 발행.
+5. **`git_graph` cache 무효화 확장** — `HeadChanged | BranchListChanged` 수신 시 graph 재로드, `StashEntriesChanged` 는 `LogSource::All` 만 무효화.
+6. **`Repository::initial_graph_data` 정리** — `StashEntriesChanged` 시 `LogSource::All` 키만 retain 제거(부분 정리).
+7. **`FakeGitRepositoryState.stash_entries`** 추가 + `branches()` ref_name 정렬.
+
+### 11.9.3. Dokkaebi 이식 대상 (9 지점)
+
+**crates/project/src/git_store.rs** (6 지점)
+| Dokkaebi 위치 | 변경 내용 |
+|---|---|
+| `pub struct RepositorySnapshot` (L279~297) | `pub branch_list: Arc<[Branch]>,` 추가 |
+| `pub enum RepositoryEvent` (L429~436) | `BranchChanged` → `HeadChanged` 리네임 + `BranchListChanged` 신규 |
+| `RepositorySnapshot::new()` 생성자 (L3574~) | `branch_list: Arc::from([])` 초기화 |
+| `subscribe_self` match (L3942~3950) | `HeadChanged \| BranchListChanged` 공통 분기 + `StashEntriesChanged` retain 분기 추가 |
+| `Repository::paths_changed` emit (L5494) | `BranchChanged` → `HeadChanged` |
+| `apply_remote_update` emit (L6258) | `BranchChanged` → `HeadChanged` |
+| `compute_snapshot` (L7178~7225) | `branch_list` 계산, `head_changed`/`branch_list_changed` 분리, 각 이벤트 발행 |
+
+**crates/git_graph/src/git_graph.rs** (2 지점)
+| Dokkaebi 위치 | 변경 내용 |
+|---|---|
+| Event handler (L1080~1088) | `BranchChanged` → `HeadChanged \| BranchListChanged` + `StashEntriesChanged if log_source == All` 분기 추가 |
+| 테스트 assertion (L3605~3606) | `BranchChanged` → `HeadChanged` |
+
+**crates/git_ui/src/git_panel.rs** (1 지점)
+| 위치 | 변경 |
+|---|---|
+| L785 matching pattern | `BranchChanged` → `HeadChanged` |
+
+**crates/project/src/git_store/branch_diff.rs** (1 지점)
+| 위치 | 변경 |
+|---|---|
+| L73 matching pattern | `BranchChanged` → `HeadChanged` |
+
+**crates/project/tests/integration/project_tests.rs** (1 지점)
+| L11158 | `BranchChanged,` → `HeadChanged,` |
+
+**crates/fs/src/fake_git_repo.rs** (3 지점)
+| 위치 | 변경 |
+|---|---|
+| use 블록 (L5~17) | `stash::GitStash` import 추가 |
+| `FakeGitRepositoryState` 구조체 (L39~57) | `stash_entries: GitStash` 필드 추가 (Dokkaebi 독자 `worktrees` 필드 뒤) |
+| 생성자 (L59~78) | `stash_entries: Default::default()` 추가 |
+| `stash_entries()` 메서드 (L382) | 상태 기반 구현으로 변경 |
+| `branches()` 메서드 | 끝에서 ref_name 오름차순 정렬 추가 |
+
+### 11.9.4. 리스크 및 충돌 지점
+- **`compute_snapshot` Dokkaebi 독자 변경 없음 확인됨** — 상류 변경과 그대로 병합 가능.
+- **`FakeGitRepositoryState` 에 Dokkaebi 독자 필드 `worktrees: Vec<Worktree>` 존재** — 상류 patch 는 `graph_commits` 뒤에 `stash_entries` 를 삽입하지만, Dokkaebi 는 `graph_commits` 뒤에 `worktrees` 가 이미 있음. `stash_entries` 는 `worktrees` 뒤로 배치.
+- **`cargo check -p project -p git_graph -p git_ui`** 3 크레이트 영향. 빌드 성공 후 `-p Dokkaebi` 전체 검증.
+- **신규 테스트 (`test_graph_data_reloaded_after_stash_change`)** 는 이식하지 않는다. 이유: Dokkaebi 는 상류 테스트 코드를 최소한으로만 이식(릴리즈 노트 범위 외) + test-only 추가는 로컬 이식 부담. `BranchChanged → HeadChanged` 문자열 리네임만 반영.
+
+### 11.9.5. 이식 순서 (순차)
+1. `RepositoryEvent` enum 및 `RepositorySnapshot` 필드 추가
+2. `RepositorySnapshot::new()` 초기화
+3. `subscribe_self` match 확장
+4. 모든 `BranchChanged` emit → `HeadChanged`
+5. `compute_snapshot` 분기 분리 및 `branch_list` 계산
+6. `git_graph` event handler 및 assertion
+7. `git_panel.rs`, `branch_diff.rs` matching pattern
+8. `project_tests.rs` assertion
+9. `fake_git_repo.rs` 구조/생성자/메서드
+10. `cargo check -p project` → `-p git_graph` → `-p git_ui` → `-p Dokkaebi`
+11. `notes.md` 최근 변경 추가
+12. `release_notes.md` 에 "브랜치 목록·stash 변경 시 Git Graph UI 실시간 반영" 항목 추가
+
+### 11.9.6. 검증 방법
+- `cargo check -p project` → `-p git_graph` → `-p git_ui` → `-p Dokkaebi` 경고·에러 0 건 확인.
+- 빌드 후 Dokkaebi 실행하여 다음 시나리오 수동 확인은 선택(사용자 요청 시):
+  - 새 브랜치 생성 → git graph 에 즉시 반영
+  - stash push/pop → git graph 에 즉시 반영
+  - HEAD 이동 → git graph 재로드
+
+### 11.9.7. 진행 체크리스트
+- [x] 사용자 승인 (2026-04-23 "#53094 적용")
+- [x] plan.md §11.9 작성
+- [x] `RepositoryEvent` / `RepositorySnapshot` 구조 수정
+- [x] `compute_snapshot` + emit 호출처 이식
+- [x] `git_graph` / `git_panel` / `branch_diff` 호출처
+- [x] `fake_git_repo.rs` stash_entries 추가
+- [x] `cargo check -p project -p git_graph -p git_ui -p Dokkaebi` 성공 (각 3m08s / 1m32s / 37s)
+- [x] `notes.md` 갱신
+- [x] `release_notes.md` 갱신 (버그 수정 2 항목)
+
+---
+
 ## 12. 영향 범위 외 (변경 없음)
 - `README.md` (CLAUDE.md 프로젝트 규칙: 수정 금지)
 - `assets/keymaps/default-macos.json`, `default-linux.json` (Windows 전용 정책)

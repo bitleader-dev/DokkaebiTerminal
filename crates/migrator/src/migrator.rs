@@ -247,6 +247,16 @@ pub fn migrate_settings(text: &str) -> Result<Option<String>> {
             migrations::m_2026_03_16::SETTINGS_PATTERNS,
             &SETTINGS_QUERY_2026_03_16,
         ),
+        MigrationType::Json(
+            migrations::m_2026_03_30::make_play_sound_when_agent_done_an_enum,
+        ),
+        MigrationType::Json(
+            migrations::m_2026_04_01::restructure_profiles_with_settings_key,
+        ),
+        MigrationType::Json(migrations::m_2026_04_10::rename_web_search_to_search_web),
+        MigrationType::Json(
+            migrations::m_2026_04_17::promote_show_branch_icon_true_to_show_branch_status_icon,
+        ),
     ];
     run_migrations(text, migrations)
 }

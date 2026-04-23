@@ -12,6 +12,7 @@ use anyhow::anyhow;
 use collections::HashMap;
 use feature_flags::{AcpBetaFeatureFlag, FeatureFlagAppExt as _};
 use futures::channel::mpsc;
+use futures::future::{FutureExt as _, Shared};
 use futures::io::BufReader;
 use futures::{AsyncBufReadExt as _, Future, StreamExt as _};
 use project::agent_server_store::AgentServerCommand;
@@ -26,6 +27,7 @@ use util::process::Child;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::{any::Any, cell::RefCell};
 use thiserror::Error;
 
@@ -226,6 +228,8 @@ pub struct AcpConnection {
     telemetry_id: SharedString,
     connection: ConnectionTo<Agent>,
     sessions: Rc<RefCell<HashMap<acp::SessionId, AcpSession>>>,
+    /// load/resume RPC 진행 중인 세션. 응답 수신 전에 들어온 동일 세션 호출을 병합한다.
+    pending_sessions: Rc<RefCell<HashMap<acp::SessionId, PendingSession>>>,
     auth_methods: Vec<acp::AuthMethod>,
     command: AgentServerCommand,
     agent_capabilities: acp::AgentCapabilities,
@@ -263,6 +267,15 @@ pub struct AcpSession {
     models: Option<Rc<RefCell<acp::SessionModelState>>>,
     session_modes: Option<Rc<RefCell<acp::SessionModeState>>>,
     config_options: Option<ConfigOptions>,
+    /// 이 세션을 참조하는 호출 수. 마지막 `close_session` 호출로 0 이 되면 실제 RPC 를 전송한다.
+    ref_count: usize,
+}
+
+/// 동일 세션에 대한 동시 load/resume 요청을 병합한다.
+/// 진행 중인 RPC task 를 `Shared` 로 공유하고 `ref_count` 로 호출 횟수를 추적한다.
+struct PendingSession {
+    task: Shared<Task<Result<Entity<AcpThread>, Arc<anyhow::Error>>>>,
+    ref_count: usize,
 }
 
 pub struct AcpSessionList {
@@ -500,6 +513,7 @@ impl AcpConnection {
         log::trace!("Spawned (pid: {})", child.id());
 
         let sessions = Rc::new(RefCell::new(HashMap::default()));
+        let pending_sessions = Rc::new(RefCell::new(HashMap::default()));
 
         let (release_channel, version): (Option<&str>, String) = cx.update(|cx| {
             (
@@ -685,6 +699,7 @@ impl AcpConnection {
             connection,
             telemetry_id,
             sessions,
+            pending_sessions,
             agent_capabilities: response.agent_capabilities,
             default_mode,
             default_model,
@@ -1030,6 +1045,7 @@ impl AgentConnection for AcpConnection {
                     session_modes: modes,
                     models,
                     config_options: config_options.map(ConfigOptions::new),
+                    ref_count: 1,
                 },
             );
 
@@ -1061,6 +1077,25 @@ impl AgentConnection for AcpConnection {
                 "Loading sessions is not supported by this agent.".into()
             ))));
         }
+
+        // 이미 load 진행 중인 세션이면 동일 task 를 공유하고 ref_count 만 증가시킨다.
+        // 이렇게 하면 동시 호출이 중복 RPC / 중복 thread 를 만들지 않는다.
+        if let Some(pending) = self.pending_sessions.borrow_mut().get_mut(&session_id) {
+            pending.ref_count += 1;
+            let task = pending.task.clone();
+            return cx
+                .foreground_executor()
+                .spawn(async move { task.await.map_err(|err| anyhow!(err)) });
+        }
+
+        // 이미 완료된 세션이면 기존 thread 를 재사용하고 ref_count 만 증가시킨다.
+        if let Some(session) = self.sessions.borrow_mut().get_mut(&session_id) {
+            session.ref_count += 1;
+            if let Some(thread) = session.thread.upgrade() {
+                return Task::ready(Ok(thread));
+            }
+        }
+
         // TODO: ACP 가 다중 작업 디렉터리를 지원하면 제거한다.
         let Some(cwd) = work_dirs.ordered_paths().next().cloned() else {
             return Task::ready(Err(anyhow!("Working directory cannot be empty")));
@@ -1082,6 +1117,8 @@ impl AgentConnection for AcpConnection {
             )
         });
 
+        // RPC 를 기다리기 전에 session 을 등록한다.
+        // `session/load` 호출 중 도착한 `session/update` replay 알림이 thread 를 찾을 수 있도록.
         self.sessions.borrow_mut().insert(
             session_id.clone(),
             AcpSession {
@@ -1090,37 +1127,66 @@ impl AgentConnection for AcpConnection {
                 session_modes: None,
                 models: None,
                 config_options: None,
+                ref_count: 1,
             },
         );
 
-        cx.spawn(async move |cx| {
-            let response = match into_foreground_future(self.connection.send_request(
-                acp::LoadSessionRequest::new(session_id.clone(), cwd).mcp_servers(mcp_servers),
-            ))
-            .await
-            {
-                Ok(response) => response,
-                Err(err) => {
-                    self.sessions.borrow_mut().remove(&session_id);
-                    return Err(map_acp_error(err));
+        let this = self.clone();
+        let session_id_for_task = session_id.clone();
+        let thread_for_task = thread.clone();
+        let raw_task: Task<Result<Entity<AcpThread>, Arc<anyhow::Error>>> = cx
+            .spawn(async move |cx| {
+                let response = match into_foreground_future(this.connection.send_request(
+                    acp::LoadSessionRequest::new(session_id_for_task.clone(), cwd)
+                        .mcp_servers(mcp_servers),
+                ))
+                .await
+                {
+                    Ok(response) => response,
+                    Err(err) => {
+                        this.sessions.borrow_mut().remove(&session_id_for_task);
+                        this.pending_sessions.borrow_mut().remove(&session_id_for_task);
+                        return Err(Arc::new(map_acp_error(err)));
+                    }
+                };
+
+                let (modes, models, config_options) =
+                    config_state(response.modes, response.models, response.config_options);
+
+                if let Some(config_opts) = config_options.as_ref() {
+                    this.apply_default_config_options(&session_id_for_task, config_opts, cx);
                 }
-            };
 
-            let (modes, models, config_options) =
-                config_state(response.modes, response.models, response.config_options);
+                // pending_sessions 제거하면서 최종 ref_count 를 계산한다.
+                let ref_count = this
+                    .pending_sessions
+                    .borrow_mut()
+                    .remove(&session_id_for_task)
+                    .map_or(1, |pending| pending.ref_count);
 
-            if let Some(config_opts) = config_options.as_ref() {
-                self.apply_default_config_options(&session_id, config_opts, cx);
-            }
+                if let Some(session) =
+                    this.sessions.borrow_mut().get_mut(&session_id_for_task)
+                {
+                    session.session_modes = modes;
+                    session.models = models;
+                    session.config_options = config_options.map(ConfigOptions::new);
+                    session.ref_count = ref_count;
+                }
 
-            if let Some(session) = self.sessions.borrow_mut().get_mut(&session_id) {
-                session.session_modes = modes;
-                session.models = models;
-                session.config_options = config_options.map(ConfigOptions::new);
-            }
+                Ok(thread_for_task)
+            });
+        let shared_task = raw_task.shared();
 
-            Ok(thread)
-        })
+        self.pending_sessions.borrow_mut().insert(
+            session_id.clone(),
+            PendingSession {
+                task: shared_task.clone(),
+                ref_count: 1,
+            },
+        );
+
+        cx.foreground_executor()
+            .spawn(async move { shared_task.await.map_err(|err| anyhow!(err)) })
     }
 
     fn resume_session(
@@ -1141,6 +1207,24 @@ impl AgentConnection for AcpConnection {
                 "Resuming sessions is not supported by this agent.".into()
             ))));
         }
+
+        // 이미 resume 진행 중인 세션이면 동일 task 를 공유하고 ref_count 만 증가시킨다.
+        if let Some(pending) = self.pending_sessions.borrow_mut().get_mut(&session_id) {
+            pending.ref_count += 1;
+            let task = pending.task.clone();
+            return cx
+                .foreground_executor()
+                .spawn(async move { task.await.map_err(|err| anyhow!(err)) });
+        }
+
+        // 이미 완료된 세션이면 기존 thread 를 재사용하고 ref_count 만 증가시킨다.
+        if let Some(session) = self.sessions.borrow_mut().get_mut(&session_id) {
+            session.ref_count += 1;
+            if let Some(thread) = session.thread.upgrade() {
+                return Task::ready(Ok(thread));
+            }
+        }
+
         // TODO: ACP 가 다중 작업 디렉터리를 지원하면 제거한다.
         let Some(cwd) = work_dirs.ordered_paths().next().cloned() else {
             return Task::ready(Err(anyhow!("Working directory cannot be empty")));
@@ -1162,6 +1246,7 @@ impl AgentConnection for AcpConnection {
             )
         });
 
+        // RPC 를 기다리기 전에 session 을 등록한다 (replay notification 수신 대비).
         self.sessions.borrow_mut().insert(
             session_id.clone(),
             AcpSession {
@@ -1170,37 +1255,65 @@ impl AgentConnection for AcpConnection {
                 session_modes: None,
                 models: None,
                 config_options: None,
+                ref_count: 1,
             },
         );
 
-        cx.spawn(async move |cx| {
-            let response = match into_foreground_future(self.connection.send_request(
-                acp::ResumeSessionRequest::new(session_id.clone(), cwd).mcp_servers(mcp_servers),
-            ))
-            .await
-            {
-                Ok(response) => response,
-                Err(err) => {
-                    self.sessions.borrow_mut().remove(&session_id);
-                    return Err(map_acp_error(err));
+        let this = self.clone();
+        let session_id_for_task = session_id.clone();
+        let thread_for_task = thread.clone();
+        let raw_task: Task<Result<Entity<AcpThread>, Arc<anyhow::Error>>> = cx
+            .spawn(async move |cx| {
+                let response = match into_foreground_future(this.connection.send_request(
+                    acp::ResumeSessionRequest::new(session_id_for_task.clone(), cwd)
+                        .mcp_servers(mcp_servers),
+                ))
+                .await
+                {
+                    Ok(response) => response,
+                    Err(err) => {
+                        this.sessions.borrow_mut().remove(&session_id_for_task);
+                        this.pending_sessions.borrow_mut().remove(&session_id_for_task);
+                        return Err(Arc::new(map_acp_error(err)));
+                    }
+                };
+
+                let (modes, models, config_options) =
+                    config_state(response.modes, response.models, response.config_options);
+
+                if let Some(config_opts) = config_options.as_ref() {
+                    this.apply_default_config_options(&session_id_for_task, config_opts, cx);
                 }
-            };
 
-            let (modes, models, config_options) =
-                config_state(response.modes, response.models, response.config_options);
+                let ref_count = this
+                    .pending_sessions
+                    .borrow_mut()
+                    .remove(&session_id_for_task)
+                    .map_or(1, |pending| pending.ref_count);
 
-            if let Some(config_opts) = config_options.as_ref() {
-                self.apply_default_config_options(&session_id, config_opts, cx);
-            }
+                if let Some(session) =
+                    this.sessions.borrow_mut().get_mut(&session_id_for_task)
+                {
+                    session.session_modes = modes;
+                    session.models = models;
+                    session.config_options = config_options.map(ConfigOptions::new);
+                    session.ref_count = ref_count;
+                }
 
-            if let Some(session) = self.sessions.borrow_mut().get_mut(&session_id) {
-                session.session_modes = modes;
-                session.models = models;
-                session.config_options = config_options.map(ConfigOptions::new);
-            }
+                Ok(thread_for_task)
+            });
+        let shared_task = raw_task.shared();
 
-            Ok(thread)
-        })
+        self.pending_sessions.borrow_mut().insert(
+            session_id.clone(),
+            PendingSession {
+                task: shared_task.clone(),
+                ref_count: 1,
+            },
+        );
+
+        cx.foreground_executor()
+            .spawn(async move { shared_task.await.map_err(|err| anyhow!(err)) })
     }
 
     fn supports_close_session(&self) -> bool {
@@ -1218,6 +1331,27 @@ impl AgentConnection for AcpConnection {
             ))));
         }
 
+        // ref_count 를 감소시키고 0 이 될 때만 실제 close RPC 를 전송한다.
+        // 이렇게 하면 동일 세션을 여러 번 load/resume 한 호출들이 서로의 close 를 밀지 않는다.
+        let should_close = {
+            let mut sessions = self.sessions.borrow_mut();
+            if let Some(session) = sessions.get_mut(session_id) {
+                session.ref_count = session.ref_count.saturating_sub(1);
+                if session.ref_count == 0 {
+                    sessions.remove(session_id);
+                    true
+                } else {
+                    false
+                }
+            } else {
+                // 세션이 이미 제거된 경우(로드 실패 등) 에도 상위 호출자에게 성공을 알린다.
+                false
+            }
+        };
+        if !should_close {
+            return Task::ready(Ok(()));
+        }
+
         let conn = self.connection.clone();
         let session_id = session_id.clone();
         cx.foreground_executor().spawn(async move {
@@ -1225,7 +1359,6 @@ impl AgentConnection for AcpConnection {
                 conn.send_request(acp::CloseSessionRequest::new(session_id.clone())),
             )
             .await?;
-            self.sessions.borrow_mut().remove(&session_id);
             Ok(())
         })
     }

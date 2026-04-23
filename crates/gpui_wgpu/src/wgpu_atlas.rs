@@ -8,6 +8,8 @@ use gpui::{
 use parking_lot::Mutex;
 use std::{borrow::Cow, ops, sync::Arc};
 
+use crate::WgpuContext;
+
 fn device_size_to_etagere(size: Size<DevicePixels>) -> etagere::Size {
     size2(size.width.0, size.height.0)
 }
@@ -31,6 +33,7 @@ struct WgpuAtlasState {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     max_texture_size: u32,
+    color_texture_format: wgpu::TextureFormat,
     storage: WgpuAtlasStorage,
     tiles_by_key: FxHashMap<AtlasKey, AtlasTile>,
     pending_uploads: Vec<PendingUpload>,
@@ -41,16 +44,30 @@ pub struct WgpuTextureInfo {
 }
 
 impl WgpuAtlas {
-    pub fn new(device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) -> Self {
+    pub fn new(
+        device: Arc<wgpu::Device>,
+        queue: Arc<wgpu::Queue>,
+        color_texture_format: wgpu::TextureFormat,
+    ) -> Self {
         let max_texture_size = device.limits().max_texture_dimension_2d;
         WgpuAtlas(Mutex::new(WgpuAtlasState {
             device,
             queue,
             max_texture_size,
+            color_texture_format,
             storage: WgpuAtlasStorage::default(),
             tiles_by_key: Default::default(),
             pending_uploads: Vec::new(),
         }))
+    }
+
+    /// `WgpuContext` 에서 선택한 color atlas 포맷을 그대로 이어받는 편의 생성자.
+    pub fn from_context(context: &WgpuContext) -> Self {
+        Self::new(
+            context.device.clone(),
+            context.queue.clone(),
+            context.color_texture_format(),
+        )
     }
 
     pub fn before_frame(&self) {
@@ -68,10 +85,11 @@ impl WgpuAtlas {
 
     /// Handles device lost by clearing all textures and cached tiles.
     /// The atlas will lazily recreate textures as needed on subsequent frames.
-    pub fn handle_device_lost(&self, device: Arc<wgpu::Device>, queue: Arc<wgpu::Queue>) {
+    pub fn handle_device_lost(&self, context: &WgpuContext) {
         let mut lock = self.0.lock();
-        lock.device = device;
-        lock.queue = queue;
+        lock.device = context.device.clone();
+        lock.queue = context.queue.clone();
+        lock.color_texture_format = context.color_texture_format();
         lock.storage = WgpuAtlasStorage::default();
         lock.tiles_by_key.clear();
         lock.pending_uploads.clear();
@@ -165,8 +183,7 @@ impl WgpuAtlasState {
         let size = min_size.min(&max_atlas_size).max(&DEFAULT_ATLAS_SIZE);
         let format = match kind {
             AtlasTextureKind::Monochrome => wgpu::TextureFormat::R8Unorm,
-            AtlasTextureKind::Subpixel => wgpu::TextureFormat::Bgra8Unorm,
-            AtlasTextureKind::Polychrome => wgpu::TextureFormat::Bgra8Unorm,
+            AtlasTextureKind::Subpixel | AtlasTextureKind::Polychrome => self.color_texture_format,
         };
 
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
@@ -219,11 +236,14 @@ impl WgpuAtlasState {
     }
 
     fn upload_texture(&mut self, id: AtlasTextureId, bounds: Bounds<DevicePixels>, bytes: &[u8]) {
-        self.pending_uploads.push(PendingUpload {
-            id,
-            bounds,
-            data: bytes.to_vec(),
-        });
+        // 텍스처 포맷이 Rgba8Unorm 이면 BGRA 바이트 → RGBA 로 swizzle 후 업로드한다.
+        // GPUI 상위 레이어는 Bgra8Unorm 가정으로 색을 기록하므로 fallback 시 호환 필요.
+        // `upload_texture` 는 `allocate` 직후 호출되어 `id` 가 항상 유효하므로 Index 접근.
+        let format = self.storage[id].format;
+        let data = swizzle_upload_data(bytes, format);
+
+        self.pending_uploads
+            .push(PendingUpload { id, bounds, data });
     }
 
     fn flush_uploads(&mut self) {
@@ -328,7 +348,7 @@ impl WgpuAtlasTexture {
     fn bytes_per_pixel(&self) -> u8 {
         match self.format {
             wgpu::TextureFormat::R8Unorm => 1,
-            wgpu::TextureFormat::Bgra8Unorm => 4,
+            wgpu::TextureFormat::Bgra8Unorm | wgpu::TextureFormat::Rgba8Unorm => 4,
             _ => 4,
         }
     }
@@ -339,5 +359,20 @@ impl WgpuAtlasTexture {
 
     fn is_unreferenced(&self) -> bool {
         self.live_atlas_keys == 0
+    }
+}
+
+/// `Bgra8Unorm` 을 기본 대상으로 작성된 픽셀 바이트를 `Rgba8Unorm` 텍스처에
+/// 업로드할 때 B/R 채널을 swap 한다. 그 외 포맷은 원본 그대로 복사.
+fn swizzle_upload_data(bytes: &[u8], format: wgpu::TextureFormat) -> Vec<u8> {
+    match format {
+        wgpu::TextureFormat::Rgba8Unorm => {
+            let mut data = bytes.to_vec();
+            for pixel in data.chunks_exact_mut(4) {
+                pixel.swap(0, 2);
+            }
+            data
+        }
+        _ => bytes.to_vec(),
     }
 }

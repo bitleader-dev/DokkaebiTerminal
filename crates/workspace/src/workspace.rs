@@ -2278,9 +2278,12 @@ impl Workspace {
             return None;
         }
 
-        let pane = self.last_active_center_pane.clone()?.upgrade()?;
-        let pane_fraction = self.center.width_fraction_for_pane(&pane).unwrap_or(1.0);
-        Some((pane_fraction / (1.0 + pane_fraction)).clamp(0.0, 1.0))
+        // 활성 pane 의 너비 fraction 에 의존하던 기존 계산은 좌우 pane 분할
+        // 시 dock 이 엉뚱하게 리사이즈되는 버그가 있었다 (상류 #53998). 대신
+        // 센터 레이아웃의 "풀-높이 열 수" 를 기준으로 dock 을 평균 1개 열에
+        // 해당하는 비율로 고정한다. 예: 센터 2 열이면 1/3, 3 열이면 1/4.
+        let center_columns = self.center.full_height_column_count().max(1) as f32;
+        Some((1.0 / (1.0 + center_columns)).clamp(0.0, 1.0))
     }
 
     pub fn is_edited(&self) -> bool {

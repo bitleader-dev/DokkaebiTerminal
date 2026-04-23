@@ -98,8 +98,11 @@ impl PaneGroup {
         }
     }
 
-    pub fn width_fraction_for_pane(&self, pane: &Entity<Pane>) -> Option<f32> {
-        self.root.width_fraction_for_pane(pane)
+    /// 센터 영역이 동일 수평 위치에서 차지하는 "풀-높이 열" 수를 반환한다.
+    /// 수직 분할은 열 수를 늘리지 않으므로, 이 값은 활성 pane 이 아닌 전체
+    /// 센터 레이아웃의 너비 특성만 반영한다. flex dock 비율 계산의 기준으로 쓴다.
+    pub fn full_height_column_count(&self) -> usize {
+        self.root.full_height_column_count()
     }
 
     pub fn pane_at_pixel_position(&self, coordinate: Point<Pixels>) -> Option<&Entity<Pane>> {
@@ -307,10 +310,10 @@ impl Member {
         }
     }
 
-    fn width_fraction_for_pane(&self, pane: &Entity<Pane>) -> Option<f32> {
+    fn full_height_column_count(&self) -> usize {
         match self {
-            Member::Pane(found) => (found == pane).then_some(1.0),
-            Member::Axis(axis) => axis.width_fraction_for_pane(pane),
+            Member::Pane(_) => 1,
+            Member::Axis(axis) => axis.full_height_column_count(),
         }
     }
 }
@@ -900,38 +903,21 @@ impl PaneAxis {
         None
     }
 
-    fn width_fraction_for_pane(&self, pane: &Entity<Pane>) -> Option<f32> {
-        let flexes = self.flexes.lock();
-        let total_flex = flexes.iter().copied().sum::<f32>();
-
-        for (index, member) in self.members.iter().enumerate() {
-            let child_fraction = if total_flex > 0.0 {
-                flexes[index] / total_flex
-            } else {
-                1.0 / self.members.len() as f32
-            };
-
-            match member {
-                Member::Pane(found) => {
-                    if found == pane {
-                        return Some(match self.axis {
-                            Axis::Horizontal => child_fraction,
-                            Axis::Vertical => 1.0,
-                        });
-                    }
-                }
-                Member::Axis(axis) => {
-                    if let Some(descendant_fraction) = axis.width_fraction_for_pane(pane) {
-                        return Some(match self.axis {
-                            Axis::Horizontal => child_fraction * descendant_fraction,
-                            Axis::Vertical => descendant_fraction,
-                        });
-                    }
-                }
-            }
+    fn full_height_column_count(&self) -> usize {
+        match self.axis {
+            Axis::Horizontal => self
+                .members
+                .iter()
+                .map(Member::full_height_column_count)
+                .sum::<usize>()
+                .max(1),
+            Axis::Vertical => self
+                .members
+                .iter()
+                .map(Member::full_height_column_count)
+                .max()
+                .unwrap_or(1),
         }
-
-        None
     }
 
     fn render(

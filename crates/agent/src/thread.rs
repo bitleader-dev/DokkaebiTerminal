@@ -931,6 +931,7 @@ pub struct Thread {
     updated_at: DateTime<Utc>,
     title: Option<SharedString>,
     pending_title_generation: Option<Task<()>>,
+    title_generation_failed: bool,
     pending_summary_generation: Option<Shared<Task<Option<SharedString>>>>,
     summary: Option<SharedString>,
     messages: Vec<Message>,
@@ -1052,6 +1053,7 @@ impl Thread {
             updated_at: Utc::now(),
             title: None,
             pending_title_generation: None,
+            title_generation_failed: false,
             pending_summary_generation: None,
             summary: None,
             messages: Vec::new(),
@@ -1272,6 +1274,7 @@ impl Thread {
                 Some(db_thread.title.clone())
             },
             pending_title_generation: None,
+            title_generation_failed: false,
             pending_summary_generation: None,
             summary: db_thread.detailed_summary,
             messages: db_thread.messages,
@@ -2502,6 +2505,10 @@ impl Thread {
         self.pending_title_generation.is_some()
     }
 
+    pub fn has_failed_title_generation(&self) -> bool {
+        self.title_generation_failed
+    }
+
     pub fn summary(&mut self, cx: &mut Context<Self>) -> Shared<Task<Option<SharedString>>> {
         if let Some(summary) = self.summary.as_ref() {
             return Task::ready(Some(summary.clone())).shared();
@@ -2563,6 +2570,7 @@ impl Thread {
     }
 
     pub fn generate_title(&mut self, cx: &mut Context<Self>) {
+        self.title_generation_failed = false;
         let Some(model) = self.summarization_model.clone() else {
             return;
         };
@@ -2610,28 +2618,30 @@ impl Thread {
                 anyhow::Ok(())
             };
 
-            if generate
+            let succeeded = generate
                 .await
                 .context("failed to generate thread title")
                 .log_err()
-                .is_some()
-            {
-                _ = this.update(cx, |this, cx| this.set_title(title.into(), cx));
-            } else {
-                // Emit TitleUpdated even on failure so that the propagation
-                // chain (agent::Thread → NativeAgent → AcpThread) fires and
-                // clears any provisional title that was set before the turn.
-                _ = this.update(cx, |_, cx| {
+                .is_some();
+            _ = this.update(cx, |this, cx| {
+                this.pending_title_generation = None;
+                if succeeded {
+                    this.set_title(title.into(), cx);
+                } else {
+                    this.title_generation_failed = true;
+                    // TitleUpdated 를 실패 시에도 emit 해서 전파 체인(agent::Thread
+                    // → NativeAgent → AcpThread)이 동작하고 turn 시작 전에 설정된
+                    // 임시 타이틀을 초기화한다.
                     cx.emit(TitleUpdated);
                     cx.notify();
-                });
-            }
-            _ = this.update(cx, |this, _| this.pending_title_generation = None);
+                }
+            });
         }));
     }
 
     pub fn set_title(&mut self, title: SharedString, cx: &mut Context<Self>) {
         self.pending_title_generation = None;
+        self.title_generation_failed = false;
         if Some(&title) != self.title.as_ref() {
             self.title = Some(title);
             cx.emit(TitleUpdated);

@@ -272,14 +272,7 @@ impl AcpConnection {
             async move |cx| {
                 let status = status_fut.await?;
 
-                for session in sessions.borrow().values() {
-                    session
-                        .thread
-                        .update(cx, |thread, cx| {
-                            thread.emit_load_error(LoadError::Exited { status }, cx)
-                        })
-                        .ok();
-                }
+                emit_load_error_to_all_sessions(&sessions, LoadError::Exited { status }, cx);
 
                 anyhow::Ok(())
             }
@@ -476,6 +469,28 @@ impl AcpConnection {
                 }
             }
         }
+    }
+}
+
+// 프로세스 종료 시 모든 세션에 로드 에러를 emit 한다. sessions.borrow() 를
+// 그대로 돌며 session.thread.update 를 호출하면 update 내부에서 sessions 를
+// 다시 borrow 해 double borrow panic 이 발생하므로 thread 를 먼저 clone 해
+// borrow 를 해제한 뒤 순회한다.
+fn emit_load_error_to_all_sessions(
+    sessions: &Rc<RefCell<HashMap<acp::SessionId, AcpSession>>>,
+    error: LoadError,
+    cx: &mut AsyncApp,
+) {
+    let threads: Vec<_> = sessions
+        .borrow()
+        .values()
+        .map(|session| session.thread.clone())
+        .collect();
+
+    for thread in threads {
+        thread
+            .update(cx, |thread, cx| thread.emit_load_error(error.clone(), cx))
+            .ok();
     }
 }
 

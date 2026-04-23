@@ -1388,7 +1388,17 @@ impl AcpThread {
     ) -> Result<(), acp::Error> {
         match update {
             acp::SessionUpdate::UserMessageChunk(acp::ContentChunk { content, .. }) => {
-                self.push_user_content_block(None, content, cx);
+                // 사용자 프롬프트는 prompt 호출 전에 선반영되지만 일부 ACP 서버가
+                // chunk 를 에코해 보내므로 동일 content 가 이미 현재 user 메시지에
+                // 들어있으면 중복 추가를 건너뛴다.
+                let already_in_user_message = self
+                    .entries
+                    .last()
+                    .and_then(|entry| entry.user_message())
+                    .is_some_and(|message| message.chunks.contains(&content));
+                if !already_in_user_message {
+                    self.push_user_content_block(None, content, cx);
+                }
             }
             acp::SessionUpdate::AgentMessageChunk(acp::ContentChunk { content, .. }) => {
                 self.push_assistant_content_block(content, false, cx);

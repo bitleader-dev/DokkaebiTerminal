@@ -722,7 +722,8 @@ pub fn find_boundary_point(
             && is_boundary(prev_ch, ch)
         {
             if return_point_before_boundary {
-                return map.clip_point(prev_offset.to_display_point(map), Bias::Right);
+                let point = prev_offset.to_point(map.buffer_snapshot());
+                return map.clip_point(map.point_to_display_point(point, Bias::Right), Bias::Right);
             } else {
                 break;
             }
@@ -731,7 +732,8 @@ pub fn find_boundary_point(
         offset += ch.len_utf8();
         prev_ch = Some(ch);
     }
-    map.clip_point(offset.to_display_point(map), Bias::Right)
+    let point = offset.to_point(map.buffer_snapshot());
+    map.clip_point(map.point_to_display_point(point, Bias::Right), Bias::Right)
 }
 
 pub fn find_preceding_boundary_trail(
@@ -820,13 +822,15 @@ pub fn find_boundary_trail(
         prev_ch = Some(ch);
     }
 
-    let trail = trail_offset
-        .map(|trail_offset| map.clip_point(trail_offset.to_display_point(map), Bias::Right));
+    let trail = trail_offset.map(|trail_offset| {
+        let point = trail_offset.to_point(map.buffer_snapshot());
+        map.clip_point(map.point_to_display_point(point, Bias::Right), Bias::Right)
+    });
 
-    (
-        trail,
-        map.clip_point(offset.to_display_point(map), Bias::Right),
-    )
+    (trail, {
+        let point = offset.to_point(map.buffer_snapshot());
+        map.clip_point(map.point_to_display_point(point, Bias::Right), Bias::Right)
+    })
 }
 
 pub fn find_boundary(

@@ -208,11 +208,24 @@ impl<'de> Deserialize<'de> for ModelShow {
                 let mut capabilities: Vec<String> = Vec::new();
                 let mut architecture: Option<String> = None;
                 let mut context_length: Option<u64> = None;
+                let mut num_ctx: Option<u64> = None;
 
                 while let Some(key) = map.next_key::<String>()? {
                     match key.as_str() {
                         "capabilities" => {
                             capabilities = map.next_value()?;
+                        }
+                        "parameters" => {
+                            let params_str: String = map.next_value()?;
+                            for line in params_str.lines() {
+                                if let Some(start) = line.find("num_ctx") {
+                                    let value_part = &line[start + 7..];
+                                    if let Ok(value) = value_part.trim().parse::<u64>() {
+                                        num_ctx = Some(value);
+                                        break;
+                                    }
+                                }
+                            }
                         }
                         "model_info" => {
                             let model_info: Value = map.next_value()?;
@@ -235,6 +248,7 @@ impl<'de> Deserialize<'de> for ModelShow {
                     }
                 }
 
+                let context_length = num_ctx.or(context_length);
                 Ok(ModelShow {
                     capabilities,
                     context_length,

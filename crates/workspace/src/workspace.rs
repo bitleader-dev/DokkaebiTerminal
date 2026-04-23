@@ -275,6 +275,8 @@ actions!(
         ResetOpenDocksSize,
         /// Reloads the application
         Reload,
+        /// Formats and saves the current file, regardless of the format_on_save setting.
+        FormatAndSave,
         /// Saves the current file with a new name.
         SaveAs,
         /// Saves without formatting.
@@ -6747,10 +6749,12 @@ impl Workspace {
         if let Some(focus_on) = focus_on {
             focus_on.update(cx, |pane, cx| window.focus(&pane.focus_handle(cx), cx));
         } else if self.active_pane() == pane {
-            self.panes
-                .last()
-                .unwrap()
-                .update(cx, |pane, cx| window.focus(&pane.focus_handle(cx), cx));
+            let fallback_pane = self.panes.last().unwrap().clone();
+            if self.has_active_modal(window, cx) {
+                self.set_active_pane(&fallback_pane, window, cx);
+            } else {
+                fallback_pane.update(cx, |pane, cx| window.focus(&pane.focus_handle(cx), cx));
+            }
         }
         if self.last_active_center_pane == Some(pane.downgrade()) {
             self.last_active_center_pane = None;
@@ -7451,6 +7455,11 @@ impl Workspace {
                     .save_active_item(action.save_intent.unwrap_or(SaveIntent::Save), window, cx)
                     .detach_and_prompt_err("Failed to save", window, cx, |_, _, _| None);
             }))
+            .on_action(cx.listener(|workspace, _: &FormatAndSave, window, cx| {
+                workspace
+                    .save_active_item(SaveIntent::FormatAndSave, window, cx)
+                    .detach_and_prompt_err("Failed to save", window, cx, |_, _, _| None);
+            }))
             .on_action(cx.listener(|workspace, _: &SaveWithoutFormat, window, cx| {
                 workspace
                     .save_active_item(SaveIntent::SaveWithoutFormat, window, cx)
@@ -7986,6 +7995,7 @@ impl Workspace {
         let dock = dock.read(cx);
         if let Some(panel) = dock.visible_panel() {
             let size_state = dock.stored_panel_size_state(panel.as_ref());
+            let min_size = panel.min_size(window, cx);
             if position.axis() == Axis::Horizontal {
                 if let Some(ratio) = size_state
                     .and_then(|state| state.flexible_size_ratio)
@@ -8003,6 +8013,9 @@ impl Workspace {
                         .and_then(|state| state.size)
                         .unwrap_or_else(|| panel.default_size(window, cx));
                     container = container.w(size);
+                }
+                if let Some(min) = min_size {
+                    container = container.min_w(min);
                 }
             } else {
                 let size = size_state

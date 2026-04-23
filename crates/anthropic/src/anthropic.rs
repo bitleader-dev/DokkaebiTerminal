@@ -72,6 +72,17 @@ pub enum Model {
     )]
     ClaudeOpus4_6,
     #[serde(
+        rename = "claude-opus-4-7",
+        alias = "claude-opus-4-7-latest",
+        alias = "claude-opus-4-7-1m-context",
+        alias = "claude-opus-4-7-1m-context-latest",
+        alias = "claude-opus-4-7-thinking",
+        alias = "claude-opus-4-7-thinking-latest",
+        alias = "claude-opus-4-7-1m-context-thinking",
+        alias = "claude-opus-4-7-1m-context-thinking-latest"
+    )]
+    ClaudeOpus4_7,
+    #[serde(
         rename = "claude-sonnet-4",
         alias = "claude-sonnet-4-latest",
         alias = "claude-sonnet-4-thinking",
@@ -138,6 +149,10 @@ impl Model {
     }
 
     pub fn from_id(id: &str) -> Result<Self> {
+        if id.starts_with("claude-opus-4-7") {
+            return Ok(Self::ClaudeOpus4_7);
+        }
+
         if id.starts_with("claude-opus-4-6") {
             return Ok(Self::ClaudeOpus4_6);
         }
@@ -187,6 +202,7 @@ impl Model {
             Self::ClaudeOpus4_1 => "claude-opus-4-1-latest",
             Self::ClaudeOpus4_5 => "claude-opus-4-5-latest",
             Self::ClaudeOpus4_6 => "claude-opus-4-6-latest",
+            Self::ClaudeOpus4_7 => "claude-opus-4-7-latest",
             Self::ClaudeSonnet4 => "claude-sonnet-4-latest",
             Self::ClaudeSonnet4_5 => "claude-sonnet-4-5-latest",
             Self::ClaudeSonnet4_5_1mContext => "claude-sonnet-4-5-1m-context-latest",
@@ -204,6 +220,7 @@ impl Model {
             Self::ClaudeOpus4_1 => "claude-opus-4-1-20250805",
             Self::ClaudeOpus4_5 => "claude-opus-4-5-20251101",
             Self::ClaudeOpus4_6 => "claude-opus-4-6",
+            Self::ClaudeOpus4_7 => "claude-opus-4-7",
             Self::ClaudeSonnet4 => "claude-sonnet-4-20250514",
             Self::ClaudeSonnet4_5 | Self::ClaudeSonnet4_5_1mContext => "claude-sonnet-4-5-20250929",
             Self::ClaudeSonnet4_6 => "claude-sonnet-4-6",
@@ -219,6 +236,7 @@ impl Model {
             Self::ClaudeOpus4_1 => "Claude Opus 4.1",
             Self::ClaudeOpus4_5 => "Claude Opus 4.5",
             Self::ClaudeOpus4_6 => "Claude Opus 4.6",
+            Self::ClaudeOpus4_7 => "Claude Opus 4.7",
             Self::ClaudeSonnet4 => "Claude Sonnet 4",
             Self::ClaudeSonnet4_5 => "Claude Sonnet 4.5",
             Self::ClaudeSonnet4_5_1mContext => "Claude Sonnet 4.5 (1M context)",
@@ -237,6 +255,7 @@ impl Model {
             | Self::ClaudeOpus4_1
             | Self::ClaudeOpus4_5
             | Self::ClaudeOpus4_6
+            | Self::ClaudeOpus4_7
             | Self::ClaudeSonnet4
             | Self::ClaudeSonnet4_5
             | Self::ClaudeSonnet4_5_1mContext
@@ -263,9 +282,10 @@ impl Model {
             | Self::ClaudeSonnet4_5
             | Self::ClaudeHaiku4_5
             | Self::Claude3Haiku => 200_000,
-            Self::ClaudeOpus4_6 | Self::ClaudeSonnet4_5_1mContext | Self::ClaudeSonnet4_6 => {
-                1_000_000
-            }
+            Self::ClaudeOpus4_6
+            | Self::ClaudeOpus4_7
+            | Self::ClaudeSonnet4_5_1mContext
+            | Self::ClaudeSonnet4_6 => 1_000_000,
             Self::Custom { max_tokens, .. } => *max_tokens,
         }
     }
@@ -279,7 +299,7 @@ impl Model {
             | Self::ClaudeSonnet4_5_1mContext
             | Self::ClaudeSonnet4_6
             | Self::ClaudeHaiku4_5 => 64_000,
-            Self::ClaudeOpus4_6 => 128_000,
+            Self::ClaudeOpus4_6 | Self::ClaudeOpus4_7 => 128_000,
             Self::Claude3Haiku => 4_096,
             Self::Custom {
                 max_output_tokens, ..
@@ -293,6 +313,7 @@ impl Model {
             | Self::ClaudeOpus4_1
             | Self::ClaudeOpus4_5
             | Self::ClaudeOpus4_6
+            | Self::ClaudeOpus4_7
             | Self::ClaudeSonnet4
             | Self::ClaudeSonnet4_5
             | Self::ClaudeSonnet4_5_1mContext
@@ -307,34 +328,50 @@ impl Model {
     }
 
     pub fn mode(&self) -> AnthropicModelMode {
-        if self.supports_adaptive_thinking() {
-            AnthropicModelMode::AdaptiveThinking
-        } else if self.supports_thinking() {
-            AnthropicModelMode::Thinking {
+        match self {
+            Self::Custom { mode, .. } => mode.clone(),
+            _ if self.supports_adaptive_thinking() => AnthropicModelMode::AdaptiveThinking,
+            _ if self.supports_thinking() => AnthropicModelMode::Thinking {
                 budget_tokens: Some(4_096),
-            }
-        } else {
-            AnthropicModelMode::Default
+            },
+            _ => AnthropicModelMode::Default,
         }
     }
 
     pub fn supports_thinking(&self) -> bool {
-        matches!(
-            self,
-            Self::ClaudeOpus4
-                | Self::ClaudeOpus4_1
-                | Self::ClaudeOpus4_5
-                | Self::ClaudeOpus4_6
-                | Self::ClaudeSonnet4
-                | Self::ClaudeSonnet4_5
-                | Self::ClaudeSonnet4_5_1mContext
-                | Self::ClaudeSonnet4_6
-                | Self::ClaudeHaiku4_5
-        )
+        match self {
+            Self::Custom { mode, .. } => matches!(
+                mode,
+                AnthropicModelMode::Thinking { .. } | AnthropicModelMode::AdaptiveThinking
+            ),
+            _ => matches!(
+                self,
+                Self::ClaudeOpus4
+                    | Self::ClaudeOpus4_1
+                    | Self::ClaudeOpus4_5
+                    | Self::ClaudeOpus4_6
+                    | Self::ClaudeOpus4_7
+                    | Self::ClaudeSonnet4
+                    | Self::ClaudeSonnet4_5
+                    | Self::ClaudeSonnet4_5_1mContext
+                    | Self::ClaudeSonnet4_6
+                    | Self::ClaudeHaiku4_5
+            ),
+        }
+    }
+
+    pub fn supports_speed(&self) -> bool {
+        matches!(self, Self::ClaudeOpus4_6 | Self::ClaudeSonnet4_6)
     }
 
     pub fn supports_adaptive_thinking(&self) -> bool {
-        matches!(self, Self::ClaudeOpus4_6 | Self::ClaudeSonnet4_6)
+        match self {
+            Self::Custom { mode, .. } => matches!(mode, AnthropicModelMode::AdaptiveThinking),
+            _ => matches!(
+                self,
+                Self::ClaudeOpus4_6 | Self::ClaudeOpus4_7 | Self::ClaudeSonnet4_6
+            ),
+        }
     }
 
     pub fn beta_headers(&self) -> Option<String> {

@@ -1418,6 +1418,7 @@ impl ExternalAgentServer for LocalRegistryNpxAgent {
 
             let npm_command = node_runtime
                 .npm_command(
+                    None,
                     "exec",
                     &exec_args.iter().map(|a| a.as_str()).collect::<Vec<_>>(),
                 )

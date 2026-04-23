@@ -152,7 +152,6 @@
   "welcome.action.new_terminal": "New Terminal",
   "welcome.action.open_settings": "Open Settings",
   "welcome.recent_projects": "Recent Projects",
-  "welcome.remote_project": "Remote Project",
   "welcome.headline.first_time": "Welcome to Dokkaebi",
   "welcome.headline.returning": "Welcome back to Dokkaebi",
   "welcome.tagline": "A Windows-focused terminal workspace for AI coding agents, built on Zed.",

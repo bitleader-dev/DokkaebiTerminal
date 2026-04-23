@@ -585,24 +585,16 @@ impl WelcomePage {
         tab_index: usize,
         location: &SerializedWorkspaceLocation,
         paths: &PathList,
-        cx: &App,
+        _cx: &App,
     ) -> impl IntoElement {
-        let (icon, title) = match location {
-            SerializedWorkspaceLocation::Local => {
-                let path = paths.paths().first().map(|p| p.as_path());
-                let name = path
-                    .and_then(|p| p.file_name())
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "Untitled".to_string());
-                (IconName::Folder, name)
-            }
-            SerializedWorkspaceLocation::Remote(_) => {
-                (IconName::Server, t("welcome.remote_project", cx).to_string())
-            }
+        let name = project_name(paths);
+        let icon = match location {
+            SerializedWorkspaceLocation::Local => IconName::Folder,
+            SerializedWorkspaceLocation::Remote(_) => IconName::Server,
         };
 
         SectionButton::new(
-            title,
+            name,
             icon,
             &OpenRecentProject {
                 index: project_index,
@@ -610,6 +602,21 @@ impl WelcomePage {
             tab_index,
             self.focus_handle.clone(),
         )
+    }
+}
+
+// 경로 목록에서 파일명만 쉼표로 결합해 최근 프로젝트 라벨을 생성한다.
+fn project_name(paths: &PathList) -> String {
+    let joined = paths
+        .paths()
+        .iter()
+        .filter_map(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    if joined.is_empty() {
+        "Untitled".to_string()
+    } else {
+        joined
     }
 }
 

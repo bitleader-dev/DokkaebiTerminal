@@ -10,6 +10,7 @@ use crate::{
     repository_selector::RepositorySelector,
 };
 use agent_settings::AgentSettings;
+use alacritty_terminal::vte::ansi;
 use i18n::t;
 use anyhow::Context as _;
 use askpass::AskPassDelegate;
@@ -1272,6 +1273,14 @@ impl GitPanel {
     }
 
     fn open_diff(&mut self, _: &menu::Confirm, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(GitListEntry::Directory(dir_entry)) = self
+            .selected_entry
+            .and_then(|i| self.entries.get(i))
+            .cloned()
+        {
+            self.toggle_directory(&dir_entry.key, window, cx);
+            return;
+        }
         maybe!({
             let entry = self.entries.get(self.selected_entry?)?.status_entry()?;
             let workspace = self.workspace.upgrade()?;
@@ -6354,7 +6363,13 @@ fn open_output(
     cx: &mut Context<Workspace>,
 ) {
     let operation = operation.into();
-    let buffer = cx.new(|cx| Buffer::local(output, cx));
+
+    let mut handler = GitOutputHandler::default();
+    let mut processor = ansi::Processor::<ansi::StdSyncHandler>::default();
+    processor.advance(&mut handler, output.as_bytes());
+    let plain_text = handler.output;
+
+    let buffer = cx.new(|cx| Buffer::local(plain_text.as_str(), cx));
     buffer.update(cx, |buffer, cx| {
         buffer.set_capability(language::Capability::ReadOnly, cx);
     });
@@ -6368,6 +6383,32 @@ fn open_output(
     });
 
     workspace.add_item_to_center(Box::new(editor), window, cx);
+}
+
+#[derive(Default)]
+struct GitOutputHandler {
+    output: String,
+    line_start: usize,
+}
+
+impl ansi::Handler for GitOutputHandler {
+    fn input(&mut self, c: char) {
+        self.output.push(c);
+    }
+
+    fn linefeed(&mut self) {
+        self.output.push('\n');
+        self.line_start = self.output.len();
+    }
+
+    fn carriage_return(&mut self) {
+        self.output.truncate(self.line_start);
+    }
+
+    fn put_tab(&mut self, count: u16) {
+        self.output
+            .extend(std::iter::repeat_n('\t', count as usize));
+    }
 }
 
 pub(crate) fn show_error_toast(
@@ -6384,21 +6425,23 @@ pub(crate) fn show_error_toast(
         .is_some()
     { // Hide the cancelled by user message
     } else {
-        workspace.update(cx, |workspace, cx| {
-            let workspace_weak = cx.weak_entity();
-            let toast = StatusToast::new(format!("git {} failed", action), cx, |this, _cx| {
-                this.icon(ToastIcon::new(IconName::XCircle).color(Color::Error))
-                    .action("View Log", move |window, cx| {
-                        let message = message.clone();
-                        let action = action.clone();
-                        workspace_weak
-                            .update(cx, move |workspace, cx| {
-                                open_output(action, workspace, &message, window, cx)
-                            })
-                            .ok();
-                    })
+        cx.defer(move |cx| {
+            workspace.update(cx, |workspace, cx| {
+                let workspace_weak = cx.weak_entity();
+                let toast = StatusToast::new(format!("git {} failed", action), cx, |this, _cx| {
+                    this.icon(ToastIcon::new(IconName::XCircle).color(Color::Error))
+                        .action("View Log", move |window, cx| {
+                            let message = message.clone();
+                            let action = action.clone();
+                            workspace_weak
+                                .update(cx, move |workspace, cx| {
+                                    open_output(action, workspace, &message, window, cx)
+                                })
+                                .ok();
+                        })
+                });
+                workspace.toggle_status_toast(toast, cx)
             });
-            workspace.toggle_status_toast(toast, cx)
         });
     }
 }

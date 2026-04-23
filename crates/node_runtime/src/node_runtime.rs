@@ -238,11 +238,16 @@ impl NodeRuntime {
             .await
     }
 
-    pub async fn npm_command(&self, subcommand: &str, args: &[&str]) -> Result<NpmCommand> {
+    pub async fn npm_command(
+        &self,
+        prefix_dir: Option<&Path>,
+        subcommand: &str,
+        args: &[&str],
+    ) -> Result<NpmCommand> {
         let http = self.0.lock().await.http.clone();
         self.instance()
             .await
-            .npm_command(http.proxy(), subcommand, args)
+            .npm_command(prefix_dir, http.proxy(), subcommand, args)
             .await
     }
 
@@ -372,6 +377,7 @@ trait NodeRuntimeTrait: Send + Sync {
 
     async fn npm_command(
         &self,
+        prefix_dir: Option<&Path>,
         proxy: Option<&Url>,
         subcommand: &str,
         args: &[&str],
@@ -554,11 +560,13 @@ impl NodeRuntimeTrait for ManagedNodeRuntime {
         args: &[&str],
     ) -> Result<Output> {
         let attempt = || async {
-            let npm_command = self.npm_command(proxy, subcommand, args).await?;
+            let npm_command = self.npm_command(directory, proxy, subcommand, args).await?;
             let mut command = util::command::new_command(npm_command.path);
             command.args(npm_command.args);
             command.envs(npm_command.env);
-            configure_npm_command(&mut command, directory);
+            if let Some(directory) = directory {
+                command.current_dir(directory);
+            }
             command.output().await.map_err(|e| anyhow!("{e}"))
         };
 
@@ -586,6 +594,7 @@ impl NodeRuntimeTrait for ManagedNodeRuntime {
 
     async fn npm_command(
         &self,
+        prefix_dir: Option<&Path>,
         proxy: Option<&Url>,
         subcommand: &str,
         args: &[&str],
@@ -604,6 +613,7 @@ impl NodeRuntimeTrait for ManagedNodeRuntime {
 
         let command_args = build_npm_command_args(
             Some(&npm_file),
+            prefix_dir,
             &self.installation_path.join("cache"),
             Some(&self.installation_path.join("blank_user_npmrc")),
             Some(&self.installation_path.join("blank_global_npmrc")),
@@ -633,7 +643,6 @@ impl NodeRuntimeTrait for ManagedNodeRuntime {
 pub struct SystemNodeRuntime {
     node: PathBuf,
     npm: PathBuf,
-    global_node_modules: PathBuf,
     scratch_dir: PathBuf,
 }
 
@@ -667,17 +676,11 @@ impl SystemNodeRuntime {
         fs::create_dir(&scratch_dir).await.ok();
         fs::create_dir(scratch_dir.join("cache")).await.ok();
 
-        let mut this = Self {
+        Ok(Self {
             node,
             npm,
-            global_node_modules: PathBuf::default(),
             scratch_dir,
-        };
-        let output = this.run_npm_subcommand(None, None, "root", &["-g"]).await?;
-        this.global_node_modules =
-            PathBuf::from(String::from_utf8_lossy(&output.stdout).to_string());
-
-        Ok(this)
+        })
     }
 
     async fn detect() -> std::result::Result<Self, DetectError> {
@@ -722,11 +725,13 @@ impl NodeRuntimeTrait for SystemNodeRuntime {
         subcommand: &str,
         args: &[&str],
     ) -> anyhow::Result<Output> {
-        let npm_command = self.npm_command(proxy, subcommand, args).await?;
+        let npm_command = self.npm_command(directory, proxy, subcommand, args).await?;
         let mut command = util::command::new_command(npm_command.path);
         command.args(npm_command.args);
         command.envs(npm_command.env);
-        configure_npm_command(&mut command, directory);
+        if let Some(directory) = directory {
+            command.current_dir(directory);
+        }
         let output = command.output().await?;
         anyhow::ensure!(
             output.status.success(),
@@ -739,12 +744,14 @@ impl NodeRuntimeTrait for SystemNodeRuntime {
 
     async fn npm_command(
         &self,
+        prefix_dir: Option<&Path>,
         proxy: Option<&Url>,
         subcommand: &str,
         args: &[&str],
     ) -> Result<NpmCommand> {
         let command_args = build_npm_command_args(
             None,
+            prefix_dir,
             &self.scratch_dir.join("cache"),
             None,
             None,
@@ -825,6 +832,7 @@ impl NodeRuntimeTrait for UnavailableNodeRuntime {
 
     async fn npm_command(
         &self,
+        _: Option<&Path>,
         _proxy: Option<&Url>,
         _subcommand: &str,
         _args: &[&str],
@@ -838,13 +846,6 @@ impl NodeRuntimeTrait for UnavailableNodeRuntime {
         _: &str,
     ) -> Result<Option<Version>> {
         bail!("{}", self.error_message)
-    }
-}
-
-fn configure_npm_command(command: &mut util::command::Command, directory: Option<&Path>) {
-    if let Some(directory) = directory {
-        command.current_dir(directory);
-        command.args(["--prefix".into(), directory.to_path_buf()]);
     }
 }
 
@@ -865,6 +866,7 @@ fn proxy_argument(proxy: Option<&Url>) -> Option<String> {
 
 fn build_npm_command_args(
     entrypoint: Option<&Path>,
+    prefix_dir: Option<&Path>,
     cache_dir: &Path,
     user_config: Option<&Path>,
     global_config: Option<&Path>,
@@ -875,6 +877,10 @@ fn build_npm_command_args(
     let mut command_args = Vec::new();
     if let Some(entrypoint) = entrypoint {
         command_args.push(entrypoint.to_string_lossy().into_owned());
+    }
+    if let Some(prefix_dir) = prefix_dir {
+        command_args.push("--prefix".into());
+        command_args.push(prefix_dir.to_string_lossy().into_owned());
     }
     command_args.push(subcommand.to_string());
     command_args.push(format!("--cache={}", cache_dir.display()));

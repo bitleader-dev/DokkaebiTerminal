@@ -1445,6 +1445,9 @@ impl ThreadView {
         let Some(queued) = self.remove_from_queue(index, cx) else {
             return;
         };
+
+        self.message_editor.focus_handle(cx).focus(window, cx);
+
         let content = queued.content;
         let tracked_buffers = queued.tracked_buffers;
 
@@ -4578,8 +4581,8 @@ impl ThreadView {
                         .into_any()
                 }
             }
-            AgentThreadEntry::ToolCall(tool_call) => self
-                .render_any_tool_call(
+            AgentThreadEntry::ToolCall(tool_call) => {
+                let tool_call = self.render_any_tool_call(
                     &self.id,
                     entry_ix,
                     tool_call,
@@ -4587,8 +4590,19 @@ impl ThreadView {
                     false,
                     window,
                     cx,
-                )
-                .into_any(),
+                );
+
+                if let Some(handle) = self
+                    .entry_view_state
+                    .read(cx)
+                    .entry(entry_ix)
+                    .and_then(|entry| entry.focus_handle(cx))
+                {
+                    tool_call.track_focus(&handle).into_any()
+                } else {
+                    tool_call.into_any()
+                }
+            }
             AgentThreadEntry::CompletedPlan(entries) => {
                 self.render_completed_plan(entries, window, cx)
             }
@@ -7319,6 +7333,7 @@ impl ThreadView {
                 gpui::ImageFormat::Bmp => "BMP",
                 gpui::ImageFormat::Tiff => "TIFF",
                 gpui::ImageFormat::Ico => "ICO",
+                gpui::ImageFormat::Pnm => "PNM",
             };
             let dimensions = image::ImageReader::new(std::io::Cursor::new(image.bytes()))
                 .with_guessed_format()

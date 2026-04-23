@@ -514,6 +514,135 @@ Phase 8A ACP SDK 이식 착수. plan.md §11.8 기준.
 
 ---
 
+## 11.10. Phase 10 — #53941 `agent_ui: Improve the new thread worktree UX` 잔여 이식 (2026-04-23 착수)
+
+### 11.10.1. 배경 및 결정
+- **상류 PR**: #53941 (agent_ui: Improve the new thread worktree UX, +1645/-2990/37f, merge 6beecae, 2026-04-15). 상류 최초 포함 stable = v0.232.2.
+- **Dokkaebi 선행 완료분** (Phase 8I 1~2차, 커밋 `acb729cf32`): git 인프라 11 파일 (`is_bare` 필드 왕복, `Worktree::branch_name()`, `worktree_picker.rs` `is_bare` 리터럴), 신규 파일 2개 소스 복사 (`thread_worktree_picker.rs` 1037 라인 / `thread_worktree_archive.rs` 1032 라인), 아이콘 6개, 키맵 1건, 타입 인프라 3종(`CreateWorktree` / `SwitchWorktree` / `NewWorktreeBranchTarget`) + `ToggleWorktreeSelector` action 등록.
+- **사용자 결정 (2026-04-23)**: 옵션 A (agent_panel refactor) + 옵션 B (archive 인프라 + 활성화) 동시 적용. main 브랜치 직접 작업. multi_workspace 경로 연결은 Dokkaebi 독자 `AgentV2FeatureFlag` 구조 차이로 skip.
+- **이전 오판 정정**: 이전 분석에서 "agent_panel.rs 는 Dokkaebi 독자 서브에이전트 뷰 탭/워크스페이스 그룹 색상 보존 조건과 겹침" 주장은 **근거 없음** (전수 grep 0건 확인). 순수 refactor 작업이며 Dokkaebi 독자 기능과 무관.
+
+### 11.10.2. PR #53941 사용자 체감 변경 (Release Notes 인용)
+1. **Agent**: "Improved and simplified the UX of creating threads in Git worktrees."
+2. **Git**: "Fixed a bug where worktrees in a detached HEAD state wouldn't show up in the worktree picker."
+   - 2번은 Phase 8I 1차 `is_bare` 이식으로 이미 동등 달성 (검증 시 별도 확인).
+
+### 11.10.3. 이식 범위 3 Part
+
+#### Part A — agent_panel.rs `StartThreadIn` 제거 refactor (+602/-1017)
+- **대상 파일**:
+  - `crates/agent_ui/src/agent_panel.rs` 37 참조 (L30, 33, 140, 410, 417, 606, 751, 883, 884, 1084, 2244, 2250, 2254, 2259~2299, 2545, 3641, 3648, 3649, 3678, 3702, 4956, 5891~6230)
+  - `crates/agent_ui/src/agent_ui.rs` — `mod thread_worktree_picker` 활성화, `StartThreadIn` enum 제거, action 리네이밍 최종화
+  - `crates/agent_ui/src/conversation_view/thread_view.rs` -45 — `FirstSendRequested` 이벤트 경로 제거 (`StartThreadIn::NewWorktree` 지연 worktree 생성 메커니즘과 짝)
+  - `crates/recent_projects/src/recent_projects.rs` +2 — `find_or_create_local_workspace` 호출 경로 변경
+- **변환 규칙**:
+  - `StartThreadIn::LocalProject` → `CreateWorktree { branch_target: CurrentBranch }` 또는 `SwitchWorktree` 로 맥락별 분기
+  - `StartThreadIn::NewWorktree` → `CreateWorktree { branch_target: NewBranch }` 기반
+  - `CycleStartThreadIn` action → `ToggleWorktreeSelector` action (이미 agent_ui.rs 에 등록됨)
+  - eager worktree 생성: "first send 시 생성" 경로 → "선택 시 즉시 생성" 경로로 재배선
+- **Dokkaebi 독자 기능 보존 검증** (재확인 완료):
+  - `agent_panel.rs` 내 `subagent` / `서브에이전트` / `workspace_group` / `group_color` grep **0건** → 충돌 없음
+  - Dokkaebi 서브에이전트 뷰 탭 관련 코드는 `conversation_view/thread_view.rs`, `thread_metadata_store.rs`, `entry_view_state.rs`, `conversation_view.rs` 분포. thread_view.rs 의 -45 는 **FirstSendRequested 이벤트 경로**만 제거하고 서브에이전트 뷰 탭 코드는 별도 영역이라 병렬 공존 가능
+  - Dokkaebi `AgentV2FeatureFlag` 기반 `start_thread_in` 로직은 제거된 enum 과 함께 사라지지만, 해당 flag 의 `has_flag::<AgentV2FeatureFlag>()` 체크는 다른 경로에서 유지
+
+#### Part B-1 — 신규 git API 이식 (`thread_worktree_archive` 활성화 선행 인프라)
+
+**방침 확정 (2026-04-23 사용자 승인 "경로 3 — 최소 이식, local-only stub, 상류 시그너처 유지")**
+
+상류 PR #53941 의 `thread_worktree_archive.rs` 가 호출하는 `Repository` wrapper 는 실제로 **5종의 backend trait 메서드 + 관련 enum/proto** 에 의존한다. 조사 결과 Dokkaebi 에는 이들 전부가 부재 상태. 최소 이식 방침으로 범위 축소:
+
+**① 추가할 trait 메서드 (`crates/git/src/repository.rs::GitRepository`)**
+1. `checkout_branch_in_worktree(&self, branch_name: String, worktree_path: PathBuf, create: bool) -> BoxFuture<'_, Result<()>>` — 기존 worktree 에서 브랜치 checkout
+2. `update_ref(&self, ref_name: String, commit: String) -> BoxFuture<'_, Result<()>>` — ref 를 커밋으로 업데이트
+3. `delete_ref(&self, ref_name: String) -> BoxFuture<'_, Result<()>>` — ref 삭제
+4. `create_archive_checkpoint(&self) -> BoxFuture<'_, Result<(String, String)>>` — (staged_sha, unstaged_sha) 쌍 생성
+5. `restore_archive_checkpoint(&self, staged_sha: String, unstaged_sha: String) -> BoxFuture<'_, Result<()>>` — checkpoint 복원
+
+**② 추가할 Repository wrapper (`crates/project/src/git_store.rs`)**
+- `pub fn create_worktree_detached(&mut self, path: PathBuf, commit: String) -> oneshot::Receiver<Result<()>>` — `create_worktree_detached` 를 **신규 독립 wrapper** 로 도입 (기존 `create_worktree` 시그너처 유지). 내부에서 `CreateWorktreeTarget::Detached` 를 쓰지 않고 Dokkaebi 독자 경로로 `backend.create_worktree(path, Some(commit), detached=true)` 패턴 또는 새 backend 메서드 `create_worktree_detached_at` 호출. 구현 시 Dokkaebi `create_worktree` 시그너처 확인 후 최종 결정
+- `pub fn checkout_branch_in_worktree(...)` / `pub fn update_ref(...)` / `pub fn delete_ref(...)` / `pub fn create_archive_checkpoint(...)` / `pub fn restore_archive_checkpoint(...)` — 상류 시그너처 그대로
+
+**③ Remote 분기 처리 — `anyhow::bail!("not supported in remote repositories")`**
+- Dokkaebi 는 collab 비활성 + SSH remote 에서 agent thread worktree archive 비지원 정책. RepositoryState::Remote 분기에서 `log::warn!` 후 `bail!` 로 명시적 에러. `unreachable!` 은 crash 유발 가능성 있어 회피.
+
+**④ proto 추가 skip**
+- `GitEditRef`, `GitRestoreArchiveCheckpoint`, `GitCreateArchiveCheckpoint`, `GitGetHeadSha`, `GitRepairWorktrees` 전부 skip. Dokkaebi 는 collab off 로 proto 경로 불필요.
+
+**⑤ `create_worktree_detached` 세부 전략**
+Dokkaebi 의 현재 `create_worktree` trait 시그너처 확인 필요. 두 가지 경우:
+- (a) 상류와 호환 형태 → `CreateWorktreeTarget::Detached` enum 만 도입하고 내부 로직 재활용
+- (b) Dokkaebi 독자 형태 → `create_worktree_detached` 를 **완전 별개 trait 메서드**로 추가 (시그너처 breaking change 회피)
+Step 1 착수 첫 작업에서 Dokkaebi `create_worktree` 시그너처 전수 확인 후 (a)/(b) 최종 결정.
+
+**⑥ FakeGitRepository stub (`crates/fs/src/fake_git_repo.rs`)**
+- 모든 신규 메서드 `anyhow::Ok(())` 또는 `Ok(("".into(), "".into()))` no-op 반환. 실제 fs 조작 없음. 테스트 컴파일만 통과 목표.
+
+**⑦ 이미 존재 (이식 불필요)**
+- `head_sha` (`repository.rs:722`), `create_worktree` (`repository.rs:752, 1697`)
+
+**작업량 재추정**: 약 350~500 라인 추가 (trait 5개 + RealGitRepository impl 5개 git2/CLI 호출 + Repository wrapper 6개 + FakeGitRepository stub 5개). 단일 세션 완주 목표.
+
+**검증**: `cargo check -p git -p project -p fs` 통과, 신규 경고·에러 0.
+
+#### Part B-2 — `thread_worktree_archive.rs` 활성화
+- **대상 파일**: `crates/agent_ui/src/agent_ui.rs` 에 `pub mod thread_worktree_archive` 등록
+- **호출처 연결**: `agent_panel.rs` refactor 에서 archive/restore 플로우 와이어링
+- **사전 조건**: Part B-1 git API 4종이 컴파일 통과해야 `thread_worktree_archive.rs` 의 44 에러가 해소됨
+- **검증**: `cargo check -p agent_ui` 통과
+
+### 11.10.4. 작업 순서 (순차 진행, 각 단계 후 cargo check)
+1. **Step 1 — Part B-1 (git API 4종 이식)**: 다른 Part 독립. `crates/git/src/repository.rs` 에 trait 메서드 + 실제 구현 추가, FakeGitRepository stub 추가. 1회 커밋 권장.
+2. **Step 2 — Part A (agent_panel.rs refactor)**: 37 참조 재배선. `thread_view.rs` -45 + `recent_projects.rs` +2 동반. 1회 커밋 권장 (단일 주제).
+3. **Step 3 — Part B-2 (thread_worktree_archive 활성화)**: mod 등록 + archive/restore 경로 배선. 1회 커밋 권장.
+4. **Step 4 — 문서 갱신**: plan.md §11.10 체크리스트 완료 표시 + notes.md 최상단 기록 + release_notes.md 사용자 체감 항목 추가. 1회 커밋.
+
+각 Step 완료 후 `cargo check -p <대상 크레이트> -p Dokkaebi` 통과 확인. 중간 빌드 실패가 길어지면 즉시 분할 또는 롤백.
+
+### 11.10.5. 검증 방법
+- `cargo check -p git -p project -p fs` (Part B-1 후)
+- `cargo check -p agent_ui -p recent_projects` (Part A 후)
+- `cargo check -p agent_ui` (Part B-2 후)
+- `cargo check -p Dokkaebi` (최종)
+- 신규 경고·에러 0 목표
+- 빌드 후 수동 시나리오 (사용자 요청 시):
+  - 새 스레드 → `Ctrl+Shift+T` 로 worktree 선택기 오픈
+  - "현재 브랜치" / "main 에서 새로" / "기존 브랜치" 3 옵션 각각 시도 → 깜박임 없이 worktree 생성 확인
+  - 스레드 archive → worktree 보존 확인 → unarchive → 복원 확인
+  - detached HEAD worktree 가 picker 에 표시되는지 확인
+
+### 11.10.6. 미이식 skip 영역 (의도적 제외)
+- `crates/workspace/src/multi_workspace.rs` (+19/-3), `persistence.rs` (+10/-1), `workspace.rs` (+2/-2) — Dokkaebi 독자 `AgentV2FeatureFlag` 기반 `multi_workspace_enabled` 구조 + `RemoteConnectionIdentity` 부재로 상류 patch 의 수정 대상이 정확히 매칭되지 않음. 이식 시 독자 경로 우회 발췌가 필요해 작업량 대비 체감 가치 낮음.
+- `crates/sidebar/src/sidebar.rs` (+9/-1), `sidebar_tests.rs` (+36) — Dokkaebi `sidebar` 크레이트 부재 (자동 제외)
+- `crates/collab/tests/integration/git_tests.rs` (+3) — Dokkaebi `collab` 크레이트 부재
+- `crates/remote_server/src/remote_editing_tests.rs` (+1), `worktree/tests/integration/main.rs` (+2) — 상류 신규 API (`add_linked_worktree_for_repo`, `root_repo_common_dir`) 부재로 테스트 컴파일 불가
+- `crates/zed/src/visual_test_runner.rs` -639 — Dokkaebi 동등 파일 상태 확인 필요 (대부분 자동 제외 추정)
+- `assets/keymaps/default-macos.json`, `default-linux.json` — Windows 전용 정책
+
+### 11.10.7. 리스크 및 롤백 전략
+- **리스크 1**: agent_panel.rs refactor 중 Dokkaebi 서브에이전트 뷰 탭 통합 경로가 예상 외 간섭 — **완화**: grep 전수 검증 완료, 간섭 없음 확인. Step 2 실패 시 해당 커밋만 revert.
+- **리스크 2**: thread_worktree_archive.rs 가 Dokkaebi 에 없는 archive thread 이벤트 훅을 전제 — **완화**: Part B-1 완료 후 `cargo check -p agent_ui` 로 남은 에러 전수 파악, 필요 시 stub 처리.
+- **리스크 3**: multi_workspace.rs skip 으로 worktree 상태가 workspace 재시작 시 복원 안 됨 — **완화**: 이는 애초 상류 동일 PR 범위라서 Dokkaebi 영향 제한적. 후속 단독 PR 로 처리 가능.
+
+### 11.10.8. 진행 체크리스트
+- [x] 사용자 승인 (2026-04-23 "옵션A, 이어받기 → main 브랜치로 작업, 옵션 B 추가")
+- [x] 선행 #53094 이식 완료 및 단독 commit (`d7f148a813`)
+- [/] plan.md §11.10 작성
+- [ ] 상류 PR #53941 patch 의 git API 4종 시그너처 상세 조사 (Step 1 착수 직전)
+- [ ] **Step 1**: Part B-1 git API 4종 이식 + `cargo check -p git -p project -p fs`
+- [ ] **Step 2**: Part A agent_panel.rs refactor (`StartThreadIn` 제거 37곳, `thread_view.rs` -45, `recent_projects.rs` +2) + `cargo check -p agent_ui -p recent_projects`
+- [ ] **Step 3**: Part B-2 `thread_worktree_archive.rs` 활성화 + `cargo check -p agent_ui`
+- [ ] 최종 `cargo check -p Dokkaebi` 통과
+- [ ] `notes.md` 최상단에 기술 세부 기록
+- [ ] `release_notes.md` v0.4.0 `### UI/UX 개선` 또는 `### 새로운 기능` 섹션에 사용자 체감 항목 추가
+
+### 11.10.9. 예상 작업 규모
+- Part B-1: git API 4종 × (trait 메서드 + git2 실구현 + fake stub) ≈ 250~400 라인 추가, 1 세션 중반
+- Part A: agent_panel.rs 37 참조 재배선 + thread_view.rs -45 + recent_projects +2 ≈ 600~1000 라인 변경, 1~2 세션
+- Part B-2: mod 등록 + 와이어링 ≈ 50~150 라인, 0.5 세션
+- 총 예상: **2~3 세션** (단일 세션 완주 가능성 중간)
+
+---
+
 ## 12. 영향 범위 외 (변경 없음)
 - `README.md` (CLAUDE.md 프로젝트 규칙: 수정 금지)
 - `assets/keymaps/default-macos.json`, `default-linux.json` (Windows 전용 정책)

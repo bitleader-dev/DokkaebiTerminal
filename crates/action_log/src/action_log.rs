@@ -274,7 +274,6 @@ impl ActionLog {
         mut buffer_updates: mpsc::UnboundedReceiver<(ChangeAuthor, text::BufferSnapshot)>,
         cx: &mut AsyncApp,
     ) -> Result<()> {
-        let git_store = this.read_with(cx, |this, cx| this.project.read(cx).git_store().clone())?;
         let git_diff = this
             .update(cx, |this, cx| {
                 this.project.update(cx, |project, cx| {
@@ -283,28 +282,23 @@ impl ActionLog {
             })?
             .await
             .ok();
-        let buffer_repo = git_store.read_with(cx, |git_store, cx| {
-            git_store.repository_and_path_for_buffer_id(buffer.read(cx).remote_id(), cx)
-        });
 
         let (mut git_diff_updates_tx, mut git_diff_updates_rx) = watch::channel(());
-        let _repo_subscription =
-            if let Some((git_diff, (buffer_repo, _))) = git_diff.as_ref().zip(buffer_repo) {
-                cx.update(|cx| {
-                    let mut old_head = buffer_repo.read(cx).head_commit.clone();
-                    Some(cx.subscribe(git_diff, move |_, event, cx| {
-                        if let buffer_diff::BufferDiffEvent::DiffChanged { .. } = event {
-                            let new_head = buffer_repo.read(cx).head_commit.clone();
-                            if new_head != old_head {
-                                old_head = new_head;
-                                git_diff_updates_tx.send(()).ok();
-                            }
-                        }
-                    }))
-                })
-            } else {
-                None
-            };
+        // 이전에는 head_commit 변화 + DiffChanged 조합으로 커밋을 감지했으나,
+        // head_commit 이 base_text 갱신보다 먼저 들어오는 레이스가 있어 사용자 편집
+        // 과 동시 발생 시 커밋 신호가 중간 DiffChanged 에 소비되어 버렸다. BaseTextChanged
+        // 는 base_text 자체 교체 시에만 한 번 발행되므로 이를 직접 감지한다.
+        let _diff_subscription = if let Some(git_diff) = git_diff.as_ref() {
+            cx.update(|cx| {
+                Some(cx.subscribe(git_diff, move |_, event, _cx| {
+                    if matches!(event, buffer_diff::BufferDiffEvent::BaseTextChanged) {
+                        git_diff_updates_tx.send(()).ok();
+                    }
+                }))
+            })
+        } else {
+            None
+        };
 
         loop {
             futures::select_biased! {

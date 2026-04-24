@@ -27,15 +27,16 @@ use zed_actions::agent::{
 };
 
 use crate::{
-    AddContextServer, AgentDiffPane, ConversationView, CopyThreadToClipboard, CycleStartThreadIn,
+    AddContextServer, AgentDiffPane, ConversationView, CopyThreadToClipboard, CreateWorktree,
     Follow, InlineAssistant, LoadThreadFromClipboard, NewTextThread, NewThread,
-    OpenActiveThreadAsMarkdown, OpenAgentDiff, OpenHistory, ResetTrialEndUpsell, ResetTrialUpsell,
-    StartThreadIn, ToggleNavigationMenu, ToggleNewThreadMenu, ToggleOptionsMenu,
+    NewWorktreeBranchTarget, OpenActiveThreadAsMarkdown, OpenAgentDiff, OpenHistory,
+    SwitchWorktree, ToggleNavigationMenu,
+    ToggleNewThreadMenu, ToggleOptionsMenu, ToggleWorktreeSelector,
     agent_configuration::{AgentConfiguration, AssistantConfigurationEvent},
     conversation_view::{AcpThreadViewEvent, ThreadView},
     slash_command::SlashCommandCompletionProvider,
     text_thread_editor::{AgentPanelDelegate, TextThreadEditor, make_lsp_adapter_delegate},
-    ui::EndTrialUpsell,
+    thread_worktree_picker::ThreadWorktreePicker,
 };
 use crate::{
     Agent, AgentInitialContent, ExternalSourcePrompt, NewExternalAgentThread,
@@ -52,7 +53,6 @@ use crate::{
 use crate::{ManageProfiles, ThreadHistoryViewEvent};
 use crate::{ThreadHistory, agent_connection_store::AgentConnectionStore};
 use agent_settings::AgentSettings;
-use ai_onboarding::AgentPanelOnboarding;
 use anyhow::{Context as _, Result, anyhow};
 use assistant_slash_command::SlashCommandWorkingSet;
 use assistant_text_thread::{TextThread, TextThreadEvent, TextThreadSummary};
@@ -72,7 +72,7 @@ use gpui::{
 use language::LanguageRegistry;
 use language_model::{ConfigurationError, LanguageModelRegistry};
 use project::project_settings::ProjectSettings;
-use project::{Project, ProjectPath, Worktree};
+use project::{Project, ProjectPath, Worktree, linked_worktree_short_name};
 use prompt_store::{PromptBuilder, PromptStore, UserPromptId};
 use rules_library::{RulesLibrary, open_rules_library};
 use search::{BufferSearchBar, buffer_search};
@@ -136,8 +136,8 @@ struct SerializedAgentPanel {
     selected_agent: Option<AgentType>,
     #[serde(default)]
     last_active_thread: Option<SerializedActiveThread>,
-    #[serde(default)]
-    start_thread_in: Option<StartThreadIn>,
+    // 구버전 직렬화 데이터에 남아 있을 수 있는 `start_thread_in` 키는
+    // Serde 의 기본 동작에 따라 알 수 없는 필드로 자동 무시된다.
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -273,19 +273,6 @@ pub fn init(cx: &mut App) {
                     window.dispatch_action(workspace::RestoreBanner.boxed_clone(), cx);
                     window.refresh();
                 })
-                .register_action(|workspace, _: &ResetTrialUpsell, _window, cx| {
-                    if let Some(panel) = workspace.panel::<AgentPanel>(cx) {
-                        panel.update(cx, |panel, _| {
-                            panel
-                                .on_boarding_upsell_dismissed
-                                .store(false, Ordering::Release);
-                        });
-                    }
-                    OnboardingUpsell::set_dismissed(false, cx);
-                })
-                .register_action(|_workspace, _: &ResetTrialEndUpsell, _window, cx| {
-                    TrialEndUpsell::set_dismissed(false, cx);
-                })
                 .register_action(|workspace, _: &ResetAgentZoom, window, cx| {
                     if let Some(panel) = workspace.panel::<AgentPanel>(cx) {
                         panel.update(cx, |panel, cx| {
@@ -407,17 +394,25 @@ pub fn init(cx: &mut App) {
                         });
                     },
                 )
-                .register_action(|workspace, action: &StartThreadIn, window, cx| {
+                .register_action(|workspace, _: &ToggleWorktreeSelector, window, cx| {
                     if let Some(panel) = workspace.panel::<AgentPanel>(cx) {
+                        workspace.focus_panel::<AgentPanel>(window, cx);
                         panel.update(cx, |panel, cx| {
-                            panel.set_start_thread_in(action, window, cx);
+                            panel.toggle_worktree_selector(&ToggleWorktreeSelector, window, cx);
                         });
                     }
                 })
-                .register_action(|workspace, _: &CycleStartThreadIn, window, cx| {
+                .register_action(|workspace, action: &CreateWorktree, window, cx| {
                     if let Some(panel) = workspace.panel::<AgentPanel>(cx) {
                         panel.update(cx, |panel, cx| {
-                            panel.cycle_start_thread_in(window, cx);
+                            panel.create_worktree(action, window, cx);
+                        });
+                    }
+                })
+                .register_action(|workspace, action: &SwitchWorktree, window, cx| {
+                    if let Some(panel) = workspace.panel::<AgentPanel>(cx) {
+                        panel.update(cx, |panel, cx| {
+                            panel.switch_to_worktree(action, window, cx);
                         });
                     }
                 });
@@ -603,15 +598,6 @@ impl From<Agent> for AgentType {
     }
 }
 
-impl StartThreadIn {
-    fn label(&self, cx: &App) -> SharedString {
-        match self {
-            Self::LocalProject => t("agent_panel.start_in.current_worktree", cx),
-            Self::NewWorktree => t("agent_panel.start_in.new_worktree", cx),
-        }
-    }
-}
-
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub enum WorktreeCreationStatus {
@@ -739,23 +725,20 @@ pub struct AgentPanel {
     previous_view: Option<ActiveView>,
     background_threads: HashMap<acp::SessionId, Entity<ConversationView>>,
     new_thread_menu_handle: PopoverMenuHandle<ContextMenu>,
-    start_thread_in_menu_handle: PopoverMenuHandle<ContextMenu>,
+    start_thread_in_menu_handle: PopoverMenuHandle<ThreadWorktreePicker>,
     agent_panel_menu_handle: PopoverMenuHandle<ContextMenu>,
     agent_navigation_menu_handle: PopoverMenuHandle<ContextMenu>,
     agent_navigation_menu: Option<Entity<ContextMenu>>,
     _extension_subscription: Option<Subscription>,
     zoomed: bool,
     pending_serialization: Option<Task<Result<()>>>,
-    onboarding: Entity<AgentPanelOnboarding>,
     selected_agent_type: AgentType,
-    start_thread_in: StartThreadIn,
     worktree_creation_status: Option<WorktreeCreationStatus>,
     _thread_view_subscription: Option<Subscription>,
     _active_thread_focus_subscription: Option<Subscription>,
     _worktree_creation_task: Option<Task<()>>,
     show_trust_workspace_message: bool,
     last_configuration_error_telemetry: Option<String>,
-    on_boarding_upsell_dismissed: AtomicBool,
     _active_view_observation: Option<Subscription>,
 }
 
@@ -766,7 +749,6 @@ impl AgentPanel {
         };
 
         let selected_agent_type = self.selected_agent_type.clone();
-        let start_thread_in = Some(self.start_thread_in);
 
         let last_active_thread = self.active_agent_thread(cx).map(|thread| {
             let thread = thread.read(cx);
@@ -787,7 +769,6 @@ impl AgentPanel {
                 SerializedAgentPanel {
                     selected_agent: Some(selected_agent_type),
                     last_active_thread,
-                    start_thread_in,
                 },
                 kvp,
             )
@@ -875,25 +856,6 @@ impl AgentPanel {
                     panel.update(cx, |panel, cx| {
                         if let Some(selected_agent) = serialized_panel.selected_agent.clone() {
                             panel.selected_agent_type = selected_agent;
-                        }
-                        if let Some(start_thread_in) = serialized_panel.start_thread_in {
-                            let is_worktree_flag_enabled =
-                                cx.has_flag::<AgentV2FeatureFlag>();
-                            let is_valid = match &start_thread_in {
-                                StartThreadIn::LocalProject => true,
-                                StartThreadIn::NewWorktree => {
-                                    let project = panel.project.read(cx);
-                                    is_worktree_flag_enabled && !project.is_via_collab()
-                                }
-                            };
-                            if is_valid {
-                                panel.start_thread_in = start_thread_in;
-                            } else {
-                                log::info!(
-                                    "deserialized start_thread_in {:?} is no longer valid, falling back to LocalProject",
-                                    start_thread_in,
-                                );
-                            }
                         }
                         cx.notify();
                     });
@@ -1005,25 +967,6 @@ impl AgentPanel {
                 .ok();
         });
 
-        let weak_panel = cx.entity().downgrade();
-        let onboarding = cx.new(|cx| {
-            AgentPanelOnboarding::new(
-                user_store.clone(),
-                client,
-                move |_window, cx| {
-                    weak_panel
-                        .update(cx, |panel, _| {
-                            panel
-                                .on_boarding_upsell_dismissed
-                                .store(true, Ordering::Release);
-                        })
-                        .ok();
-                    OnboardingUpsell::set_dismissed(true, cx);
-                },
-                cx,
-            )
-        });
-
         // Subscribe to extension events to sync agent servers when extensions change
         let extension_subscription = if let Some(extension_events) = ExtensionEvents::try_global(cx)
         {
@@ -1077,18 +1020,15 @@ impl AgentPanel {
             _extension_subscription: extension_subscription,
             zoomed: false,
             pending_serialization: None,
-            onboarding,
             text_thread_history,
             thread_store,
             selected_agent_type: AgentType::default(),
-            start_thread_in: StartThreadIn::default(),
             worktree_creation_status: None,
             _thread_view_subscription: None,
             _active_thread_focus_subscription: None,
             _worktree_creation_task: None,
             show_trust_workspace_message: false,
             last_configuration_error_telemetry: None,
-            on_boarding_upsell_dismissed: AtomicBool::new(OnboardingUpsell::dismissed(cx)),
             _active_view_observation: None,
         };
 
@@ -1180,7 +1120,6 @@ impl AgentPanel {
     }
 
     pub fn new_thread(&mut self, _action: &NewThread, window: &mut Window, cx: &mut Context<Self>) {
-        self.reset_start_thread_in_to_default(cx);
         self.external_thread(None, None, None, None, None, true, window, cx);
     }
 
@@ -2229,81 +2168,73 @@ impl AgentPanel {
         cx: &mut Context<Self>,
     ) -> Option<Subscription> {
         server_view.read(cx).active_thread().cloned().map(|tv| {
+            // AcpThreadViewEvent 는 현재 variant 가 비어 있어 수신 시 처리할 이벤트가 없다.
+            // 상류 동기화로 variant 가 재도입될 때 분기를 추가할 지점을 확보하려고 구독만 유지한다.
             cx.subscribe_in(
                 &tv,
                 window,
-                |this, view, event: &AcpThreadViewEvent, window, cx| match event {
-                    AcpThreadViewEvent::FirstSendRequested { content } => {
-                        this.handle_first_send_requested(view.clone(), content.clone(), window, cx);
-                    }
-                },
+                |_this, _view, _event: &AcpThreadViewEvent, _window, _cx| {},
             )
         })
     }
 
-    pub fn start_thread_in(&self) -> &StartThreadIn {
-        &self.start_thread_in
-    }
-
-    fn set_start_thread_in(
+    pub fn toggle_worktree_selector(
         &mut self,
-        action: &StartThreadIn,
+        _: &ToggleWorktreeSelector,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if matches!(action, StartThreadIn::NewWorktree) && !cx.has_flag::<AgentV2FeatureFlag>() {
+        self.start_thread_in_menu_handle.toggle(window, cx);
+    }
+
+    /// `_action` 의 `worktree_name` 과 `branch_target` 은 의도적으로 무시한다.
+    /// Dokkaebi 는 아직 `branch_names::generate_branch_name` 기반 자동 브랜치명으로만
+    /// 신규 worktree 를 만들 수 있고 기존 브랜치 기반 생성 경로가 없기 때문이다.
+    pub fn create_worktree(
+        &mut self,
+        _action: &CreateWorktree,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.project_has_git_repository(cx) {
+            log::error!("create_worktree: 프로젝트에 git 저장소가 없어 worktree 를 만들 수 없다");
             return;
         }
-
-        let new_target = match *action {
-            StartThreadIn::LocalProject => StartThreadIn::LocalProject,
-            StartThreadIn::NewWorktree => {
-                if !self.project_has_git_repository(cx) {
-                    log::error!(
-                        "set_start_thread_in: cannot use NewWorktree without a git repository"
-                    );
-                    return;
-                }
-                if self.project.read(cx).is_via_collab() {
-                    log::error!("set_start_thread_in: cannot use NewWorktree in a collab project");
-                    return;
-                }
-                StartThreadIn::NewWorktree
-            }
-        };
-        self.start_thread_in = new_target;
-        if let Some(thread) = self.active_thread_view(cx) {
-            thread.update(cx, |thread, cx| thread.focus_handle(cx).focus(window, cx));
+        if self.project.read(cx).is_via_collab() {
+            log::error!("create_worktree: collab 프로젝트에서는 worktree 생성을 지원하지 않는다");
+            return;
         }
-        self.serialize(cx);
-        cx.notify();
+        // picker 로 트리거된 생성은 초기 메시지 없이 빈 thread 로 시작한다.
+        // 사용자는 새 워크스페이스의 agent panel 에서 메시지를 작성해 전송한다.
+        self.handle_worktree_creation_requested(Vec::new(), window, cx);
     }
 
-    fn cycle_start_thread_in(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let next = match self.start_thread_in {
-            StartThreadIn::LocalProject => StartThreadIn::NewWorktree,
-            StartThreadIn::NewWorktree => StartThreadIn::LocalProject,
-        };
-        self.set_start_thread_in(&next, window, cx);
-    }
+    /// Dokkaebi 는 기존 linked worktree 로 workspace 를 전환하는 경로가 아직 없다
+    /// (`MultiWorkspace::find_or_create_workspace` 이식 이후에 구현 예정).
+    /// 그 동안은 사용자에게 미지원 사실을 토스트로 알리기만 한다.
+    pub fn switch_to_worktree(
+        &mut self,
+        action: &SwitchWorktree,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        log::warn!(
+            "switch_to_worktree: 기존 linked worktree 전환은 아직 구현되지 않았다 (path={:?}, display={})",
+            action.path,
+            action.display_name
+        );
 
-    fn reset_start_thread_in_to_default(&mut self, cx: &mut Context<Self>) {
-        use settings::{NewThreadLocation, Settings};
-        let default = AgentSettings::get_global(cx).new_thread_location;
-        let start_thread_in = match default {
-            NewThreadLocation::LocalProject => StartThreadIn::LocalProject,
-            NewThreadLocation::NewWorktree => {
-                if self.project_has_git_repository(cx) {
-                    StartThreadIn::NewWorktree
-                } else {
-                    StartThreadIn::LocalProject
-                }
-            }
-        };
-        if self.start_thread_in != start_thread_in {
-            self.start_thread_in = start_thread_in;
-            self.serialize(cx);
-            cx.notify();
+        if let Some(workspace) = self.workspace.upgrade() {
+            workspace.update(cx, |workspace, cx| {
+                let toast_id = workspace::notifications::NotificationId::unique::<AgentPanel>();
+                workspace.show_toast(
+                    workspace::Toast::new(
+                        toast_id,
+                        t("agent_panel.switch_worktree.unsupported_toast", cx).to_string(),
+                    ),
+                    cx,
+                );
+            });
         }
     }
 
@@ -2364,7 +2295,6 @@ impl AgentPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.reset_start_thread_in_to_default(cx);
         self.new_agent_thread_inner(agent, true, window, cx);
     }
 
@@ -2533,25 +2463,6 @@ impl AgentPanel {
 
     pub fn active_thread_is_draft(&self, cx: &App) -> bool {
         self.active_conversation_view().is_some() && !self.active_thread_has_messages(cx)
-    }
-
-    fn handle_first_send_requested(
-        &mut self,
-        thread_view: Entity<ThreadView>,
-        content: Vec<acp::ContentBlock>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.start_thread_in == StartThreadIn::NewWorktree {
-            self.handle_worktree_creation_requested(content, window, cx);
-        } else {
-            cx.defer_in(window, move |_this, window, cx| {
-                thread_view.update(cx, |thread_view, cx| {
-                    let editor = thread_view.message_editor.clone();
-                    thread_view.send_impl(editor, window, cx);
-                });
-            });
-        }
     }
 
     // TODO: The mapping from workspace root paths to git repositories needs a
@@ -3595,25 +3506,42 @@ impl AgentPanel {
         !self.project.read(cx).repositories(cx).is_empty()
     }
 
-    fn render_start_thread_in_selector(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        use settings::{NewThreadLocation, Settings};
+    /// 현재 활성 worktree 의 표시명을 구한다. linked worktree 면 상대 경로 기반 이름,
+    /// 일반 repo 면 "main", repo 가 없으면 첫 visible worktree 이름을 반환한다.
+    fn current_worktree_label(&self, cx: &App) -> SharedString {
+        let project = self.project.read(cx);
 
+        if let Some(repo) = project.active_repository(cx) {
+            let repo = repo.read(cx);
+            let main_path = &repo.original_repo_abs_path;
+            let current_path = &repo.work_directory_abs_path;
+
+            return linked_worktree_short_name(main_path, current_path)
+                .unwrap_or_else(|| "main".into());
+        }
+
+        project
+            .visible_worktrees(cx)
+            .next()
+            .and_then(|wt| {
+                wt.read(cx)
+                    .abs_path()
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| SharedString::from(name.to_string()))
+            })
+            .unwrap_or_else(|| t("agent_panel.start_in.current_worktree", cx))
+    }
+
+    fn render_start_thread_in_selector(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let focus_handle = self.focus_handle(cx);
-        let has_git_repo = self.project_has_git_repository(cx);
-        let is_via_collab = self.project.read(cx).is_via_collab();
-        let fs = self.fs.clone();
 
         let is_creating = matches!(
             self.worktree_creation_status,
             Some(WorktreeCreationStatus::Creating)
         );
 
-        let current_target = self.start_thread_in;
-        let trigger_label = self.start_thread_in.label(cx);
-
-        let new_thread_location = AgentSettings::get_global(cx).new_thread_location;
-        let is_local_default = new_thread_location == NewThreadLocation::LocalProject;
-        let is_new_worktree_default = new_thread_location == NewThreadLocation::NewWorktree;
+        let trigger_label = self.current_worktree_label(cx);
 
         let icon = if self.start_thread_in_menu_handle.is_deployed() {
             IconName::ChevronUp
@@ -3622,110 +3550,29 @@ impl AgentPanel {
         };
 
         let trigger_button = Button::new("thread-target-trigger", trigger_label)
+            .start_icon(
+                Icon::new(IconName::GitBranch)
+                    .size(IconSize::XSmall)
+                    .color(Color::Muted),
+            )
             .end_icon(Icon::new(icon).size(IconSize::XSmall).color(Color::Muted))
             .disabled(is_creating);
 
-        let dock_position = AgentSettings::get_global(cx).dock;
-        let documentation_side = match dock_position {
-            settings::DockPosition::Left => DocumentationSide::Right,
-            settings::DockPosition::Bottom | settings::DockPosition::Right => {
-                DocumentationSide::Left
-            }
-        };
+        let project = self.project.clone();
 
         PopoverMenu::new("thread-target-selector")
             .trigger_with_tooltip(trigger_button, {
                 move |_window, cx| {
                     Tooltip::for_action_in(
                         t("agent_panel.start_in.title", cx),
-                        &CycleStartThreadIn,
+                        &ToggleWorktreeSelector,
                         &focus_handle,
                         cx,
                     )
                 }
             })
             .menu(move |window, cx| {
-                let is_local_selected = current_target == StartThreadIn::LocalProject;
-                let is_new_worktree_selected = current_target == StartThreadIn::NewWorktree;
-                let fs = fs.clone();
-
-                Some(ContextMenu::build(window, cx, move |menu, _window, cx| {
-                    let new_worktree_disabled = !has_git_repo || is_via_collab;
-
-                    menu.header(t("agent_panel.start_in.title", cx))
-                        .item(
-                            ContextMenuEntry::new(t("agent_panel.start_in.current_worktree", cx))
-                                .toggleable(IconPosition::End, is_local_selected)
-                                .documentation_aside(documentation_side, move |_| {
-                                    HoldForDefault::new(is_local_default)
-                                        .more_content(false)
-                                        .into_any_element()
-                                })
-                                .handler({
-                                    let fs = fs.clone();
-                                    move |window, cx| {
-                                        if window.modifiers().secondary() {
-                                            update_settings_file(fs.clone(), cx, |settings, _| {
-                                                settings
-                                                    .agent
-                                                    .get_or_insert_default()
-                                                    .set_new_thread_location(
-                                                        NewThreadLocation::LocalProject,
-                                                    );
-                                            });
-                                        }
-                                        window.dispatch_action(
-                                            Box::new(StartThreadIn::LocalProject),
-                                            cx,
-                                        );
-                                    }
-                                }),
-                        )
-                        .item({
-                            let entry = ContextMenuEntry::new(t("agent_panel.start_in.new_worktree", cx))
-                                .toggleable(IconPosition::End, is_new_worktree_selected)
-                                .disabled(new_worktree_disabled)
-                                .handler({
-                                    let fs = fs.clone();
-                                    move |window, cx| {
-                                        if window.modifiers().secondary() {
-                                            update_settings_file(fs.clone(), cx, |settings, _| {
-                                                settings
-                                                    .agent
-                                                    .get_or_insert_default()
-                                                    .set_new_thread_location(
-                                                        NewThreadLocation::NewWorktree,
-                                                    );
-                                            });
-                                        }
-                                        window.dispatch_action(
-                                            Box::new(StartThreadIn::NewWorktree),
-                                            cx,
-                                        );
-                                    }
-                                });
-
-                            if new_worktree_disabled {
-                                entry.documentation_aside(documentation_side, move |_| {
-                                    let reason = if !has_git_repo {
-                                        "No git repository found in this project."
-                                    } else {
-                                        "Not available for remote/collab projects yet."
-                                    };
-                                    Label::new(reason)
-                                        .color(Color::Muted)
-                                        .size(LabelSize::Small)
-                                        .into_any_element()
-                                })
-                            } else {
-                                entry.documentation_aside(documentation_side, move |_| {
-                                    HoldForDefault::new(is_new_worktree_default)
-                                        .more_content(false)
-                                        .into_any_element()
-                                })
-                            }
-                        })
-                }))
+                Some(cx.new(|cx| ThreadWorktreePicker::new(project.clone(), window, cx)))
             })
             .with_handle(self.start_thread_in_menu_handle.clone())
             .anchor(Corner::TopLeft)
@@ -4259,89 +4106,6 @@ impl AgentPanel {
         }
     }
 
-    fn should_render_trial_end_upsell(&self, cx: &mut Context<Self>) -> bool {
-        if TrialEndUpsell::dismissed(cx) {
-            return false;
-        }
-
-        match &self.active_view {
-            ActiveView::TextThread { .. } => {
-                if LanguageModelRegistry::global(cx)
-                    .read(cx)
-                    .default_model()
-                    .is_some_and(|model| {
-                        model.provider.id() != language_model::ZED_CLOUD_PROVIDER_ID
-                    })
-                {
-                    return false;
-                }
-            }
-            ActiveView::Uninitialized
-            | ActiveView::AgentThread { .. }
-            | ActiveView::History { .. }
-            | ActiveView::Configuration => return false,
-        }
-
-        let plan = self.user_store.read(cx).plan();
-        let has_previous_trial = self.user_store.read(cx).trial_started_at().is_some();
-
-        plan.is_some_and(|plan| plan == Plan::DokkaebiFree) && has_previous_trial
-    }
-
-    fn should_render_onboarding(&self, _cx: &mut Context<Self>) -> bool {
-        // 온보딩 카드 비활성화 - 자체 API 키 사용으로 Zed AI 온보딩 불필요
-        false
-    }
-
-    fn render_onboarding(
-        &self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<impl IntoElement> {
-        if !self.should_render_onboarding(cx) {
-            return None;
-        }
-
-        let text_thread_view = matches!(&self.active_view, ActiveView::TextThread { .. });
-
-        Some(
-            div()
-                .when(text_thread_view, |this| {
-                    this.bg(cx.theme().colors().editor_background)
-                })
-                .child(self.onboarding.clone()),
-        )
-    }
-
-    fn render_trial_end_upsell(
-        &self,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<impl IntoElement> {
-        if !self.should_render_trial_end_upsell(cx) {
-            return None;
-        }
-
-        Some(
-            v_flex()
-                .absolute()
-                .inset_0()
-                .size_full()
-                .bg(cx.theme().colors().panel_background)
-                .opacity(0.85)
-                .block_mouse_except_scroll()
-                .child(EndTrialUpsell::new(Arc::new({
-                    let this = cx.entity();
-                    move |_, cx| {
-                        this.update(cx, |_this, cx| {
-                            TrialEndUpsell::set_dismissed(true, cx);
-                            cx.notify();
-                        });
-                    }
-                }))),
-        )
-    }
-
     fn emit_configuration_error_telemetry_if_needed(
         &mut self,
         configuration_error: Option<&ConfigurationError>,
@@ -4654,7 +4418,6 @@ impl Render for AgentPanel {
             }))
             .child(self.render_toolbar(window, cx))
             .children(self.render_workspace_trust_message(cx))
-            .children(self.render_onboarding(window, cx))
             .map(|parent| {
                 // Emit configuration error telemetry before entering the match to avoid borrow conflicts
                 if matches!(&self.active_view, ActiveView::TextThread { .. }) {
@@ -4686,9 +4449,7 @@ impl Render for AgentPanel {
 
                         parent
                             .map(|this| {
-                                if !self.should_render_onboarding(cx)
-                                    && let Some(err) = configuration_error.as_ref()
-                                {
+                                if let Some(err) = configuration_error.as_ref() {
                                     this.child(self.render_configuration_error(
                                         true,
                                         err,
@@ -4709,8 +4470,7 @@ impl Render for AgentPanel {
                     ActiveView::Configuration => parent.children(self.configuration.clone()),
                 }
             })
-            .children(self.render_worktree_creation_status(cx))
-            .children(self.render_trial_end_upsell(window, cx));
+            .children(self.render_worktree_creation_status(cx));
 
         match self.active_view.which_font_size_used() {
             WhichFontSize::AgentFont => {
@@ -4894,18 +4654,6 @@ impl AgentPanelDelegate for ConcreteAssistantPanelDelegate {
     }
 }
 
-struct OnboardingUpsell;
-
-impl Dismissable for OnboardingUpsell {
-    const KEY: &'static str = "dismissed-trial-upsell";
-}
-
-struct TrialEndUpsell;
-
-impl Dismissable for TrialEndUpsell {
-    const KEY: &'static str = "dismissed-trial-end-upsell";
-}
-
 /// Test-only helper methods
 #[cfg(any(test, feature = "test-support"))]
 impl AgentPanel {
@@ -4947,15 +4695,6 @@ impl AgentPanel {
     /// method for test assertions. Not compiled into production builds.
     pub fn active_thread_view_for_tests(&self) -> Option<&Entity<ConversationView>> {
         self.active_conversation_view()
-    }
-
-    /// Sets the start_thread_in value directly, bypassing validation.
-    ///
-    /// This is a test-only helper for visual tests that need to show specific
-    /// start_thread_in states without requiring a real git repository.
-    pub fn set_start_thread_in_for_tests(&mut self, target: StartThreadIn, cx: &mut Context<Self>) {
-        self.start_thread_in = target;
-        cx.notify();
     }
 
     /// Returns the current worktree creation status.

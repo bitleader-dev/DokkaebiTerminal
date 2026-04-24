@@ -2771,7 +2771,7 @@ fn run_start_thread_in_selector_visual_tests(
     cx: &mut VisualTestAppContext,
     update_baseline: bool,
 ) -> Result<TestResult> {
-    use agent_ui::{AgentPanel, StartThreadIn, WorktreeCreationStatus};
+    use agent_ui::{AgentPanel, CreateWorktree, NewWorktreeBranchTarget, WorktreeCreationStatus};
 
     // Enable feature flags so the thread target selector renders
     cx.update(|cx| {
@@ -3069,18 +3069,12 @@ edition = "2021"
         update_baseline,
     );
 
-    // ---- Screenshot 3: "New Worktree" selected (dropdown closed, label changed) ----
-    // First dismiss the dropdown, then change the target so the toolbar label is visible
+    // ---- Screenshot 3: dropdown closed (label reflects current worktree) ----
+    // StartThreadIn enum 이 제거된 뒤로는 "New Worktree" 상태를 따로 설정할 수 없으므로
+    // 드롭다운만 닫은 상태를 캡처해 기본 툴바 라벨을 확인한다.
     cx.update_window(workspace_window.into(), |_, _window, cx| {
         panel.update(cx, |panel, cx| {
             panel.close_start_thread_in_menu_for_tests(cx);
-        });
-    })?;
-    cx.run_until_parked();
-
-    cx.update_window(workspace_window.into(), |_, _window, cx| {
-        panel.update(cx, |panel, cx| {
-            panel.set_start_thread_in_for_tests(StartThreadIn::NewWorktree, cx);
         });
     })?;
     cx.run_until_parked();
@@ -3152,8 +3146,16 @@ edition = "2021"
     })?;
     cx.run_until_parked();
 
+    // picker 가 dispatch 하는 CreateWorktree action 을 직접 발동해
+    // 기본 브랜치 기준 신규 worktree 생성 흐름을 트리거한다.
     cx.update_window(workspace_window.into(), |_, window, cx| {
-        window.dispatch_action(Box::new(StartThreadIn::NewWorktree), cx);
+        window.dispatch_action(
+            Box::new(CreateWorktree {
+                worktree_name: None,
+                branch_target: NewWorktreeBranchTarget::CurrentBranch,
+            }),
+            cx,
+        );
     })?;
     cx.run_until_parked();
 

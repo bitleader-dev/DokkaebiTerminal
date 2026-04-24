@@ -34,9 +34,9 @@ mod text_thread_history;
 mod thread_history;
 mod thread_history_view;
 pub mod thread_metadata_store;
-// TODO(phase-8i): thread_worktree_archive는 상류 신규 API
-// (Repository::create_worktree_detached/head_sha/checkout_branch_in_worktree 등)에
-// 의존하므로 Dokkaebi에 해당 API가 이식된 뒤 mod를 활성화한다.
+// TODO(phase-10 Part B-3): thread_worktree_archive 는 Part B-1 이식된 6종 외에도
+// ThreadMetadataStore / ThreadId / ArchivedGitWorktree 타입과 Project::wait_for_worktree_release,
+// Repository::repair_worktrees 등을 요구한다. 추가 이식이 완료될 때까지 mod 비활성 유지.
 // pub mod thread_worktree_archive;
 mod thread_worktree_picker;
 pub mod threads_archive_view;
@@ -95,8 +95,6 @@ actions!(
         NewTextThread,
         /// Toggles the menu to create new agent threads.
         ToggleNewThreadMenu,
-        /// Cycles through the options for where new threads start (current project or new worktree).
-        CycleStartThreadIn,
         /// Toggles the worktree selector popover for choosing which worktree to use.
         ToggleWorktreeSelector,
         /// Toggles the navigation menu for switching between threads and views.
@@ -159,10 +157,6 @@ actions!(
         RejectOnce,
         /// Follows the agent's suggestions.
         Follow,
-        /// Resets the trial upsell notification.
-        ResetTrialUpsell,
-        /// Resets the trial end upsell notification.
-        ResetTrialEndUpsell,
         /// Opens the "Add Context" menu in the message editor.
         OpenAddContextMenu,
         /// Continues the current thread.
@@ -280,18 +274,6 @@ impl Agent {
             }
         }
     }
-}
-
-/// Sets where new threads will run.
-#[derive(
-    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Action,
-)]
-#[action(namespace = agent)]
-#[serde(rename_all = "snake_case", tag = "kind")]
-pub enum StartThreadIn {
-    #[default]
-    LocalProject,
-    NewWorktree,
 }
 
 /// 워크트리 생성 시 사용할 브랜치 소스.

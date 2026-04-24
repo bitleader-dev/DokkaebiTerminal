@@ -59,20 +59,6 @@ static ZED_SERVER_URL: LazyLock<Option<String>> =
     LazyLock::new(|| std::env::var("ZED_SERVER_URL").ok());
 static ZED_RPC_URL: LazyLock<Option<String>> = LazyLock::new(|| std::env::var("ZED_RPC_URL").ok());
 
-pub static IMPERSONATE_LOGIN: LazyLock<Option<String>> = LazyLock::new(|| {
-    std::env::var("ZED_IMPERSONATE")
-        .ok()
-        .and_then(|s| if s.is_empty() { None } else { Some(s) })
-});
-
-pub static USE_WEB_LOGIN: LazyLock<bool> = LazyLock::new(|| std::env::var("ZED_WEB_LOGIN").is_ok());
-
-pub static ADMIN_API_TOKEN: LazyLock<Option<String>> = LazyLock::new(|| {
-    std::env::var("ZED_ADMIN_API_TOKEN")
-        .ok()
-        .and_then(|s| if s.is_empty() { None } else { Some(s) })
-});
-
 pub static ZED_APP_PATH: LazyLock<Option<PathBuf>> =
     LazyLock::new(|| std::env::var("ZED_APP_PATH").ok().map(PathBuf::from));
 
@@ -353,10 +339,6 @@ impl ClientCredentialsProvider {
         cx: &'a AsyncApp,
     ) -> Pin<Box<dyn Future<Output = Option<Credentials>> + 'a>> {
         async move {
-            if IMPERSONATE_LOGIN.is_some() {
-                return None;
-            }
-
             let server_url = self.server_url(cx).ok()?;
             let (user_id, access_token) = self
                 .provider
@@ -875,12 +857,10 @@ impl Client {
                 authenticate = self.authenticate(cx).fuse() => {
                     match authenticate {
                         Ok(creds) => {
-                            if IMPERSONATE_LOGIN.is_none() {
-                                self.credentials_provider
-                                    .write_credentials(creds.user_id, creds.access_token.clone(), cx)
-                                    .await
-                                    .log_err();
-                            }
+                            self.credentials_provider
+                                .write_credentials(creds.user_id, creds.access_token.clone(), cx)
+                                .await
+                                .log_err();
 
                             credentials = Some(creds);
                         },
@@ -1373,18 +1353,6 @@ impl Client {
                     let public_key_string = String::try_from(public_key)
                         .context("failed to serialize public key for auth")?;
 
-                    if let Some((login, token)) =
-                        IMPERSONATE_LOGIN.as_ref().zip(ADMIN_API_TOKEN.as_ref())
-                    {
-                        if !*USE_WEB_LOGIN {
-                            eprintln!("authenticate as admin {login}, {token}");
-
-                            return this
-                                .authenticate_as_admin(http, login.clone(), token.clone())
-                                .await;
-                        }
-                    }
-
                     // Start an HTTP server to receive the redirect from Zed's sign-in page.
                     let server = tiny_http::Server::http("127.0.0.1:0")
                         .map_err(|e| anyhow!(e).context("failed to bind callback port"))?;
@@ -1454,7 +1422,7 @@ impl Client {
                         .decrypt_string(&access_token)
                         .context("failed to decrypt access token")?;
 
-                    Ok(Credentials {
+                    Ok::<Credentials, anyhow::Error>(Credentials {
                         user_id: user_id.parse()?,
                         access_token,
                     })
@@ -1466,52 +1434,6 @@ impl Client {
         })
     }
 
-    async fn authenticate_as_admin(
-        self: &Arc<Self>,
-        http: Arc<HttpClientWithUrl>,
-        login: String,
-        api_token: String,
-    ) -> Result<Credentials> {
-        #[derive(Serialize)]
-        struct ImpersonateUserBody {
-            github_login: String,
-        }
-
-        #[derive(Deserialize)]
-        struct ImpersonateUserResponse {
-            user_id: u64,
-            access_token: String,
-        }
-
-        let url = self
-            .http
-            .build_zed_cloud_url("/internal/users/impersonate")?;
-        let request = Request::post(url.as_str())
-            .header("Content-Type", "application/json")
-            .header("Authorization", format!("Bearer {api_token}"))
-            .body(
-                serde_json::to_string(&ImpersonateUserBody {
-                    github_login: login,
-                })?
-                .into(),
-            )?;
-
-        let mut response = http.send(request).await?;
-        let mut body = String::new();
-        response.body_mut().read_to_string(&mut body).await?;
-        anyhow::ensure!(
-            response.status().is_success(),
-            "admin user request failed {} - {}",
-            response.status().as_u16(),
-            body,
-        );
-        let response: ImpersonateUserResponse = serde_json::from_str(&body)?;
-
-        Ok(Credentials {
-            user_id: response.user_id,
-            access_token: response.access_token,
-        })
-    }
 
     pub async fn sign_out(self: &Arc<Self>, cx: &AsyncApp) {
         self.state.write().credentials = None;

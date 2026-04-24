@@ -10,7 +10,6 @@ use cloud_api_types::{SubmitAgentThreadFeedbackBody, SubmitAgentThreadFeedbackCo
 use editor::actions::OpenExcerpts;
 use i18n::t;
 
-use crate::StartThreadIn;
 use crate::message_editor::SharedSessionCapabilities;
 use gpui::{Corner, List};
 use heapless::Vec as ArrayVec;
@@ -207,9 +206,9 @@ impl RenderOnce for GeneratingSpinnerElement {
     }
 }
 
-pub enum AcpThreadViewEvent {
-    FirstSendRequested { content: Vec<acp::ContentBlock> },
-}
+// worktree 생성·전환은 picker 가 dispatch 하는 action 으로만 수행되어 현재 emit 할 이벤트가 없다.
+// 상류 동기화 시 variant 가 재도입될 때 확장할 지점을 남기기 위해 enum 과 EventEmitter impl 은 유지한다.
+pub enum AcpThreadViewEvent {}
 
 impl EventEmitter<AcpThreadViewEvent> for ThreadView {}
 
@@ -899,45 +898,6 @@ impl ThreadView {
         }
 
         let message_editor = self.message_editor.clone();
-
-        // Intercept the first send so the agent panel can capture the full
-        // content blocks — needed for "Start thread in New Worktree",
-        // which must create a workspace before sending the message there.
-        let intercept_first_send = self.thread.read(cx).entries().is_empty()
-            && !message_editor.read(cx).is_empty(cx)
-            && self
-                .workspace
-                .upgrade()
-                .and_then(|workspace| workspace.read(cx).panel::<AgentPanel>(cx))
-                .is_some_and(|panel| {
-                    panel.read(cx).start_thread_in() == &StartThreadIn::NewWorktree
-                });
-
-        if intercept_first_send {
-            let content_task = self.resolve_message_contents(&message_editor, cx);
-
-            cx.spawn(async move |this, cx| match content_task.await {
-                Ok((content, _tracked_buffers)) => {
-                    if content.is_empty() {
-                        return;
-                    }
-
-                    this.update(cx, |_, cx| {
-                        cx.emit(AcpThreadViewEvent::FirstSendRequested { content });
-                    })
-                    .ok();
-                }
-                Err(error) => {
-                    this.update(cx, |this, cx| {
-                        this.handle_thread_error(error, cx);
-                    })
-                    .ok();
-                }
-            })
-            .detach();
-
-            return;
-        }
 
         let is_editor_empty = message_editor.read(cx).is_empty(cx);
         let is_generating = thread.read(cx).status() != ThreadStatus::Idle;

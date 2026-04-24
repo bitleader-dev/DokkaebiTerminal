@@ -711,8 +711,6 @@ fn main() {
         acp_tools::init(cx);
         // zed::telemetry_log::init(cx); // 텔레메트리 비활성화 환경에서 무의미
         zed::remote_debug::init(cx);
-        web_search::init(cx);
-        web_search_providers::init(app_state.client.clone(), app_state.user_store.clone(), cx);
         snippet_provider::init(cx);
         let prompt_builder = PromptBuilder::load(app_state.fs.clone(), stdout_is_a_pty(), cx);
         project::AgentRegistryStore::init_global(
@@ -784,7 +782,6 @@ fn main() {
         project_panel::init(cx);
         outline_panel::init(cx);
         tasks_ui::init(cx);
-        snippets_ui::init(cx);
 
         search::init(cx);
         cx.set_global(workspace::PaneSearchBarCallbacks {
@@ -819,7 +816,6 @@ fn main() {
                     csv_preview::init(cx);
                     svg_preview::init(cx);
                     extensions_ui::init(cx);
-                    journal::init(app_state.clone(), cx);
                     inspector_ui::init(app_state, cx);
                     which_key::init(cx);
 

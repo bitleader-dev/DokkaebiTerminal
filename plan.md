@@ -1262,6 +1262,83 @@ agent_panel.rs 현재 이전 상태 복원됨. StartThreadIn 37참조 제거 + C
 
 ---
 
+## 11.18. Phase 21 — user.rs 의 Plan 관련 dead 메서드/이벤트 정리 (2026-04-24 옵션 C)
+
+> **성격**: `cloud_api_types::Plan`/`PlanInfo` enum·구조체와 `cloud_api_types::GetAuthenticatedUserResponse` API 스키마는 유지(상류 Zed 호환). `user.rs` 내부의 dead 메서드·이벤트만 선별 제거
+> **상태**: 계획 작성, 사용자 승인 완료 (2026-04-24 옵션 C)
+
+### 11.18.1. 대상 (외부 호출처 0 확인)
+
+- [x] `crates/client/src/user.rs` L729-731 `pub fn plan_for_organization` 메서드 제거 — 외부 호출 0, user.rs 내부 `plan()` 에서 자기 호출만
+- [x] `crates/client/src/user.rs` L733-755 `pub fn plan()` 메서드 제거 (ZED_SIMULATE_PLAN 디버그 분기 포함) — Phase 17 이후 외부 호출 0 확인
+- [x] `crates/client/src/user.rs` L145 `PlanUpdated` 이벤트 variant 제거 — emit/subscribe 전역 0 건
+
+### 11.18.2. 범위 외 (유지)
+- `cloud_api_types::Plan` enum · `PlanInfo` 구조체 · `GetAuthenticatedUserResponse.plan` 필드 — cloud API 스키마, 상류 Zed 호환
+- `client/src/user.rs` 의 `plan_info`·`plans_by_organization` 필드, `account_too_young()`·`has_overdue_invoices()`·`subscription_period()`·`trial_started_at()` 메서드 — `edit_prediction_ui` · `edit_prediction/zed_edit_prediction_delegate.rs` 등에서 여전히 사용 중 (항상 false/None 반환 경로지만 호출처 존재)
+- `thread.plan()` (thread_view.rs:2129) — `AcpThread::plan()` 은 `acp::Plan` (TODO 리스트용) 으로 본 Plan enum 과 별개, 건드리지 않음
+- `client/src/test.rs` fixture — `PlanInfo`/`Plan` 유지 필요 (GetAuthenticatedUserResponse mock)
+
+### 11.18.3. 검증
+- [x] `cargo check -p client` 통과 (21.61s, 신규 경고·에러 0)
+- [x] `cargo check -p Dokkaebi` 통과 (31.80s, 신규 경고·에러 0)
+
+### 11.18.4. 예상 규모
+약 **-26 줄**, 1 파일 수정. 0.1 세션.
+
+---
+
+## 11.19. Phase 22 — submit_agent_feedback UI + cloud_api_client 메서드 정리 (2026-04-24 승인)
+
+> **성격**: Dokkaebi cloud 비활성으로 실제 전송 dead 인 에이전트 피드백 전송 경로 제거
+> **상태**: 계획 작성
+
+### 11.19.1. 대상 (옵션 2 — UI 경로만 정리, cloud_api_client/types 는 유지)
+
+**conversation_view.rs**
+- [x] `ThreadFeedback` enum 제거 (Positive/Negative variant, 5 줄)
+
+**conversation_view/thread_view.rs**
+- [x] L9 `use cloud_api_types::{SubmitAgentThreadFeedbackBody, SubmitAgentThreadFeedbackCommentsBody}` import 제거
+- [x] L22-165 `ThreadFeedbackState` 구조체 + impl 전체 제거 (submit/submit_comments/clear/dismiss_comments/build_feedback_comments_editor, 144 줄)
+- [x] `thread_feedback: ThreadFeedbackState` 필드 제거
+- [x] `thread_feedback: Default::default()` 초기화 제거
+- [x] `self.thread_feedback.clear()` 호출 제거
+- [x] `comments_editor = self.thread_feedback.comments_editor.clone()` + `.when_some(comments_editor, ...)` 렌더 체이닝 제거
+- [x] `render_feedback_feedback_editor` 메서드 전체 제거 (~40 줄)
+- [x] `if AgentSettings::get_global(cx).enable_feedback && ...` thumbs up/down 버튼 블록 제거 (~30 줄)
+- [x] `render_feedback_button` + `handle_feedback_click` + `submit_feedback_message` 메서드 3 개 제거 (~60 줄)
+
+**edit_prediction.rs**
+- [x] L3 import 에서 `SubmitEditPredictionFeedbackBody` 제거
+- [x] `rate_prediction` 메서드 내부 `cx.background_spawn({ ... submit_edit_prediction_feedback ... }).detach_and_log_err(cx)` 블록 제거 (~30 줄), `rated_predictions.insert` 와 `cx.notify()` 만 남김. 사용하지 않는 `rating`/`feedback` 파라미터는 `_rating`/`_feedback` 으로 리네이밍
+
+**유지 (옵션 2 범위 외)**
+- [x] `cloud_api_client::submit_agent_feedback` / `submit_agent_feedback_comments` / `submit_edit_prediction_feedback` 메서드 — cloud API 스키마 유지
+- [x] `cloud_api_types::SubmitAgentThreadFeedbackBody` / `SubmitAgentThreadFeedbackCommentsBody` / `SubmitEditPredictionFeedbackBody` 구조체 — 동일
+
+### 11.19.2. 검증
+- [x] `cargo check -p Dokkaebi` 통과 (13.56s, 신규 경고·에러 0)
+
+### 11.19.3. 실제 감축 규모
+약 **-350 줄** (conversation_view.rs 5 + thread_view.rs ~315 + edit_prediction.rs ~30)
+
+---
+
+## 11.20. Phase 23 — client.rs cloud 전용 함수 재조사 (2026-04-24 승인)
+
+> **성격**: Phase 13 Step 3 이후 client.rs 에 남은 dead 경로 (예: `connect_to_cloud`, `authenticate_with_browser` 중 일부, `sign_in_with_optional_connect` 경로) 재검증
+
+### 11.20.1. 조사 대상
+- `sign_in` / `sign_in_with_optional_connect` / `connect` / `connect_to_cloud` / `connect_with_credentials` / `authenticate` / `authenticate_with_browser` / `sign_out` / `reconnect` 의 외부 호출처
+- `server_url=""` 환경에서 항상 early return 하는 분기 식별
+- 호출처 0 또는 모든 분기 dead 인 함수 제거
+
+### 11.20.2. 진행 방식
+Phase 21 · 22 완료 후 별도 조사·정리 세션. 발견 후보에 따라 규모 결정.
+
+---
+
 ### 11.12.12. Step 3 — client.rs dead 환경변수 + 분기 제거 (2026-04-24 승인)
 
 **제거 대상 (코드 확인 완료)**

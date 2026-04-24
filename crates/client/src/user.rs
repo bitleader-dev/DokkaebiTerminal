@@ -142,7 +142,6 @@ pub enum Event {
     ShowContacts,
     ParticipantIndicesChanged,
     PrivateUserInfoUpdated,
-    PlanUpdated,
     OrganizationChanged,
 }
 
@@ -724,34 +723,6 @@ impl UserStore {
 
     pub fn organizations(&self) -> &Vec<Arc<Organization>> {
         &self.organizations
-    }
-
-    pub fn plan_for_organization(&self, organization_id: &OrganizationId) -> Option<Plan> {
-        self.plans_by_organization.get(organization_id).copied()
-    }
-
-    pub fn plan(&self) -> Option<Plan> {
-        #[cfg(debug_assertions)]
-        if let Ok(plan) = std::env::var("ZED_SIMULATE_PLAN").as_ref() {
-            use cloud_api_client::Plan;
-
-            return match plan.as_str() {
-                "free" => Some(Plan::DokkaebiFree),
-                "trial" => Some(Plan::DokkaebiProTrial),
-                "pro" => Some(Plan::DokkaebiPro),
-                _ => {
-                    panic!("ZED_SIMULATE_PLAN must be one of 'free', 'trial', or 'pro'");
-                }
-            };
-        }
-
-        if let Some(organization) = &self.current_organization
-            && let Some(plan) = self.plan_for_organization(&organization.id)
-        {
-            return Some(plan);
-        }
-
-        self.plan_info.as_ref().map(|info| info.plan())
     }
 
     pub fn subscription_period(&self) -> Option<(DateTime<Utc>, DateTime<Utc>)> {

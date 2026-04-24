@@ -1,6 +1,6 @@
 use anyhow::Result;
 use client::{Client, EditPredictionUsage, UserStore};
-use cloud_api_types::{OrganizationId, SubmitEditPredictionFeedbackBody};
+use cloud_api_types::OrganizationId;
 use cloud_llm_client::predict_edits_v3::{
     PredictEditsV3Request, PredictEditsV3Response, RawCompletionRequest, RawCompletionResponse,
 };
@@ -2697,42 +2697,13 @@ impl EditPredictionStore {
     pub fn rate_prediction(
         &mut self,
         prediction: &EditPrediction,
-        rating: EditPredictionRating,
-        feedback: String,
+        _rating: EditPredictionRating,
+        _feedback: String,
         cx: &mut Context<Self>,
     ) {
-        let organization = self.user_store.read(cx).current_organization();
-
+        // Dokkaebi cloud 비활성화 상태에서는 평가 결과를 외부로 전송하지 않고
+        // 내부 플래그(rated_predictions)만 갱신한다.
         self.rated_predictions.insert(prediction.id.clone());
-
-        cx.background_spawn({
-            let client = self.client.clone();
-            let prediction_id = prediction.id.to_string();
-            let inputs = serde_json::to_value(&prediction.inputs);
-            let output = prediction
-                .edit_preview
-                .as_unified_diff(prediction.snapshot.file(), &prediction.edits);
-            async move {
-                client
-                    .cloud_client()
-                    .submit_edit_prediction_feedback(SubmitEditPredictionFeedbackBody {
-                        organization_id: organization.map(|organization| organization.id.clone()),
-                        request_id: prediction_id,
-                        rating: match rating {
-                            EditPredictionRating::Positive => "positive".to_string(),
-                            EditPredictionRating::Negative => "negative".to_string(),
-                        },
-                        inputs: inputs?,
-                        output,
-                        feedback,
-                    })
-                    .await?;
-
-                anyhow::Ok(())
-            }
-        })
-        .detach_and_log_err(cx);
-
         cx.notify();
     }
 }

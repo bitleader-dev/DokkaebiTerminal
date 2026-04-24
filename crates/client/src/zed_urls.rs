@@ -12,11 +12,6 @@ pub fn account_url(_cx: &App) -> String {
 }
 
 /// Dokkaebi에는 구독 시스템이 없어 빈 URL을 반환한다.
-pub fn start_trial_url(_cx: &App) -> String {
-    String::new()
-}
-
-/// Dokkaebi에는 구독 시스템이 없어 빈 URL을 반환한다.
 pub fn upgrade_to_zed_pro_url(_cx: &App) -> String {
     String::new()
 }

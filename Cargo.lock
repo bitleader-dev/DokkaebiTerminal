@@ -49,7 +49,6 @@ dependencies = [
  "extension_host",
  "extensions_ui",
  "feature_flags",
- "feedback",
  "file_finder",
  "fs",
  "futures 0.3.32",
@@ -5274,18 +5273,6 @@ name = "feature_flags"
 version = "0.1.0"
 dependencies = [
  "gpui",
-]
-
-[[package]]
-name = "feedback"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "system_specs",
- "urlencoding",
- "util",
- "workspace",
- "zed_actions",
 ]
 
 [[package]]

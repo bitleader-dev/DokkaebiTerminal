@@ -811,7 +811,6 @@ fn main() {
                 cx.update(|cx| {
                     // 기존 지연 초기화 항목
                     git_graph::init(cx);
-                    feedback::init(cx);
                     markdown_preview::init(cx);
                     csv_preview::init(cx);
                     svg_preview::init(cx);

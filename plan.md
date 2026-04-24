@@ -1112,6 +1112,103 @@ agent_panel.rs 현재 이전 상태 복원됨. StartThreadIn 37참조 제거 + C
 
 ---
 
+## 11.15. Phase 17 — Plan / ZED_CLOUD_PROVIDER_ID / start_trial_url dead 정리 (2026-04-24 승인)
+
+> **성격**: 기 완료 Phase 13 Step 1 후속 — Zed Cloud 프로바이더 제거 이후 유효하지 않게 된 Plan 체크·provider ID 비교·trial URL 경로 정리
+> **상태**: 계획 작성, 사용자 승인 완료 (2026-04-24)
+
+### 11.15.1. 근거
+- Dokkaebi `server_url=""` + Phase 13 Step 1 로 `CloudLanguageModelProvider` 제거 → `ZED_CLOUD_PROVIDER_ID="zed.dev"` 로 등록된 프로바이더 0
+- `user_store.plan_info` 채움 경로(`get_authenticated_user` 응답) 실제 동작 불가 → `plan()` 은 `None` 고정
+- `render_zed_plan_info`, `is_provided_by_zed`, auto_retry 분기, Copilot onboarding 필터 모두 dead
+
+### 11.15.2. 대상
+
+**Step A — `render_zed_plan_info` + `is_zed_provider` 분기**
+- [x] `agent_ui/src/agent_configuration.rs` L27 `ZED_CLOUD_PROVIDER_ID` import 제거
+- [x] L221-235 `is_zed_provider`/`current_plan`/`is_signed_in` 로컬 변수 블록 제거 (user_store.plan() 호출 포함)
+- [x] L284-300 `.map(|this| { if is_zed_provider && is_signed_in { ... } else { ... } })` → `.when(provider.is_authenticated(cx) && !is_expanded, ...)` 로 단순화
+- [x] L496-527 `render_zed_plan_info` 메서드 + `Plan::Dokkaebi*` 5 개 매치 제거
+
+**Step B — `is_provided_by_zed` 메서드 제거**
+- [x] `language_model/src/registry.rs` L103-105 `is_provided_by_zed()` 메서드 제거
+
+**Step C — `handle_completion_error` plan 의존 제거**
+- [x] `agent/src/thread.rs` L2133-2141 `auto_retry` 분기 + `if !auto_retry { return Err }` 블록 제거 (항상 true 로 수렴, let Some(model) = ... 도 `if self.model.is_none() { return Err }` 로 단순화)
+- [x] `handle_completion_error` 함수 시그너처에서 `plan: Option<Plan>` 파라미터 제거
+- [x] L2061 호출자에서 `user_store.plan()` 인자 제거, 클로저가 `user_store` 더 이상 필요없어 `_cx` 로 축소
+- [x] L22 `cloud_api_types::Plan` import 제거 (이 파일 다른 사용처 0)
+- [x] L42 `ZED_CLOUD_PROVIDER_ID` import 제거 (다른 사용처 0)
+
+**Step D — Copilot onboarding 필터 단순화**
+- [x] `ai_onboarding/src/agent_api_keys_onboarding.rs` L35 필터 `provider.is_authenticated(cx)` 만 남김
+- [x] L2 `ZED_CLOUD_PROVIDER_ID` import 제거
+
+**Step E — `start_trial_url` 함수 제거**
+- [x] `client/src/zed_urls.rs` `start_trial_url` 함수 4 줄 제거
+
+### 11.15.3. 검증
+- [x] `cargo check -p Dokkaebi` 통과 (1m 06s, 신규 경고·에러 0 — 남은 8 경고 모두 Phase 10 이전 누적분)
+
+### 11.15.4. 범위 외 (이번에 건드리지 않음)
+- `Plan` enum 정의 자체 (`cloud_api_types::plan.rs`) — `client/src/user.rs`·`conversation_view/thread_view.rs:2129` 에서 여전히 참조 (thread.plan() 별도 메서드)
+- `user_store.plan()` 메서드 자체 — `agent_ui/conversation_view/thread_view.rs:2129` 등 다른 경로 사용 유지
+- `ZED_CLOUD_PROVIDER_ID` 상수 정의 (`language_model/src/language_model.rs:61`) — 다른 모듈 import 확인 후 별도 Phase 결정
+
+### 11.15.5. 예상 규모
+약 **-140 줄**, 5 파일 수정. 0.3 세션.
+
+---
+
+## 11.16. Phase 20 — `feedback` 크레이트 전면 삭제 (2026-04-24 승인)
+
+> **성격**: URL 비활성화(empty string)된 feedback 액션·i18n·크레이트 전면 제거. 명령 팔레트에서 "feedback: email/file bug/request feature" 항목 완전 제거
+> **상태**: 계획 작성, 사용자 승인 완료 (2026-04-24)
+
+### 11.16.1. 근거
+- `crates/feedback/src/feedback.rs` — 모든 URL 이 empty string (`ZED_REPO_URL=""`, `REQUEST_FEATURE_URL=""`, `file_bug_report_url→""`, `email_zed_url→""`)
+- `register_action` 으로 4 개 액션 등록 중이나 실행 시 빈 URL 이라 아무 일도 일어나지 않음
+- 명령 팔레트에는 "feedback: email dokkaebi/file bug report/request feature" 계속 노출 → broken UX
+- 1 인 개인 앱에서 Zed 공식 피드백 창구 필요 없음
+
+### 11.16.2. 대상
+
+**파일 삭제**
+- [x] `crates/feedback/` 디렉터리 전체 (`feedback.rs` 82 줄 + Cargo.toml + LICENSE-GPL)
+
+**`crates/zed_actions/src/lib.rs` 수정**
+- [x] L315-329 `pub mod feedback { actions!(feedback, [EmailZed, FileBugReport, RequestFeature]); }` 블록 전체 제거
+
+**`crates/zed/src/main.rs` 수정**
+- [x] `feedback::init(cx);` 호출 제거
+
+**`crates/zed/Cargo.toml` 수정**
+- [x] `feedback.workspace = true` 제거
+
+**`crates/workspace/src/workspace.rs` 수정**
+- [x] `use zed_actions::{feedback::FileBugReport, theme::ToggleMode}` → `use zed_actions::theme::ToggleMode` 로 단순화
+- [x] DB 로드 실패 토스트의 `.primary_message(button).primary_icon(IconName::Plus).primary_on_click(|window, cx| { window.dispatch_action(Box::new(FileBugReport), cx) })` 블록 제거, `MessageNotification::new(message, cx)` 만 유지. `let button = i18n::t("workspace.file_issue", cx);` 도 함께 제거
+
+**루트 `Cargo.toml` 수정**
+- [x] workspace members `"crates/feedback"` + path dep 제거
+
+**i18n 키 제거**
+- [x] `ko.json` 3 건 (`EmailZed`/`FileBugReport`/`RequestFeature`) + `workspace.file_issue` 1 건 총 4 건 제거
+- [x] `en.json` 동일 4 건 제거
+
+**체크 (영향 없음)**
+- [x] `CopySystemSpecsIntoClipboard` 액션은 `system_specs` 크레이트에 독립 정의, 영향 없음
+- [x] `dokkaebi.OpenZedRepo` 액션은 `feedback.rs` 에서만 정의·등록되었으므로 크레이트 삭제로 자동 제거
+
+### 11.16.3. 검증
+- [x] `cargo check -p Dokkaebi` 통과 (1m 06s 초기 빌드 + 2.17s 증분, 신규 경고·에러 0)
+- [ ] Dokkaebi 실행 → 명령 팔레트에서 "feedback:" 항목이 사라짐 수동 확인 — **사용자 몫**
+
+### 11.16.4. 예상 규모
+약 **-150 줄**, 1 디렉터리 삭제 + 6 파일 수정. 0.3 세션.
+
+---
+
 ### 11.12.12. Step 3 — client.rs dead 환경변수 + 분기 제거 (2026-04-24 승인)
 
 **제거 대상 (코드 확인 완료)**

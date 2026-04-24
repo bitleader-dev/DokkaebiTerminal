@@ -152,7 +152,7 @@ pub use workspace_settings::{
     AutosaveSetting, BottomDockLayout, RestoreOnStartupBehavior, StatusBarSettings, TabBarSettings,
     WallpaperSettings, WorkspaceSettings,
 };
-use zed_actions::{feedback::FileBugReport, theme::ToggleMode};
+use zed_actions::theme::ToggleMode;
 
 use crate::{item::ItemBufferKind, notifications::NotificationId};
 use crate::{
@@ -8521,13 +8521,7 @@ fn notify_if_database_failed(window: WindowHandle<MultiWorkspace>, cx: &mut Asyn
                         |cx| {
                             cx.new(|cx| {
                                 let message = i18n::t("workspace.db_failed", cx);
-                                let button = i18n::t("workspace.file_issue", cx);
                                 MessageNotification::new(message, cx)
-                                    .primary_message(button)
-                                    .primary_icon(IconName::Plus)
-                                    .primary_on_click(|window, cx| {
-                                        window.dispatch_action(Box::new(FileBugReport), cx)
-                                    })
                             })
                         },
                     );

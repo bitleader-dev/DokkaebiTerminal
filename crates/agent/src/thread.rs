@@ -19,7 +19,6 @@ use agent_settings::{
 use anyhow::{Context as _, Result, anyhow};
 use chrono::{DateTime, Utc};
 use client::UserStore;
-use cloud_api_types::Plan;
 use collections::{HashMap, HashSet, IndexMap};
 use fs::Fs;
 use futures::stream;
@@ -39,7 +38,7 @@ use language_model::{
     LanguageModelRequest, LanguageModelRequestMessage, LanguageModelRequestTool,
     LanguageModelToolResult, LanguageModelToolResultContent, LanguageModelToolSchemaFormat,
     LanguageModelToolUse, LanguageModelToolUseId, Role, SelectedModel, Speed, StopReason,
-    TokenUsage, ZED_CLOUD_PROVIDER_ID,
+    TokenUsage,
 };
 use project::Project;
 use prompt_store::ProjectContext;
@@ -2056,9 +2055,8 @@ impl Thread {
 
             if let Some(error) = error {
                 attempt += 1;
-                let retry = this.update(cx, |this, cx| {
-                    let user_store = this.user_store.read(cx);
-                    this.handle_completion_error(error, attempt, user_store.plan())
+                let retry = this.update(cx, |this, _cx| {
+                    this.handle_completion_error(error, attempt)
                 })??;
                 let timer = cx.background_executor().timer(retry.duration);
                 event_stream.send_retry(retry);
@@ -2124,19 +2122,8 @@ impl Thread {
         &mut self,
         error: LanguageModelCompletionError,
         attempt: u8,
-        plan: Option<Plan>,
     ) -> Result<acp_thread::RetryStatus> {
-        let Some(model) = self.model.as_ref() else {
-            return Err(anyhow!(error));
-        };
-
-        let auto_retry = if model.provider_id() == ZED_CLOUD_PROVIDER_ID {
-            plan.is_some()
-        } else {
-            true
-        };
-
-        if !auto_retry {
+        if self.model.is_none() {
             return Err(anyhow!(error));
         }
 

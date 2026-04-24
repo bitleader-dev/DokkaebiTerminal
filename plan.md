@@ -1209,6 +1209,59 @@ agent_panel.rs 현재 이전 상태 복원됨. StartThreadIn 37참조 제거 + C
 
 ---
 
+## 11.17. Phase 18 — Workspace 비참조 독립 바이너리/라이브러리 정리 (2026-04-24 옵션 A)
+
+> **성격**: Dokkaebi 앱 바이너리에 포함되지 않고 다른 크레이트에서도 참조 0 인 9 개 크레이트 제거. `cargo build --workspace` 시간 단축이 주 효과 (앱 크기 영향 0)
+> **상태**: 계획 작성, 사용자 승인 완료 (2026-04-24 옵션 A)
+
+### 11.17.1. 대상 (전수 grep 검증 완료 — 외부 참조 0)
+
+**Orphan 디렉터리 (workspace 비소속)**
+- `crates/debugger_ui/` — Cargo.toml 부재, workspace members 목록에도 없음. `src/debugger_panel.rs` 1 파일만 존재. Phase 11 `collab_ui` 와 동일한 dead directory
+
+**독립 바이너리**
+- `crates/storybook` — Zed UI 컴포넌트 Storybook (`[[bin]] name = "storybook"`, ~1,229 줄)
+- `crates/theme_importer` — VS Code 테마 → Dokkaebi 테마 마이그레이션 CLI (`main.rs` + `vscode/` 디렉터리, ~820 줄)
+- `crates/schema_generator` — JSON schema 생성 CLI (43 줄)
+- `crates/fs_benchmarks` — fs 크레이트 벤치마크 (34 줄)
+- `crates/project_benchmarks` — project 크레이트 벤치마크 (233 줄)
+- `crates/worktree_benchmarks` — worktree 크레이트 벤치마크 (52 줄)
+- `crates/extension_cli` — 확장 개발자용 CLI (`[[bin]] name = "zed-extension"`)
+
+**외부 publish 라이브러리 — ⚠️ 유지 결정 (작업 중 발견)**
+- `crates/extension_api` — **`extension_host/build.rs` 가 `../extension_api/wit` 디렉터리의 `.rs` 파일을 `OUT_DIR` 로 복사하는 경로 의존**. 초기 grep 검증이 `.workspace = true` 와 `use xxx::` 만 확인해 이 파일 시스템 경로 참조를 놓침. 삭제 후 빌드 실패(`Os { code: 3, kind: NotFound }`) 로 발견 → 디렉터리 복원 및 workspace members 복귀
+
+### 11.17.2. 작업 단계
+
+**디렉터리 삭제 (8 — 초기 9 → extension_api 복원으로 8)**
+- [x] `git rm -r crates/debugger_ui` (orphan, Cargo.toml 없음)
+- [x] `git rm -r crates/storybook crates/theme_importer crates/schema_generator`
+- [x] `git rm -r crates/fs_benchmarks crates/project_benchmarks crates/worktree_benchmarks`
+- [x] `git rm -r crates/extension_cli`
+- [x] `crates/extension_api/` — **유지 (복원)**
+
+**루트 `Cargo.toml` workspace members 7 항목 제거** (extension_api 는 유지)
+- [x] `"crates/extension_cli"`, `"crates/fs_benchmarks"`, `"crates/project_benchmarks"`, `"crates/schema_generator"`, `"crates/storybook"`, `"crates/theme_importer"`, `"crates/worktree_benchmarks"` 제거
+- [x] `"crates/extension_api"` 복원 (빌드 의존성 때문)
+
+**path dep / profile 설정**: 확인 후 수정 불필요 (해당 크레이트 등록 0 건)
+
+### 11.17.3. 검증
+- [x] `cargo check -p Dokkaebi` — 1 차 시도 시 extension_host/build.rs 의 `../extension_api/wit` 경로 부재로 빌드 실패 → extension_api 복원 후 재시도 통과 (12.79s, 신규 경고·에러 0)
+
+### 11.17.4. 실제 감축 규모
+8 디렉터리 삭제 + Cargo.toml workspace members 7 줄 제거. 약 **-3,000 ~ -5,000 줄**. 0.3 세션.
+
+### 11.17.5. 교훈
+`*.workspace = true` Cargo 의존성 grep 만으로는 **빌드 스크립트의 파일 시스템 경로 참조를 검증할 수 없음**. 향후 유사 작업 시 각 대상 크레이트에 대해 다음 추가 확인 필요:
+- 다른 크레이트의 `build.rs` 에서 `../<target_name>` 경로 참조 grep
+- `include_str!("...")` / `include_bytes!("...")` 매크로 경로 참조 grep
+
+### 11.17.5. 상류 Zed 동기화 영향
+이후 Zed 가 이 크레이트들에 변경을 가해도 Dokkaebi 는 해당 디렉터리 자체가 없으므로 cherry-pick 시 자동으로 "파일 부재 → skip" 분류. 상류 호환 유지 정책(CLAUDE.md) 의 "Dev Container"/"REPL" 제거와 동일한 패턴.
+
+---
+
 ### 11.12.12. Step 3 — client.rs dead 환경변수 + 분기 제거 (2026-04-24 승인)
 
 **제거 대상 (코드 확인 완료)**

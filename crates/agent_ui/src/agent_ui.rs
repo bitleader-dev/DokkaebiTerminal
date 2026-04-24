@@ -34,15 +34,10 @@ mod text_thread_history;
 mod thread_history;
 mod thread_history_view;
 pub mod thread_metadata_store;
-// TODO(phase-10 Part B-3): thread_worktree_archive 는 Part B-1 이식된 6종 외에도
-// ThreadMetadataStore / ThreadId / ArchivedGitWorktree 타입과 Project::wait_for_worktree_release,
-// Repository::repair_worktrees 등을 요구한다. 추가 이식이 완료될 때까지 mod 비활성 유지.
-// pub mod thread_worktree_archive;
 mod thread_worktree_picker;
 pub mod threads_archive_view;
 mod ui;
 
-use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -298,16 +293,6 @@ pub struct CreateWorktree {
     /// None이면 워크트리 이름이 자동 생성된다.
     pub worktree_name: Option<String>,
     pub branch_target: NewWorktreeBranchTarget,
-}
-
-/// 이미 존재하는 연결된 워크트리로 워크스페이스를 전환한다.
-/// 통합 워크트리 피커에서 기존 워크트리를 선택하면 디스패치된다.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema, Action)]
-#[action(namespace = agent)]
-#[serde(deny_unknown_fields)]
-pub struct SwitchWorktree {
-    pub path: PathBuf,
-    pub display_name: String,
 }
 
 /// Content to initialize new external agent with.

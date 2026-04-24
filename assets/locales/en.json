@@ -381,7 +381,6 @@
   "agent_panel.placeholder.message": "Message the {agent_name} — @ to include context",
   "agent_panel.placeholder.message_with_commands": "Message {agent_name} — @ to include context, / for commands",
   "agent_panel.start_in.title": "Start Thread In…",
-  "agent_panel.switch_worktree.unsupported_toast": "Switching to an existing worktree is not supported yet. Please create a new worktree instead.",
   "git_panel.tooltip": "Git Panel",
   "outline_panel.tooltip": "Outline Panel",
   "dock.close_left": "Close Left Dock",

@@ -1,6 +1,7 @@
 use crate::{DbThread, DbThreadMetadata, ThreadsDatabase};
 use agent_client_protocol::schema as acp;
 use anyhow::{Result, anyhow};
+use futures::{FutureExt, future::Shared};
 use gpui::{App, Context, Entity, Global, Task, prelude::*};
 use util::path_list::PathList;
 
@@ -10,6 +11,8 @@ impl Global for GlobalThreadStore {}
 
 pub struct ThreadStore {
     threads: Vec<DbThreadMetadata>,
+    // `migrate_thread_metadata` 가 초기 reload 완료를 기다리기 위한 공유 태스크.
+    reload_task: Shared<Task<()>>,
 }
 
 impl ThreadStore {
@@ -27,11 +30,18 @@ impl ThreadStore {
     }
 
     pub fn new(cx: &mut Context<Self>) -> Self {
-        let this = Self {
+        let reload_task = Self::spawn_reload(cx);
+        Self {
             threads: Vec::new(),
-        };
-        this.reload(cx);
-        this
+            reload_task,
+        }
+    }
+
+    /// 가장 최근 시작된 reload 가 완료되면 resolve.
+    /// `entries()` 를 읽어야 하는데 초기 empty 상태를 허용할 수 없는 호출처는
+    /// 반드시 이 태스크를 await 해야 한다.
+    pub fn reload_task(&self) -> Shared<Task<()>> {
+        self.reload_task.clone()
     }
 
     pub fn thread_from_session_id(&self, session_id: &acp::SessionId) -> Option<&DbThreadMetadata> {
@@ -87,12 +97,28 @@ impl ThreadStore {
         })
     }
 
-    pub fn reload(&self, cx: &mut Context<Self>) {
+    pub fn reload(&mut self, cx: &mut Context<Self>) {
+        self.reload_task = Self::spawn_reload(cx);
+    }
+
+    fn spawn_reload(cx: &mut Context<Self>) -> Shared<Task<()>> {
         let database_connection = ThreadsDatabase::connect(cx);
         cx.spawn(async move |this, cx| {
-            let database = database_connection.await.map_err(|err| anyhow!(err))?;
-            let all_threads = database.list_threads().await?;
-            this.update(cx, |this, cx| {
+            let database = match database_connection.await.map_err(|err| anyhow!(err)) {
+                Ok(database) => database,
+                Err(err) => {
+                    log::error!("ThreadStore: DB 연결 실패 — {err:#}");
+                    return;
+                }
+            };
+            let all_threads = match database.list_threads().await {
+                Ok(threads) => threads,
+                Err(err) => {
+                    log::error!("ThreadStore: 스레드 목록 로드 실패 — {err:#}");
+                    return;
+                }
+            };
+            if let Err(err) = this.update(cx, |this, cx| {
                 this.threads.clear();
                 for thread in all_threads {
                     if thread.parent_session_id.is_some() {
@@ -101,9 +127,11 @@ impl ThreadStore {
                     this.threads.push(thread);
                 }
                 cx.notify();
-            })
+            }) {
+                log::error!("ThreadStore: reload 결과 반영 실패 — {err:#}");
+            }
         })
-        .detach_and_log_err(cx);
+        .shared()
     }
 
     pub fn is_empty(&self) -> bool {

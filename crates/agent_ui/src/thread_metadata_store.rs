@@ -46,17 +46,24 @@ fn migrate_thread_metadata(cx: &mut App) {
 
     let store = SidebarThreadMetadataStore::global(cx);
     let db = store.read(cx).db.clone();
+    let thread_store = ThreadStore::global(cx);
+    // `ThreadStore::new` 가 reload 를 fire-and-forget 으로 spawn 하므로 이 시점의
+    // `entries()` 는 empty 일 수 있다. 실제 마이그레이션이 필요한 최초 1 회에만
+    // reload 완료를 await 해서 이미 마이그레이션된 사용자의 steady-state 부팅에서
+    // 불필요한 대기를 피한다.
+    let thread_store_ready = thread_store.read(cx).reload_task();
 
     cx.spawn(async move |cx| {
         if !db.is_empty()? {
             return Ok::<(), anyhow::Error>(());
         }
 
-        let metadata = store.read_with(cx, |_store, app| {
+        thread_store_ready.await;
+
+        let metadata = thread_store.read_with(cx, |store, _cx| {
             let mut migrated_threads_per_project = HashMap::default();
 
-            ThreadStore::global(app)
-                .read(app)
+            store
                 .entries()
                 .filter_map(|entry| {
                     if entry.folder_paths.is_empty() {
@@ -1002,6 +1009,78 @@ mod tests {
         });
         assert_eq!(list.len(), 1);
         assert_eq!(list[0].session_id.0.as_ref(), "existing-session");
+    }
+
+    // `ThreadStore::reload` 와 `migrate_thread_metadata` 의 race 에 대한 regression test.
+    // `ThreadStore::new` 는 empty in-memory cache 로 초기화한 뒤 `reload()` 를
+    // fire-and-forget 태스크로 spawn 한다. 만약 `migrate_thread_metadata` 가
+    // 그 reload 완료 전에 `ThreadStore::entries()` 를 읽으면 empty iterator 를
+    // 관측해 아무것도 저장하지 않고 종료된다. Dokkaebi 는 그 뒤로 사용자가 한 번이라도
+    // 스레드에 상호작용하면 `db.is_empty()` 가 false 가 되어 migration 이 영구히
+    // 재실행되지 않고, legacy `threads.db` 의 나머지 스레드는 사이드바에서 영구
+    // 누락된다. PR #54752 백포트로 migration 이 `thread_store_ready.await` 로
+    // reload 완료를 기다리도록 고정된 동작을 이 테스트가 지킨다.
+    #[gpui::test]
+    async fn test_migration_awaits_thread_store_reload(cx: &mut TestAppContext) {
+        cx.update(|cx| {
+            ThreadStore::init_global(cx);
+            SidebarThreadMetadataStore::init_global(cx);
+        });
+
+        // legacy `threads.db` 에 3 건 저장 후 park 하여 디스크 쓰기·in-memory cache
+        // 양쪽이 확실히 populate 된 상태를 만든다.
+        let project_paths = PathList::new(&[Path::new("/project-a")]);
+        let now = Utc::now();
+        for i in 0..3 {
+            let save_task = cx.update(|cx| {
+                let thread_store = ThreadStore::global(cx);
+                let session_id = format!("legacy-session-{i}");
+                let title = format!("Legacy Thread {i}");
+                let updated_at = now + chrono::Duration::seconds(i as i64);
+                let paths = project_paths.clone();
+                thread_store.update(cx, |store, cx| {
+                    store.save_thread(
+                        acp::SessionId::new(session_id),
+                        make_db_thread(&title, updated_at),
+                        paths,
+                        cx,
+                    )
+                })
+            });
+            save_task.await.unwrap();
+            cx.run_until_parked();
+        }
+
+        // ThreadStore 를 재초기화해서 in-memory cache 를 empty 로 되돌린다.
+        // 이 시점부터 새 reload 태스크가 비동기로 시작되며, legacy DB 의 3 건은
+        // 아직 메모리에 로드되지 않은 상태다. 이것이 cold boot race 상황 재현.
+        cx.update(|cx| ThreadStore::init_global(cx));
+
+        // 여기서 `run_until_parked` 를 절대 먼저 호출하면 안 된다. reload 가 완료되어
+        // `ThreadStore::entries()` 가 3 건을 반환하게 되면 race 가 숨겨진다.
+        // race 수정이 없으면 migration 이 empty entries 를 관측해 no-op 으로 끝나야 한다.
+        cx.update(|cx| {
+            migrate_thread_metadata(cx);
+        });
+
+        // 이제 parking 해서 fire-and-forget 태스크들을 모두 완료시킨다.
+        // fix 적용 시: migration 이 `thread_store_ready.await` 로 reload 완료를
+        // 기다렸다가 3 건 읽고 저장 → list.len() == 3.
+        // fix 없을 때: migration 이 empty entries 를 보고 저장 0 건으로 종료.
+        cx.run_until_parked();
+
+        let list = cx.update(|cx| {
+            let store = SidebarThreadMetadataStore::global(cx);
+            store.read(cx).entries().collect::<Vec<_>>()
+        });
+
+        assert_eq!(
+            list.len(),
+            3,
+            "ThreadStore::reload 가 완료되지 않은 상태에서도 migration 이 legacy \
+             스레드 3 건을 모두 이식해야 하는데 실제로는 {} 건만 저장됨",
+            list.len()
+        );
     }
 
     #[gpui::test]

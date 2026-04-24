@@ -965,27 +965,48 @@ fn main() {
             })
         }
 
-        match open_rx
+        // 워크스페이스 garbage collection 시 현재/이전 세션 ID 를 비교하기 위해 미리 추출한다.
+        // 진행 중인 복원 도중 현재 세션 워크스페이스가 삭제되지 않도록 세션 키 세트를 고정한다.
+        let (current_session_id, last_session_id) = {
+            let session = app_state.session.read(cx);
+            (
+                session.id().to_owned(),
+                session.last_session_id().map(|id| id.to_owned()),
+            )
+        };
+
+        // open_rx 에 들어온 요청은 동기 경로로 즉시 처리하고, 뒤이어 단일 spawn 으로
+        // (1) 복원 (필요할 때만) 과 (2) GC 를 순차 실행한다. GC 를 복원 뒤로 미루는 건
+        // 현재 세션 워크스페이스가 잘못 삭제되는 것을 막기 위함이다.
+        let pending_request = open_rx
             .try_next()
             .ok()
             .flatten()
-            .and_then(|request| OpenRequest::parse(request, cx).log_err())
-        {
-            Some(request) => {
-                handle_open_request(request, app_state.clone(), cx);
-            }
-            None => {
-                cx.spawn({
-                    let app_state = app_state.clone();
-                    async move |cx| {
-                        if let Err(e) = restore_or_create_workspace(app_state, cx).await {
-                            fail_to_open_window_async(e, cx)
-                        }
-                    }
-                })
-                .detach();
-            }
+            .and_then(|request| OpenRequest::parse(request, cx).log_err());
+        let restore_needed = pending_request.is_none();
+        if let Some(request) = pending_request {
+            handle_open_request(request, app_state.clone(), cx);
         }
+
+        cx.spawn({
+            let app_state = app_state.clone();
+            let db = workspace::WorkspaceDb::global(cx);
+            let fs = app_state.fs.clone();
+            async move |cx| {
+                if restore_needed {
+                    if let Err(e) = restore_or_create_workspace(app_state, cx).await {
+                        fail_to_open_window_async(e, cx);
+                    }
+                }
+                db.garbage_collect_workspaces(
+                    fs.as_ref(),
+                    &current_session_id,
+                    last_session_id.as_deref(),
+                )
+                .await
+            }
+        })
+        .detach_and_log_err(cx);
 
         let app_state = app_state.clone();
 

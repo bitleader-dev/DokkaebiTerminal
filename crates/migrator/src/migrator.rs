@@ -255,6 +255,9 @@ pub fn migrate_settings(text: &str) -> Result<Option<String>> {
         ),
         MigrationType::Json(migrations::m_2026_04_10::rename_web_search_to_search_web),
         MigrationType::Json(
+            migrations::m_2026_04_15::remove_settings_from_http_context_servers,
+        ),
+        MigrationType::Json(
             migrations::m_2026_04_17::promote_show_branch_icon_true_to_show_branch_status_icon,
         ),
     ];
@@ -4485,6 +4488,66 @@ mod tests {
                             }
                         },
                     ]
+                "#
+                .unindent(),
+            ),
+        );
+    }
+
+    #[test]
+    fn test_remove_settings_from_http_context_servers() {
+        assert_migrate_settings(
+            &r#"
+            {
+                "context_servers": {
+                    "http_server": {
+                        "url": "https://example.com/mcp",
+                        "settings": {}
+                    },
+                    "http_server_with_headers": {
+                        "url": "https://example.com/mcp",
+                        "headers": {
+                            "Authorization": "Bearer token"
+                        },
+                        "settings": {}
+                    },
+                    "extension_server": {
+                        "settings": {
+                            "foo": "bar"
+                        }
+                    },
+                    "stdio_server": {
+                        "command": "npx",
+                        "args": ["-y", "some-server"]
+                    }
+                }
+            }
+            "#
+            .unindent(),
+            Some(
+                &r#"
+                {
+                    "context_servers": {
+                        "http_server": {
+                            "url": "https://example.com/mcp"
+                        },
+                        "http_server_with_headers": {
+                            "url": "https://example.com/mcp",
+                            "headers": {
+                                "Authorization": "Bearer token"
+                            }
+                        },
+                        "extension_server": {
+                            "settings": {
+                                "foo": "bar"
+                            }
+                        },
+                        "stdio_server": {
+                            "command": "npx",
+                            "args": ["-y", "some-server"]
+                        }
+                    }
+                }
                 "#
                 .unindent(),
             ),

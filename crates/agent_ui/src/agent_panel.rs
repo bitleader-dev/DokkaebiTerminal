@@ -30,7 +30,7 @@ use crate::{
     AddContextServer, AgentDiffPane, ConversationView, CopyThreadToClipboard, CreateWorktree,
     Follow, InlineAssistant, LoadThreadFromClipboard, NewTextThread, NewThread,
     NewWorktreeBranchTarget, OpenActiveThreadAsMarkdown, OpenAgentDiff, OpenHistory,
-    SwitchWorktree, ToggleNavigationMenu,
+    ToggleNavigationMenu,
     ToggleNewThreadMenu, ToggleOptionsMenu, ToggleWorktreeSelector,
     agent_configuration::{AgentConfiguration, AssistantConfigurationEvent},
     conversation_view::{AcpThreadViewEvent, ThreadView},
@@ -406,13 +406,6 @@ pub fn init(cx: &mut App) {
                     if let Some(panel) = workspace.panel::<AgentPanel>(cx) {
                         panel.update(cx, |panel, cx| {
                             panel.create_worktree(action, window, cx);
-                        });
-                    }
-                })
-                .register_action(|workspace, action: &SwitchWorktree, window, cx| {
-                    if let Some(panel) = workspace.panel::<AgentPanel>(cx) {
-                        panel.update(cx, |panel, cx| {
-                            panel.switch_to_worktree(action, window, cx);
                         });
                     }
                 });
@@ -2207,35 +2200,6 @@ impl AgentPanel {
         // picker 로 트리거된 생성은 초기 메시지 없이 빈 thread 로 시작한다.
         // 사용자는 새 워크스페이스의 agent panel 에서 메시지를 작성해 전송한다.
         self.handle_worktree_creation_requested(Vec::new(), window, cx);
-    }
-
-    /// Dokkaebi 는 기존 linked worktree 로 workspace 를 전환하는 경로가 아직 없다
-    /// (`MultiWorkspace::find_or_create_workspace` 이식 이후에 구현 예정).
-    /// 그 동안은 사용자에게 미지원 사실을 토스트로 알리기만 한다.
-    pub fn switch_to_worktree(
-        &mut self,
-        action: &SwitchWorktree,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        log::warn!(
-            "switch_to_worktree: 기존 linked worktree 전환은 아직 구현되지 않았다 (path={:?}, display={})",
-            action.path,
-            action.display_name
-        );
-
-        if let Some(workspace) = self.workspace.upgrade() {
-            workspace.update(cx, |workspace, cx| {
-                let toast_id = workspace::notifications::NotificationId::unique::<AgentPanel>();
-                workspace.show_toast(
-                    workspace::Toast::new(
-                        toast_id,
-                        t("agent_panel.switch_worktree.unsupported_toast", cx).to_string(),
-                    ),
-                    cx,
-                );
-            });
-        }
     }
 
     pub(crate) fn selected_agent(&self) -> Option<Agent> {
@@ -5572,207 +5536,6 @@ mod tests {
     }
 
     #[gpui::test]
-    async fn test_thread_target_local_project(cx: &mut TestAppContext) {
-        init_test(cx);
-        cx.update(|cx| {
-            cx.update_flags(true, vec!["agent-v2".to_string()]);
-            agent::ThreadStore::init_global(cx);
-            language_model::LanguageModelRegistry::test(cx);
-        });
-
-        let fs = FakeFs::new(cx.executor());
-        fs.insert_tree(
-            "/project",
-            json!({
-                ".git": {},
-                "src": {
-                    "main.rs": "fn main() {}"
-                }
-            }),
-        )
-        .await;
-        fs.set_branch_name(Path::new("/project/.git"), Some("main"));
-
-        let project = Project::test(fs.clone(), [Path::new("/project")], cx).await;
-
-        let multi_workspace =
-            cx.add_window(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
-
-        let workspace = multi_workspace
-            .read_with(cx, |multi_workspace, _cx| {
-                multi_workspace.workspace().clone()
-            })
-            .unwrap();
-
-        workspace.update(cx, |workspace, _cx| {
-            workspace.set_random_database_id();
-        });
-
-        let cx = &mut VisualTestContext::from_window(multi_workspace.into(), cx);
-
-        // Wait for the project to discover the git repository.
-        cx.run_until_parked();
-
-        let panel = workspace.update_in(cx, |workspace, window, cx| {
-            let text_thread_store = cx.new(|cx| TextThreadStore::fake(project.clone(), cx));
-            let panel =
-                cx.new(|cx| AgentPanel::new(workspace, text_thread_store, None, window, cx));
-            workspace.add_panel(panel.clone(), window, cx);
-            panel
-        });
-
-        cx.run_until_parked();
-
-        // Default thread target should be LocalProject.
-        panel.read_with(cx, |panel, _cx| {
-            assert_eq!(
-                *panel.start_thread_in(),
-                StartThreadIn::LocalProject,
-                "default thread target should be LocalProject"
-            );
-        });
-
-        // Start a new thread with the default LocalProject target.
-        // Use StubAgentServer so the thread connects immediately in tests.
-        panel.update_in(cx, |panel, window, cx| {
-            panel.open_external_thread_with_server(
-                Rc::new(StubAgentServer::default_response()),
-                window,
-                cx,
-            );
-        });
-
-        cx.run_until_parked();
-
-        // MultiWorkspace should still have exactly one workspace (no worktree created).
-        multi_workspace
-            .read_with(cx, |multi_workspace, _cx| {
-                assert_eq!(
-                    multi_workspace.workspaces().len(),
-                    1,
-                    "LocalProject should not create a new workspace"
-                );
-            })
-            .unwrap();
-
-        // The thread should be active in the panel.
-        panel.read_with(cx, |panel, cx| {
-            assert!(
-                panel.active_agent_thread(cx).is_some(),
-                "a thread should be running in the current workspace"
-            );
-        });
-
-        // The thread target should still be LocalProject (unchanged).
-        panel.read_with(cx, |panel, _cx| {
-            assert_eq!(
-                *panel.start_thread_in(),
-                StartThreadIn::LocalProject,
-                "thread target should remain LocalProject"
-            );
-        });
-
-        // No worktree creation status should be set.
-        panel.read_with(cx, |panel, _cx| {
-            assert!(
-                panel.worktree_creation_status.is_none(),
-                "no worktree creation should have occurred"
-            );
-        });
-    }
-
-    #[gpui::test]
-    async fn test_thread_target_serialization_round_trip(cx: &mut TestAppContext) {
-        init_test(cx);
-        cx.update(|cx| {
-            cx.update_flags(true, vec!["agent-v2".to_string()]);
-            agent::ThreadStore::init_global(cx);
-            language_model::LanguageModelRegistry::test(cx);
-        });
-
-        let fs = FakeFs::new(cx.executor());
-        fs.insert_tree(
-            "/project",
-            json!({
-                ".git": {},
-                "src": {
-                    "main.rs": "fn main() {}"
-                }
-            }),
-        )
-        .await;
-        fs.set_branch_name(Path::new("/project/.git"), Some("main"));
-
-        let project = Project::test(fs.clone(), [Path::new("/project")], cx).await;
-
-        let multi_workspace =
-            cx.add_window(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
-
-        let workspace = multi_workspace
-            .read_with(cx, |multi_workspace, _cx| {
-                multi_workspace.workspace().clone()
-            })
-            .unwrap();
-
-        workspace.update(cx, |workspace, _cx| {
-            workspace.set_random_database_id();
-        });
-
-        let cx = &mut VisualTestContext::from_window(multi_workspace.into(), cx);
-
-        // Wait for the project to discover the git repository.
-        cx.run_until_parked();
-
-        let panel = workspace.update_in(cx, |workspace, window, cx| {
-            let text_thread_store = cx.new(|cx| TextThreadStore::fake(project.clone(), cx));
-            let panel =
-                cx.new(|cx| AgentPanel::new(workspace, text_thread_store, None, window, cx));
-            workspace.add_panel(panel.clone(), window, cx);
-            panel
-        });
-
-        cx.run_until_parked();
-
-        // Default should be LocalProject.
-        panel.read_with(cx, |panel, _cx| {
-            assert_eq!(*panel.start_thread_in(), StartThreadIn::LocalProject);
-        });
-
-        // Change thread target to NewWorktree.
-        panel.update_in(cx, |panel, window, cx| {
-            panel.set_start_thread_in(&StartThreadIn::NewWorktree, window, cx);
-        });
-
-        panel.read_with(cx, |panel, _cx| {
-            assert_eq!(
-                *panel.start_thread_in(),
-                StartThreadIn::NewWorktree,
-                "thread target should be NewWorktree after set_thread_target"
-            );
-        });
-
-        // Let serialization complete.
-        cx.run_until_parked();
-
-        // Load a fresh panel from the serialized data.
-        let prompt_builder = Arc::new(prompt_store::PromptBuilder::new(None).unwrap());
-        let async_cx = cx.update(|window, cx| window.to_async(cx));
-        let loaded_panel =
-            AgentPanel::load(workspace.downgrade(), prompt_builder.clone(), async_cx)
-                .await
-                .expect("panel load should succeed");
-        cx.run_until_parked();
-
-        loaded_panel.read_with(cx, |panel, _cx| {
-            assert_eq!(
-                *panel.start_thread_in(),
-                StartThreadIn::NewWorktree,
-                "thread target should survive serialization round-trip"
-            );
-        });
-    }
-
-    #[gpui::test]
     async fn test_set_active_blocked_during_worktree_creation(cx: &mut TestAppContext) {
         init_test(cx);
 
@@ -5959,14 +5722,12 @@ mod tests {
 
         cx.run_until_parked();
 
-        // Set the selected agent to Codex (a custom agent) and start_thread_in
-        // to NewWorktree. We do this AFTER opening the thread because
-        // open_external_thread_with_server overrides selected_agent_type.
-        panel.update_in(cx, |panel, window, cx| {
+        // open_external_thread_with_server 가 selected_agent_type 을 덮으므로
+        // 스레드를 먼저 띄운 뒤 Codex 로 바꿔 둔다.
+        panel.update_in(cx, |panel, _window, _cx| {
             panel.selected_agent_type = AgentType::Custom {
                 id: CODEX_ID.into(),
             };
-            panel.set_start_thread_in(&StartThreadIn::NewWorktree, window, cx);
         });
 
         // Verify the panel has the Codex agent selected.
@@ -5979,8 +5740,7 @@ mod tests {
             );
         });
 
-        // Directly call handle_worktree_creation_requested, which is what
-        // handle_first_send_requested does when start_thread_in == NewWorktree.
+        // worktree 생성 경로를 직접 호출해 새 워크스페이스가 동일한 agent 를 계승하는지 검증한다.
         let content = vec![acp::ContentBlock::Text(acp::TextContent::new(
             "Hello from test",
         ))];

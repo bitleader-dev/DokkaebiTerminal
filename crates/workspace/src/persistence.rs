@@ -60,6 +60,17 @@ fn parse_timestamp(text: &str) -> DateTime<Utc> {
         .unwrap_or_else(|_| Utc::now())
 }
 
+/// Windows 환경에서만 WSL 경로 포함 여부를 검사한다. WSL 경로 워크스페이스는
+/// 메타데이터 조회 시 WSL VM·파일 서버 부팅을 기다리며 수 초간 블록되므로
+/// listing 단계에서 제외하고 GC 대상으로 분류한다.
+fn contains_wsl_path(paths: &PathList) -> bool {
+    cfg!(windows)
+        && paths
+            .paths()
+            .iter()
+            .any(|path| util::paths::WslPath::from_path(path).is_some())
+}
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub(crate) struct SerializedAxis(pub(crate) gpui::Axis);
 impl sqlez::bindable::StaticColumnCount for SerializedAxis {}
@@ -1532,26 +1543,30 @@ impl WorkspaceDb {
             WorkspaceId,
             PathList,
             Option<RemoteConnectionId>,
+            Option<String>,
             DateTime<Utc>,
         )>,
     > {
         Ok(self
             .recent_workspaces_query()?
             .into_iter()
-            .map(|(id, paths, order, remote_connection_id, timestamp)| {
-                (
-                    id,
-                    PathList::deserialize(&SerializedPathList { paths, order }),
-                    remote_connection_id.map(RemoteConnectionId),
-                    parse_timestamp(&timestamp),
-                )
-            })
+            .map(
+                |(id, paths, order, remote_connection_id, session_id, timestamp)| {
+                    (
+                        id,
+                        PathList::deserialize(&SerializedPathList { paths, order }),
+                        remote_connection_id.map(RemoteConnectionId),
+                        session_id,
+                        parse_timestamp(&timestamp),
+                    )
+                },
+            )
             .collect())
     }
 
     query! {
-        fn recent_workspaces_query() -> Result<Vec<(WorkspaceId, String, String, Option<u64>, String)>> {
-            SELECT workspace_id, paths, paths_order, remote_connection_id, timestamp
+        fn recent_workspaces_query() -> Result<Vec<(WorkspaceId, String, String, Option<u64>, Option<String>, String)>> {
+            SELECT workspace_id, paths, paths_order, remote_connection_id, session_id, timestamp
             FROM workspaces
             WHERE
                 paths IS NOT NULL OR
@@ -1692,9 +1707,7 @@ impl WorkspaceDb {
         let mut any_dir = false;
         for path in paths {
             match fs.metadata(path).await.ok().flatten() {
-                None => {
-                    return false;
-                }
+                None => return false,
                 Some(meta) => {
                     if meta.is_dir {
                         any_dir = true;
@@ -1705,9 +1718,11 @@ impl WorkspaceDb {
         any_dir
     }
 
-    // Returns the recent locations which are still valid on disk and deletes ones which no longer
-    // exist.
-    pub async fn recent_workspaces_on_disk(
+    // 최근 프로젝트 UI 에 표시할 워크스페이스 목록만 반환한다. 빈 경로(scratch-only)
+    // 워크스페이스는 'project' 가 아니므로 여기서 제외하며, 대신 `last_session_workspace_locations`
+    // 를 통해 별도로 복원된다. 이 함수는 read-only 이며 stale 행은 삭제하지 않는다 — 정리는
+    // `garbage_collect_workspaces` 가 담당한다.
+    pub async fn recent_project_workspaces(
         &self,
         fs: &dyn Fs,
     ) -> Result<
@@ -1718,11 +1733,9 @@ impl WorkspaceDb {
             DateTime<Utc>,
         )>,
     > {
-        let mut result = Vec::new();
-        let mut workspaces_to_delete = Vec::new();
         let remote_connections = self.remote_connections()?;
-        let now = Utc::now();
-        for (id, paths, remote_connection_id, timestamp) in self.recent_workspaces()? {
+        let mut result = Vec::new();
+        for (id, paths, remote_connection_id, _session_id, timestamp) in self.recent_workspaces()? {
             if let Some(remote_connection_id) = remote_connection_id {
                 if let Some(connection_options) = remote_connections.get(&remote_connection_id) {
                     result.push((
@@ -1731,35 +1744,56 @@ impl WorkspaceDb {
                         paths,
                         timestamp,
                     ));
-                } else {
-                    workspaces_to_delete.push(id);
                 }
                 continue;
             }
 
-            // 빈 워크스페이스(경로 없음)는 삭제하지 않고 포함
-            if paths.is_empty() {
-                result.push((id, SerializedWorkspaceLocation::Local, paths, timestamp));
+            if paths.paths().is_empty() || contains_wsl_path(&paths) {
                 continue;
-            }
-
-            // 로컬 워크스페이스가 WSL 경로를 가리키면 metadata 조회 시 WSL VM·파일
-            // 서버 부팅을 기다리게 되어 수 초간 블록된다. 지원 시나리오는 원격
-            // 워크스페이스를 사용하므로 WSL 경로는 즉시 삭제 대상으로 분류.
-            if cfg!(windows) {
-                let has_wsl_path = paths
-                    .paths()
-                    .iter()
-                    .any(|path| util::paths::WslPath::from_path(path).is_some());
-                if has_wsl_path {
-                    workspaces_to_delete.push(id);
-                    continue;
-                }
             }
 
             if Self::all_paths_exist_with_a_directory(paths.paths(), fs).await {
                 result.push((id, SerializedWorkspaceLocation::Local, paths, timestamp));
-            } else if now - timestamp >= chrono::Duration::days(7) {
+            }
+        }
+        Ok(result)
+    }
+
+    // 더 이상 복원할 수 없는 워크스페이스 행을 삭제한다. 연결이 사라진 원격 워크스페이스와
+    // (Windows 에서) WSL 경로를 가리키는 워크스페이스는 즉시 정리한다. 디스크에서 사라진
+    // 로컬 워크스페이스는 7일 grace 후 삭제한다. 현재 세션과 직전 세션에 속한 워크스페이스는
+    // 진행 중인 복원이 있을 수 있으므로 항상 보존한다 (#51456 회귀 방지).
+    pub async fn garbage_collect_workspaces(
+        &self,
+        fs: &dyn Fs,
+        current_session_id: &str,
+        last_session_id: Option<&str>,
+    ) -> Result<()> {
+        let remote_connections = self.remote_connections()?;
+        let now = Utc::now();
+        let mut workspaces_to_delete = Vec::new();
+        for (id, paths, remote_connection_id, session_id, timestamp) in self.recent_workspaces()? {
+            if let Some(session_id) = session_id.as_deref() {
+                if session_id == current_session_id || Some(session_id) == last_session_id {
+                    continue;
+                }
+            }
+
+            if let Some(remote_connection_id) = remote_connection_id {
+                if !remote_connections.contains_key(&remote_connection_id) {
+                    workspaces_to_delete.push(id);
+                }
+                continue;
+            }
+
+            if contains_wsl_path(&paths) {
+                workspaces_to_delete.push(id);
+                continue;
+            }
+
+            if !Self::all_paths_exist_with_a_directory(paths.paths(), fs).await
+                && now - timestamp >= chrono::Duration::days(7)
+            {
                 workspaces_to_delete.push(id);
             }
         }
@@ -1770,7 +1804,7 @@ impl WorkspaceDb {
                 .map(|id| self.delete_workspace_by_id(id)),
         )
         .await;
-        Ok(result)
+        Ok(())
     }
 
     pub async fn last_workspace(
@@ -1784,7 +1818,11 @@ impl WorkspaceDb {
             DateTime<Utc>,
         )>,
     > {
-        Ok(self.recent_workspaces_on_disk(fs).await?.into_iter().next())
+        Ok(self
+            .recent_project_workspaces(fs)
+            .await?
+            .into_iter()
+            .next())
     }
 
     // Returns the locations of the workspaces that were still opened when the last
@@ -1813,23 +1851,18 @@ impl WorkspaceDb {
                     paths,
                     window_id,
                 });
-            } else if paths.is_empty() {
-                // Empty workspace with items (drafts, files) - include for restoration
+                continue;
+            }
+
+            // 빈 경로 워크스페이스(드래프트·임시 파일만 보유) 와 디스크에 경로가
+            // 살아 있는 워크스페이스 모두 세션 복원 대상에 포함한다.
+            if paths.is_empty() || Self::all_paths_exist_with_a_directory(paths.paths(), fs).await {
                 workspaces.push(SessionWorkspace {
                     workspace_id,
                     location: SerializedWorkspaceLocation::Local,
                     paths,
                     window_id,
                 });
-            } else {
-                if Self::all_paths_exist_with_a_directory(paths.paths(), fs).await {
-                    workspaces.push(SessionWorkspace {
-                        workspace_id,
-                        location: SerializedWorkspaceLocation::Local,
-                        paths,
-                        window_id,
-                    });
-                }
             }
         }
 
@@ -2091,6 +2124,15 @@ impl WorkspaceDb {
             UPDATE workspaces
             SET timestamp = CURRENT_TIMESTAMP
             WHERE workspace_id = ?
+        }
+    }
+
+    #[cfg(test)]
+    query! {
+        pub(crate) async fn set_timestamp_for_tests(workspace_id: WorkspaceId, timestamp: String) -> Result<()> {
+            UPDATE workspaces
+            SET timestamp = ?2
+            WHERE workspace_id = ?1
         }
     }
 
@@ -2602,6 +2644,8 @@ mod tests {
             session_id: None,
             window_id: None,
             user_toolchains: Default::default(),
+            workspace_groups: Vec::new(),
+            active_group_index: 0,
         };
 
         let workspace_2 = SerializedWorkspace {
@@ -2616,6 +2660,8 @@ mod tests {
             session_id: None,
             window_id: None,
             user_toolchains: Default::default(),
+            workspace_groups: Vec::new(),
+            active_group_index: 0,
         };
 
         db.save_workspace(workspace_1.clone()).await;
@@ -2722,6 +2768,8 @@ mod tests {
             session_id: None,
             window_id: Some(999),
             user_toolchains: Default::default(),
+            workspace_groups: Vec::new(),
+            active_group_index: 0,
         };
 
         db.save_workspace(workspace.clone()).await;
@@ -2755,6 +2803,8 @@ mod tests {
             session_id: None,
             window_id: Some(1),
             user_toolchains: Default::default(),
+            workspace_groups: Vec::new(),
+            active_group_index: 0,
         };
 
         let mut workspace_2 = SerializedWorkspace {
@@ -2769,6 +2819,8 @@ mod tests {
             session_id: None,
             window_id: Some(2),
             user_toolchains: Default::default(),
+            workspace_groups: Vec::new(),
+            active_group_index: 0,
         };
 
         db.save_workspace(workspace_1.clone()).await;
@@ -2810,6 +2862,8 @@ mod tests {
             session_id: None,
             window_id: Some(3),
             user_toolchains: Default::default(),
+            workspace_groups: Vec::new(),
+            active_group_index: 0,
         };
 
         db.save_workspace(workspace_3.clone()).await;
@@ -2847,6 +2901,8 @@ mod tests {
             session_id: Some("session-id-1".to_owned()),
             window_id: Some(10),
             user_toolchains: Default::default(),
+            workspace_groups: Vec::new(),
+            active_group_index: 0,
         };
 
         let workspace_2 = SerializedWorkspace {
@@ -2861,6 +2917,8 @@ mod tests {
             session_id: Some("session-id-1".to_owned()),
             window_id: Some(20),
             user_toolchains: Default::default(),
+            workspace_groups: Vec::new(),
+            active_group_index: 0,
         };
 
         let workspace_3 = SerializedWorkspace {
@@ -2875,6 +2933,8 @@ mod tests {
             session_id: Some("session-id-2".to_owned()),
             window_id: Some(30),
             user_toolchains: Default::default(),
+            workspace_groups: Vec::new(),
+            active_group_index: 0,
         };
 
         let workspace_4 = SerializedWorkspace {
@@ -2889,6 +2949,8 @@ mod tests {
             session_id: None,
             window_id: None,
             user_toolchains: Default::default(),
+            workspace_groups: Vec::new(),
+            active_group_index: 0,
         };
 
         let connection_id = db
@@ -2914,6 +2976,8 @@ mod tests {
             session_id: Some("session-id-2".to_owned()),
             window_id: Some(50),
             user_toolchains: Default::default(),
+            workspace_groups: Vec::new(),
+            active_group_index: 0,
         };
 
         let workspace_6 = SerializedWorkspace {
@@ -2928,6 +2992,8 @@ mod tests {
             session_id: Some("session-id-3".to_owned()),
             window_id: Some(60),
             user_toolchains: Default::default(),
+            workspace_groups: Vec::new(),
+            active_group_index: 0,
         };
 
         db.save_workspace(workspace_1.clone()).await;
@@ -2984,6 +3050,8 @@ mod tests {
             session_id: None,
             window_id: None,
             user_toolchains: Default::default(),
+            workspace_groups: Vec::new(),
+            active_group_index: 0,
         }
     }
 
@@ -3024,6 +3092,8 @@ mod tests {
             session_id: Some("one-session".to_owned()),
             window_id: Some(window_id),
             user_toolchains: Default::default(),
+            workspace_groups: Vec::new(),
+            active_group_index: 0,
         })
         .collect::<Vec<_>>();
 
@@ -3087,6 +3157,219 @@ mod tests {
         );
     }
 
+    fn pane_with_items(item_ids: &[ItemId]) -> SerializedPaneGroup {
+        SerializedPaneGroup::Pane(SerializedPane::new(
+            item_ids
+                .iter()
+                .map(|id| SerializedItem::new("Terminal", *id, true, false))
+                .collect(),
+            true,
+            0,
+        ))
+    }
+
+    fn empty_pane_group() -> SerializedPaneGroup {
+        SerializedPaneGroup::Pane(SerializedPane::default())
+    }
+
+    fn workspace_with(
+        id: u64,
+        paths: &[&Path],
+        center_group: SerializedPaneGroup,
+        session_id: Option<&str>,
+    ) -> SerializedWorkspace {
+        SerializedWorkspace {
+            id: WorkspaceId(id as i64),
+            session_id: session_id.map(|s| s.to_owned()),
+            window_id: Some(id),
+            ..default_workspace(paths, &center_group)
+        }
+    }
+
+    #[gpui::test]
+    async fn test_scratch_only_workspace_restores_from_last_session(cx: &mut gpui::TestAppContext) {
+        let fs = fs::FakeFs::new(cx.executor());
+        let db =
+            WorkspaceDb::open_test_db("test_scratch_only_workspace_restores_from_last_session")
+                .await;
+
+        db.save_workspace(workspace_with(1, &[], pane_with_items(&[100]), Some("s1")))
+            .await;
+
+        let sessions = db
+            .last_session_workspace_locations("s1", None, fs.as_ref())
+            .await
+            .unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].workspace_id, WorkspaceId(1));
+        assert!(sessions[0].paths.is_empty());
+
+        let recents = db.recent_project_workspaces(fs.as_ref()).await.unwrap();
+        assert!(
+            recents.iter().all(|(id, ..)| *id != WorkspaceId(1)),
+            "scratch-only 워크스페이스는 최근 프로젝트 UI 에 표시되어선 안 된다"
+        );
+    }
+
+    #[gpui::test]
+    async fn test_gc_preserves_scratch_inside_window(cx: &mut gpui::TestAppContext) {
+        let fs = fs::FakeFs::new(cx.executor());
+        let db = WorkspaceDb::open_test_db("test_gc_preserves_scratch_inside_window").await;
+
+        db.save_workspace(workspace_with(1, &[], empty_pane_group(), None))
+            .await;
+
+        db.garbage_collect_workspaces(fs.as_ref(), "current", None)
+            .await
+            .unwrap();
+        assert!(
+            db.workspace_for_id(WorkspaceId(1)).is_some(),
+            "최근에 stale 된 워크스페이스는 7일 grace 안에서 삭제되면 안 된다"
+        );
+    }
+
+    #[gpui::test]
+    async fn test_gc_deletes_stale_outside_window(cx: &mut gpui::TestAppContext) {
+        let fs = fs::FakeFs::new(cx.executor());
+        let db = WorkspaceDb::open_test_db("test_gc_deletes_stale_outside_window").await;
+
+        db.save_workspace(workspace_with(1, &[], empty_pane_group(), None))
+            .await;
+        db.set_timestamp_for_tests(WorkspaceId(1), "2000-01-01 00:00:00".to_owned())
+            .await
+            .unwrap();
+
+        db.garbage_collect_workspaces(fs.as_ref(), "current", None)
+            .await
+            .unwrap();
+        assert!(
+            db.workspace_for_id(WorkspaceId(1)).is_none(),
+            "retention window 를 넘어선 stale 빈 워크스페이스는 삭제되어야 한다"
+        );
+    }
+
+    #[gpui::test]
+    async fn test_gc_preserves_directory_workspace_with_missing_path(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let fs = fs::FakeFs::new(cx.executor());
+        let db =
+            WorkspaceDb::open_test_db("test_gc_preserves_directory_workspace_with_missing_path")
+                .await;
+
+        let missing_dir = PathBuf::from("/missing-project-dir");
+        db.save_workspace(workspace_with(
+            1,
+            &[missing_dir.as_path()],
+            empty_pane_group(),
+            None,
+        ))
+        .await;
+
+        db.garbage_collect_workspaces(fs.as_ref(), "current", None)
+            .await
+            .unwrap();
+        assert!(
+            db.workspace_for_id(WorkspaceId(1)).is_some(),
+            "retention window 안의 stale 워크스페이스는 보존되어야 한다"
+        );
+
+        db.set_timestamp_for_tests(WorkspaceId(1), "2000-01-01 00:00:00".to_owned())
+            .await
+            .unwrap();
+        db.garbage_collect_workspaces(fs.as_ref(), "current", None)
+            .await
+            .unwrap();
+        assert!(
+            db.workspace_for_id(WorkspaceId(1)).is_none(),
+            "retention window 를 넘어선 stale 워크스페이스는 삭제되어야 한다"
+        );
+    }
+
+    #[gpui::test]
+    async fn test_gc_preserves_current_and_last_sessions(cx: &mut gpui::TestAppContext) {
+        let fs = fs::FakeFs::new(cx.executor());
+        let db = WorkspaceDb::open_test_db("test_gc_preserves_current_and_last_sessions").await;
+
+        db.save_workspace(workspace_with(1, &[], empty_pane_group(), Some("current")))
+            .await;
+        db.save_workspace(workspace_with(2, &[], empty_pane_group(), Some("last")))
+            .await;
+        db.save_workspace(workspace_with(3, &[], empty_pane_group(), Some("stale")))
+            .await;
+
+        for id in [1, 2, 3] {
+            db.set_timestamp_for_tests(WorkspaceId(id), "2000-01-01 00:00:00".to_owned())
+                .await
+                .unwrap();
+        }
+
+        db.garbage_collect_workspaces(fs.as_ref(), "current", Some("last"))
+            .await
+            .unwrap();
+
+        assert!(
+            db.workspace_for_id(WorkspaceId(1)).is_some(),
+            "GC 는 현재 세션의 워크스페이스를 삭제해선 안 된다"
+        );
+        assert!(
+            db.workspace_for_id(WorkspaceId(2)).is_some(),
+            "GC 는 직전 세션의 워크스페이스를 삭제해선 안 된다"
+        );
+        assert!(
+            db.workspace_for_id(WorkspaceId(3)).is_none(),
+            "GC 는 다른 세션의 stale 워크스페이스는 그대로 삭제해야 한다"
+        );
+    }
+
+    #[gpui::test]
+    async fn test_gc_deletes_empty_workspace_with_items(cx: &mut gpui::TestAppContext) {
+        let fs = fs::FakeFs::new(cx.executor());
+        let db = WorkspaceDb::open_test_db("test_gc_deletes_empty_workspace_with_items").await;
+
+        db.save_workspace(workspace_with(1, &[], pane_with_items(&[100]), None))
+            .await;
+        db.set_timestamp_for_tests(WorkspaceId(1), "2000-01-01 00:00:00".to_owned())
+            .await
+            .unwrap();
+
+        db.garbage_collect_workspaces(fs.as_ref(), "current", None)
+            .await
+            .unwrap();
+        assert!(
+            db.workspace_for_id(WorkspaceId(1)).is_none(),
+            "items 가 있더라도 stale 빈 경로 워크스페이스는 삭제되어야 한다"
+        );
+    }
+
+    #[gpui::test]
+    async fn test_last_session_restores_workspace_with_missing_paths(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        let fs = fs::FakeFs::new(cx.executor());
+        let db =
+            WorkspaceDb::open_test_db("test_last_session_restores_workspace_with_missing_paths")
+                .await;
+
+        let missing = PathBuf::from("/gone/file.rs");
+        db.save_workspace(workspace_with(
+            1,
+            &[missing.as_path()],
+            empty_pane_group(),
+            Some("s"),
+        ))
+        .await;
+
+        let sessions = db
+            .last_session_workspace_locations("s", None, fs.as_ref())
+            .await
+            .unwrap();
+        assert!(
+            sessions.is_empty(),
+            "디스크에서 사라진 경로 워크스페이스는 복원되어선 안 된다"
+        );
+    }
+
     #[gpui::test]
     async fn test_last_session_workspace_locations_remote(cx: &mut gpui::TestAppContext) {
         let fs = fs::FakeFs::new(cx.executor());
@@ -3135,6 +3418,8 @@ mod tests {
             session_id: Some("one-session".to_owned()),
             window_id: Some(window_id),
             user_toolchains: Default::default(),
+            workspace_groups: Vec::new(),
+            active_group_index: 0,
         })
         .collect::<Vec<_>>();
 
@@ -3495,6 +3780,8 @@ mod tests {
             session_id: None,
             window_id: None,
             user_toolchains: Default::default(),
+            workspace_groups: Vec::new(),
+            active_group_index: 0,
         };
 
         // Save the workspace (this creates the record with empty paths)
@@ -3570,6 +3857,8 @@ mod tests {
                 session_id: Some("test-session".to_owned()),
                     window_id: Some(*window_id),
                 user_toolchains: Default::default(),
+                workspace_groups: Vec::new(),
+                active_group_index: 0,
             })
             .await;
         }
@@ -3877,6 +4166,8 @@ mod tests {
             session_id: Some(session_id.clone()),
             window_id: Some(99),
             user_toolchains: Default::default(),
+            workspace_groups: Vec::new(),
+            active_group_index: 0,
         })
         .await;
 
@@ -3975,6 +4266,8 @@ mod tests {
             session_id: Some(session_id.to_owned()),
             window_id: Some(window_id_val),
             user_toolchains: Default::default(),
+            workspace_groups: Vec::new(),
+            active_group_index: 0,
         })
         .await;
 
@@ -3990,6 +4283,8 @@ mod tests {
             session_id: Some(session_id.to_owned()),
             window_id: Some(window_id_val),
             user_toolchains: Default::default(),
+            workspace_groups: Vec::new(),
+            active_group_index: 0,
         })
         .await;
 
@@ -4071,6 +4366,8 @@ mod tests {
             session_id: Some(session_id.clone()),
             window_id: Some(88),
             user_toolchains: Default::default(),
+            workspace_groups: Vec::new(),
+            active_group_index: 0,
         })
         .await;
         cx.run_until_parked();

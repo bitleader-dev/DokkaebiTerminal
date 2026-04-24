@@ -492,52 +492,6 @@ impl GitRepository for FakeGitRepository {
         .boxed()
     }
 
-    fn create_worktree_detached(
-        &self,
-        path: PathBuf,
-        commit: String,
-    ) -> BoxFuture<'_, Result<()>> {
-        let fs = self.fs.clone();
-        let executor = self.executor.clone();
-        let dot_git_path = self.dot_git_path.clone();
-        async move {
-            executor.simulate_random_delay().await;
-            fs.with_git_state(&dot_git_path, false, |state| {
-                if let Some(message) = &state.simulated_create_worktree_error {
-                    anyhow::bail!("{message}");
-                }
-                Ok(())
-            })??;
-            fs.create_dir(&path).await?;
-            fs.with_git_state(&dot_git_path, true, {
-                let path = path.clone();
-                let commit = commit.clone();
-                move |state| {
-                    state.worktrees.push(Worktree {
-                        path,
-                        ref_name: None,
-                        sha: commit.into(),
-                        is_main: false,
-                        is_bare: false,
-                    });
-                    Ok::<(), anyhow::Error>(())
-                }
-            })??;
-            Ok(())
-        }
-        .boxed()
-    }
-
-    fn checkout_branch_in_worktree(
-        &self,
-        _branch_name: String,
-        _worktree_path: PathBuf,
-        _create: bool,
-    ) -> BoxFuture<'_, Result<()>> {
-        // 테스트 환경에서는 worktree 내부 브랜치 체크아웃을 모의하지 않는다.
-        async { Ok(()) }.boxed()
-    }
-
     fn remove_worktree(&self, path: PathBuf, _force: bool) -> BoxFuture<'_, Result<()>> {
         let fs = self.fs.clone();
         let executor = self.executor.clone();
@@ -1086,52 +1040,6 @@ impl GitRepository for FakeGitRepository {
 
     fn commit_data_reader(&self) -> Result<CommitDataReader> {
         anyhow::bail!("commit_data_reader not supported for FakeGitRepository")
-    }
-
-    fn update_ref(&self, ref_name: String, commit: String) -> BoxFuture<'_, Result<()>> {
-        let fs = self.fs.clone();
-        let dot_git_path = self.dot_git_path.clone();
-        async move {
-            fs.with_git_state(&dot_git_path, true, move |state| {
-                state.refs.insert(ref_name, commit);
-                Ok::<(), anyhow::Error>(())
-            })??;
-            Ok(())
-        }
-        .boxed()
-    }
-
-    fn delete_ref(&self, ref_name: String) -> BoxFuture<'_, Result<()>> {
-        let fs = self.fs.clone();
-        let dot_git_path = self.dot_git_path.clone();
-        async move {
-            fs.with_git_state(&dot_git_path, true, move |state| {
-                state.refs.remove(&ref_name);
-                Ok::<(), anyhow::Error>(())
-            })??;
-            Ok(())
-        }
-        .boxed()
-    }
-
-    fn create_archive_checkpoint(&self) -> BoxFuture<'_, Result<(String, String)>> {
-        // 테스트에서는 실제 checkpoint 를 만들지 않고 고정된 stub sha 를 돌려준다.
-        async {
-            Ok((
-                "fake-staged-checkpoint".to_string(),
-                "fake-unstaged-checkpoint".to_string(),
-            ))
-        }
-        .boxed()
-    }
-
-    fn restore_archive_checkpoint(
-        &self,
-        _staged_sha: String,
-        _unstaged_sha: String,
-    ) -> BoxFuture<'_, Result<()>> {
-        // 테스트 환경에서는 fs 상태를 복원하지 않는다.
-        async { Ok(()) }.boxed()
     }
 
     fn set_trusted(&self, trusted: bool) {

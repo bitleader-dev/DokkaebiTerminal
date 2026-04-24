@@ -756,23 +756,6 @@ pub trait GitRepository: Send + Sync {
         from_commit: Option<String>,
     ) -> BoxFuture<'_, Result<()>>;
 
-    /// 특정 커밋 해시에서 detached HEAD 상태로 worktree 를 생성한다.
-    /// 스레드 archive 시 원래 worktree 를 보존하기 위한 경로.
-    fn create_worktree_detached(
-        &self,
-        path: PathBuf,
-        commit: String,
-    ) -> BoxFuture<'_, Result<()>>;
-
-    /// 지정된 worktree 경로에서 브랜치를 checkout 한다.
-    /// `create=true` 이면 `git checkout -b` 로 새 브랜치를 생성한다.
-    fn checkout_branch_in_worktree(
-        &self,
-        branch_name: String,
-        worktree_path: PathBuf,
-        create: bool,
-    ) -> BoxFuture<'_, Result<()>>;
-
     fn remove_worktree(&self, path: PathBuf, force: bool) -> BoxFuture<'_, Result<()>>;
 
     fn rename_worktree(&self, old_path: PathBuf, new_path: PathBuf) -> BoxFuture<'_, Result<()>>;
@@ -968,25 +951,6 @@ pub trait GitRepository: Send + Sync {
     ) -> BoxFuture<'_, Result<()>>;
 
     fn commit_data_reader(&self) -> Result<CommitDataReader>;
-
-    /// 임의 ref 를 특정 커밋으로 업데이트한다(`git update-ref <ref> <commit>`).
-    fn update_ref(&self, ref_name: String, commit: String) -> BoxFuture<'_, Result<()>>;
-
-    /// 임의 ref 를 삭제한다(`git update-ref -d <ref>`).
-    fn delete_ref(&self, ref_name: String) -> BoxFuture<'_, Result<()>>;
-
-    /// 스레드 archive 용 checkpoint 를 생성한다.
-    /// 현재 staged / unstaged 상태를 브랜치 이동 없이 두 개의 detached
-    /// 커밋으로 포착해 (staged_sha, unstaged_sha) 튜플로 반환한다.
-    fn create_archive_checkpoint(&self) -> BoxFuture<'_, Result<(String, String)>>;
-
-    /// archive checkpoint 로부터 worktree 와 index 를 복원한다.
-    /// HEAD 는 호출자가 이미 원래 커밋으로 되돌린 상태여야 한다.
-    fn restore_archive_checkpoint(
-        &self,
-        staged_sha: String,
-        unstaged_sha: String,
-    ) -> BoxFuture<'_, Result<()>>;
 
     fn set_trusted(&self, trusted: bool);
     fn is_trusted(&self) -> bool;
@@ -1762,62 +1726,6 @@ impl GitRepository for RealGitRepository {
                     let stderr = String::from_utf8_lossy(&output.stderr);
                     anyhow::bail!("git worktree add failed: {stderr}");
                 }
-            })
-            .boxed()
-    }
-
-    fn create_worktree_detached(
-        &self,
-        path: PathBuf,
-        commit: String,
-    ) -> BoxFuture<'_, Result<()>> {
-        let git_binary = self.git_binary();
-        let args = vec![
-            OsString::from("worktree"),
-            OsString::from("add"),
-            OsString::from("--detach"),
-            OsString::from("--"),
-            OsString::from(path.as_os_str()),
-            OsString::from(commit.as_str()),
-        ];
-
-        self.executor
-            .spawn(async move {
-                std::fs::create_dir_all(path.parent().unwrap_or(&path))?;
-                let git = git_binary?;
-                let output = git.build_command(&args).output().await?;
-                if output.status.success() {
-                    Ok(())
-                } else {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    anyhow::bail!("git worktree add --detach failed: {stderr}");
-                }
-            })
-            .boxed()
-    }
-
-    fn checkout_branch_in_worktree(
-        &self,
-        branch_name: String,
-        worktree_path: PathBuf,
-        create: bool,
-    ) -> BoxFuture<'_, Result<()>> {
-        let git_binary = GitBinary::new(
-            self.any_git_binary_path.clone(),
-            worktree_path,
-            self.path(),
-            self.executor.clone(),
-            self.is_trusted(),
-        );
-
-        self.executor
-            .spawn(async move {
-                if create {
-                    git_binary.run(&["checkout", "-b", &branch_name]).await?;
-                } else {
-                    git_binary.run(&["checkout", &branch_name]).await?;
-                }
-                anyhow::Ok(())
             })
             .boxed()
     }
@@ -2933,112 +2841,6 @@ impl GitRepository for RealGitRepository {
             request_tx,
             _task: task,
         })
-    }
-
-    fn update_ref(&self, ref_name: String, commit: String) -> BoxFuture<'_, Result<()>> {
-        let git_binary = self.git_binary();
-        self.executor
-            .spawn(async move {
-                let git = git_binary?;
-                git.run(&["update-ref", &ref_name, &commit]).await?;
-                anyhow::Ok(())
-            })
-            .boxed()
-    }
-
-    fn delete_ref(&self, ref_name: String) -> BoxFuture<'_, Result<()>> {
-        let git_binary = self.git_binary();
-        self.executor
-            .spawn(async move {
-                let git = git_binary?;
-                git.run(&["update-ref", "-d", &ref_name]).await?;
-                anyhow::Ok(())
-            })
-            .boxed()
-    }
-
-    fn create_archive_checkpoint(&self) -> BoxFuture<'_, Result<(String, String)>> {
-        let git_binary = self.git_binary();
-        self.executor
-            .spawn(async move {
-                let mut git = git_binary?;
-
-                // HEAD 현재 커밋. commit-tree 의 parent 로 사용.
-                let head_sha = git
-                    .run(&["rev-parse", "HEAD"])
-                    .await
-                    .context("failed to read HEAD sha")?;
-
-                // 현재 index(=staged) 상태를 트리로 기록하고 detached 커밋으로 포착한다.
-                let staged_tree = git
-                    .run(&["write-tree"])
-                    .await
-                    .context("failed to write staged tree")?;
-                let staged_sha = git
-                    .run(&[
-                        "commit-tree",
-                        &staged_tree,
-                        "-p",
-                        &head_sha,
-                        "-m",
-                        "WIP staged",
-                    ])
-                    .await
-                    .context("failed to create staged commit")?;
-
-                // 임시 index 위에서 staged + unstaged + untracked 전체 상태를 포착.
-                // 실제 index 는 변경되지 않는다.
-                let unstaged_sha = git
-                    .with_temp_index(async |git| {
-                        git.run(&["add", "--all"]).await?;
-                        let full_tree = git.run(&["write-tree"]).await?;
-                        let sha = git
-                            .run(&[
-                                "commit-tree",
-                                &full_tree,
-                                "-p",
-                                &staged_sha,
-                                "-m",
-                                "WIP unstaged",
-                            ])
-                            .await?;
-                        Ok(sha)
-                    })
-                    .await
-                    .context("failed to create unstaged commit")?;
-
-                Ok((staged_sha, unstaged_sha))
-            })
-            .boxed()
-    }
-
-    fn restore_archive_checkpoint(
-        &self,
-        staged_sha: String,
-        unstaged_sha: String,
-    ) -> BoxFuture<'_, Result<()>> {
-        let git_binary = self.git_binary();
-        self.executor
-            .spawn(async move {
-                let git = git_binary?;
-
-                // index + working tree 를 unstaged 트리에 맞추어 덮어쓴다.
-                // --reset -u 는 현재 index 와 unstaged_sha 트리의 파일 수준 diff 를
-                // 계산해 working directory 에도 추가·수정·삭제를 반영한다.
-                git.run(&["read-tree", "--reset", "-u", &unstaged_sha])
-                    .await
-                    .context("failed to restore working directory from unstaged commit")?;
-
-                // 이어서 index 만 staged 트리로 덮어쓴다. -u 없이 실행하면
-                // working directory 는 변경되지 않고 index 만 교체된다.
-                // 결과: working tree = unstaged, index = staged.
-                git.run(&["read-tree", &staged_sha])
-                    .await
-                    .context("failed to restore index from staged commit")?;
-
-                Ok(())
-            })
-            .boxed()
     }
 
     fn set_trusted(&self, trusted: bool) {

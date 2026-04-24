@@ -1686,7 +1686,6 @@
   "agent_panel.start_in.current_worktree": "현재 워크트리",
   "agent_panel.start_in.new_worktree": "새 Git 워크트리",
   "agent_panel.start_in.title": "스레드 시작 위치…",
-  "agent_panel.switch_worktree.unsupported_toast": "기존 워크트리로 전환은 아직 지원되지 않습니다. 새 워크트리를 생성해 주세요.",
   "agent_panel.thread.text_thread": "텍스트 스레드",
   "agent_panel.title.agent": "에이전트",
   "agent_panel.title.history": "기록",

@@ -912,31 +912,6 @@ impl Client {
     }
 
     /// Establishes a WebSocket connection with Cloud for receiving updates from the server.
-    async fn connect_to_cloud(self: &Arc<Self>, cx: &AsyncApp) -> Result<()> {
-        let connect_task = cx.update({
-            let cloud_client = self.cloud_client.clone();
-            move |cx| cloud_client.connect(cx)
-        })?;
-        let connection = connect_task.await?;
-
-        let (mut messages, task) = cx.update(|cx| connection.spawn(cx));
-        task.detach();
-
-        cx.spawn({
-            let this = self.clone();
-            async move |cx| {
-                while let Some(message) = messages.next().await {
-                    if let Some(message) = message.log_err() {
-                        this.handle_message_to_client(message, cx);
-                    }
-                }
-            }
-        })
-        .detach();
-
-        Ok(())
-    }
-
     /// Performs a sign-in and also (optionally) connects to Collab.
     ///
     /// Only Zed staff automatically connect to Collab.
@@ -962,8 +937,6 @@ impl Client {
         });
 
         let credentials = self.sign_in(try_provider, cx).await?;
-
-        self.connect_to_cloud(cx).await.log_err();
 
         cx.update(move |cx| {
             cx.spawn({
@@ -1326,7 +1299,10 @@ impl Client {
         })
     }
 
-    pub fn authenticate_with_browser(self: &Arc<Self>, cx: &AsyncApp) -> Task<Result<Credentials>> {
+    pub(crate) fn authenticate_with_browser(
+        self: &Arc<Self>,
+        cx: &AsyncApp,
+    ) -> Task<Result<Credentials>> {
         let http = self.http.clone();
         let this = self.clone();
         cx.spawn(async move |cx| {

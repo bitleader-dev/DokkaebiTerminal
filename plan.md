@@ -1329,13 +1329,25 @@ agent_panel.rs 현재 이전 상태 복원됨. StartThreadIn 37참조 제거 + C
 
 > **성격**: Phase 13 Step 3 이후 client.rs 에 남은 dead 경로 (예: `connect_to_cloud`, `authenticate_with_browser` 중 일부, `sign_in_with_optional_connect` 경로) 재검증
 
-### 11.20.1. 조사 대상
-- `sign_in` / `sign_in_with_optional_connect` / `connect` / `connect_to_cloud` / `connect_with_credentials` / `authenticate` / `authenticate_with_browser` / `sign_out` / `reconnect` 의 외부 호출처
-- `server_url=""` 환경에서 항상 early return 하는 분기 식별
-- 호출처 0 또는 모든 분기 dead 인 함수 제거
+### 11.20.1. 조사 결과 (2026-04-24)
 
-### 11.20.2. 진행 방식
-Phase 21 · 22 완료 후 별도 조사·정리 세션. 발견 후보에 따라 규모 결정.
+**실제 dead 발견**
+- `connect_to_cloud` (L915-938, 24 줄) — 외부 호출 0, `sign_in_with_optional_connect:966` 에서만 호출되며 `.log_err()` 처리로 server_url="" 실패 무시
+- `authenticate_with_browser` 가시성 — 외부 호출 0, 내부 1 곳(L1168)만 → `pub` → `pub(crate)` 축소 가능
+
+**조사했으나 dead 아님**
+- `sign_in` / `sign_in_with_optional_connect` / `connect` / `reconnect` / `request_sign_out` / `sign_out` / `disconnect` — 외부 호출 있음 (onboarding, main.rs, cloud_model.rs 등)
+
+### 11.20.2. Phase 23-minimal 작업 단계 (사용자 승인, 2026-04-24)
+- [x] `client.rs` L915-938 `connect_to_cloud` 메서드 제거
+- [x] `client.rs` L966 `self.connect_to_cloud(cx).await.log_err();` 호출 제거
+- [x] `client.rs` L1329 `authenticate_with_browser` 가시성 `pub` → `pub(crate)` 축소
+
+### 11.20.3. 검증
+- [x] `cargo check -p Dokkaebi` 통과 (22.23s, 신규 경고·에러 0)
+
+### 11.20.4. 실제 감축 규모
+약 **-25 줄**, 1 파일 수정. 0.1 세션.
 
 ---
 

@@ -311,6 +311,8 @@ impl LanguageModel for OpenAiLanguageModel {
             | Model::FivePointThreeCodex
             | Model::FivePointFour
             | Model::FivePointFourPro
+            | Model::FivePointFive
+            | Model::FivePointFivePro
             | Model::O1
             | Model::O3 => true,
             Model::ThreePointFiveTurbo
@@ -1243,13 +1245,15 @@ pub fn count_open_ai_tokens(
             | Model::FiveCodex
             | Model::FiveMini
             | Model::FiveNano => tiktoken_rs::num_tokens_from_messages(model.id(), &messages),
-            // GPT-5.1, 5.2, 5.2-codex, 5.3-codex, 5.4, and 5.4-pro don't have dedicated tiktoken support; use gpt-5 tokenizer
+            // GPT-5.1, 5.2, 5.2-codex, 5.3-codex, 5.4, 5.4-pro, 5.5, and 5.5-pro don't have dedicated tiktoken support; use gpt-5 tokenizer
             Model::FivePointOne
             | Model::FivePointTwo
             | Model::FivePointTwoCodex
             | Model::FivePointThreeCodex
             | Model::FivePointFour
-            | Model::FivePointFourPro => tiktoken_rs::num_tokens_from_messages("gpt-5", &messages),
+            | Model::FivePointFourPro
+            | Model::FivePointFive
+            | Model::FivePointFivePro => tiktoken_rs::num_tokens_from_messages("gpt-5", &messages),
         }
         .map(|tokens| tokens as u64)
     })

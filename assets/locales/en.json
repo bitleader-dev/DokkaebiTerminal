@@ -344,6 +344,8 @@
   "settings.notepad_panel.restore.description": "Restore notepad content on app startup.",
   "settings.notepad_panel.horizontal_scroll.title": "Notepad Horizontal Scroll",
   "settings.notepad_panel.horizontal_scroll.description": "Show horizontal scrollbar instead of word wrapping.",
+  "settings.notepad_panel.multi_memo.title": "Multi Memo",
+  "settings.notepad_panel.multi_memo.description": "Show separate notepad content for each workspace group. When off, all groups share the same memo.",
   "sidebar.open_project": "Open Project",
   "sidebar.remove_project": "Remove Project",
   "extensions.title": "Extensions",

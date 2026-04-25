@@ -978,6 +978,8 @@
     "restore": true,
     // 자동 줄바꿈 대신 가로 스크롤을 표시합니다.
     "horizontal_scroll": false,
+    // 워크스페이스 그룹마다 메모장 내용을 분리해 표시합니다.
+    "multi_memo": true,
   },
   "agent": {
     // Whether the inline assistant should use streaming tools, when available

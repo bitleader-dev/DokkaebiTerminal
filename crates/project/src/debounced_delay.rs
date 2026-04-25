@@ -23,6 +23,16 @@ impl<E: 'static> DebouncedDelay<E> {
         }
     }
 
+    /// pending 디바운스를 즉시 취소. 이미 fire 된 작업은 영향 받지 않으며
+    /// 아직 timer 대기 중인 task 는 oneshot 신호로 일찍 종료된다.
+    /// 호출자가 다음 단계에서 동기 저장 등 명시 동작을 수행하기 직전에 사용.
+    pub fn cancel(&mut self) {
+        if let Some(channel) = self.cancel_channel.take() {
+            _ = channel.send(());
+        }
+        self.task = None;
+    }
+
     pub fn fire_new<F>(&mut self, delay: Duration, cx: &mut Context<E>, func: F)
     where
         F: 'static + Send + FnOnce(&mut E, &mut Context<E>) -> Task<()>,

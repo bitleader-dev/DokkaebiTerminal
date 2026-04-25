@@ -9402,6 +9402,7 @@ dependencies = [
  "terminal_view",
  "ui",
  "util",
+ "uuid",
  "workspace",
 ]
 

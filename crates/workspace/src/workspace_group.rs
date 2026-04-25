@@ -2,6 +2,7 @@
 
 use collections::HashMap;
 use gpui::{Entity, EntityId, WeakEntity};
+use uuid::Uuid;
 
 use crate::{Pane, PaneGroup};
 
@@ -9,6 +10,9 @@ use crate::{Pane, PaneGroup};
 /// 각 그룹은 독립된 센터 PaneGroup, 패인 목록, 활성 패인을 유지한다.
 #[derive(Clone)]
 pub struct WorkspaceGroupState {
+    /// 그룹 안정 식별자. 이름 변경·인덱스 이동에도 동일하게 유지된다.
+    /// 외부 저장소(메모장 패널 등) 가 그룹을 가리킬 때 사용.
+    pub uuid: Uuid,
     /// 그룹 이름 (UI 표시용)
     pub name: String,
     /// 센터 영역 PaneGroup (탭/분할 구조)
@@ -28,8 +32,9 @@ pub struct WorkspaceGroupState {
 }
 
 impl WorkspaceGroupState {
-    /// 현재 Workspace 상태에서 그룹 스냅샷 생성
+    /// 현재 Workspace 상태에서 그룹 스냅샷 생성. uuid 는 기존 그룹의 식별자를 그대로 전달한다.
     pub fn capture(
+        uuid: Uuid,
         name: String,
         center: &PaneGroup,
         panes: &[Entity<Pane>],
@@ -40,6 +45,7 @@ impl WorkspaceGroupState {
         color: Option<u8>,
     ) -> Self {
         Self {
+            uuid,
             name,
             center: center.clone(),
             panes: panes.to_vec(),

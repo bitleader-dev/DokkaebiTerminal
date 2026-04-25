@@ -1681,8 +1681,9 @@ impl Workspace {
         center.set_is_center(true);
         center.mark_positions(cx);
 
-        // 기본 워크스페이스 그룹 생성
+        // 기본 워크스페이스 그룹 생성 (신규 그룹이므로 새 UUID 부여)
         let default_group = WorkspaceGroupState {
+            uuid: Uuid::new_v4(),
             name: format!("{} 1", t("workspace_group.default_name", cx)),
             center: center.clone(),
             panes: vec![center_pane.clone()],
@@ -5355,6 +5356,20 @@ impl Workspace {
         self.workspace_groups.len()
     }
 
+    /// 활성 워크스페이스 그룹의 안정 UUID. 그룹이 비어있으면 None.
+    /// 외부 저장소(메모장 패널 등)가 활성 그룹 키를 안전하게 조회할 때 사용 — 인덱스 OOB 방어 캡슐화.
+    pub fn active_group_uuid(&self) -> Option<Uuid> {
+        self.workspace_groups
+            .get(self.active_group_index)
+            .map(|g| g.uuid)
+    }
+
+    /// 모든 워크스페이스 그룹의 UUID 이터레이터.
+    /// 외부 저장소가 그룹 추가/삭제를 set diff 로 감지할 때 사용.
+    pub fn group_uuids(&self) -> impl Iterator<Item = Uuid> + '_ {
+        self.workspace_groups.iter().map(|g| g.uuid)
+    }
+
     /// 지정한 워크스페이스 그룹의 패인 목록을 반환한다.
     /// 활성 그룹이면 `self.panes`(현재 라이브 상태)를, 비활성 그룹이면
     /// `workspace_groups[idx].panes`(스냅샷)를 반환한다. 인덱스가 범위를
@@ -5423,9 +5438,11 @@ impl Workspace {
     /// 현재 상태를 활성 그룹에 동기화
     fn sync_active_group(&mut self) {
         if self.active_group_index < self.workspace_groups.len() {
-            // 기존 색상 슬롯은 보존
+            // 기존 색상 슬롯·UUID 는 보존
             let current_color = self.workspace_groups[self.active_group_index].color;
+            let current_uuid = self.workspace_groups[self.active_group_index].uuid;
             self.workspace_groups[self.active_group_index] = WorkspaceGroupState::capture(
+                current_uuid,
                 self.workspace_groups[self.active_group_index].name.clone(),
                 &self.center,
                 &self.panes,
@@ -5526,8 +5543,9 @@ impl Workspace {
             next_number += 1;
         };
 
-        // 새 그룹 상태 추가
+        // 새 그룹 상태 추가 (신규 그룹이므로 새 UUID 부여)
         let new_group = WorkspaceGroupState {
+            uuid: Uuid::new_v4(),
             name: group_name,
             center: new_center.clone(),
             panes: vec![new_pane.clone()],
@@ -6903,6 +6921,7 @@ impl Workspace {
                         i, group.name, is_active, group_center.item_count()
                     );
                     serialized_groups.push(SerializedWorkspaceGroup {
+                        uuid: group.uuid,
                         name: group.name.clone(),
                         center_group: group_center,
                         active: is_active,
@@ -7236,10 +7255,15 @@ impl Workspace {
                     // 모든 그룹을 순서대로 재구성
                     let total = serialized_workspace.workspace_groups.len();
                     for i in 0..total {
-                        let stored_color = serialized_workspace.workspace_groups.get(i).and_then(|g| g.color);
+                        let serialized_group = serialized_workspace.workspace_groups.get(i);
+                        let stored_color = serialized_group.and_then(|g| g.color);
+                        // SerializedWorkspaceGroup 의 안정 UUID 를 그대로 메모리 상태에 전파.
+                        // get(i) 가 None 인 케이스는 total == len 이라 발생하지 않지만 방어적 fallback.
+                        let stored_uuid = serialized_group.map(|g| g.uuid).unwrap_or_else(Uuid::new_v4);
                         if i == active_idx {
                             // 활성 그룹: center에 속한 패인만 캡처 (비활성 그룹 패인 혼입 방지)
                             workspace.workspace_groups.push(WorkspaceGroupState {
+                                uuid: stored_uuid,
                                 name: active_name.clone(),
                                 center: workspace.center.clone(),
                                 panes: active_center_panes.clone(),
@@ -7268,6 +7292,7 @@ impl Workspace {
                             }
 
                             workspace.workspace_groups.push(WorkspaceGroupState {
+                                uuid: stored_uuid,
                                 name,
                                 center: group_center,
                                 panes,
@@ -7303,6 +7328,7 @@ impl Workspace {
                             fallback_center.mark_positions(cx);
 
                             workspace.workspace_groups.push(WorkspaceGroupState {
+                                uuid: stored_uuid,
                                 name: sg.name.clone(),
                                 center: fallback_center,
                                 panes: vec![fallback_pane.clone()],

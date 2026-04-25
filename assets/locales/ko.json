@@ -2076,6 +2076,8 @@
   "settings.notepad_panel.dock.title": "메모장 패널 위치",
   "settings.notepad_panel.horizontal_scroll.description": "자동 줄바꿈 대신 가로 스크롤을 표시합니다.",
   "settings.notepad_panel.horizontal_scroll.title": "메모장 가로 스크롤 표시",
+  "settings.notepad_panel.multi_memo.description": "워크스페이스 그룹마다 메모장 내용을 분리해 표시합니다. 끄면 모든 그룹이 동일한 메모를 공유합니다.",
+  "settings.notepad_panel.multi_memo.title": "멀티 메모장",
   "settings.notepad_panel.restore.description": "앱 실행 시 메모장 내용을 복원할지 여부입니다.",
   "settings.notepad_panel.restore.title": "메모장 복원",
   "settings_page.language.semantic_tokens.description": "Off: 언어 서버에 시맨틱 토큰을 요청하지 않습니다.\nCombined: LSP 시맨틱 토큰과 tree-sitter 구문 강조를 함께 사용합니다.\nFull: LSP 시맨틱 토큰만 사용하고 tree-sitter 구문 강조를 대체합니다.",

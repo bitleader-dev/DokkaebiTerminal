@@ -910,6 +910,12 @@ impl Domain for WorkspaceDb {
         sql!(
             ALTER TABLE workspace_groups ADD COLUMN color INTEGER;
         ),
+        // 워크스페이스 그룹 안정 식별자 도입: 외부 저장소(메모장 패널 등) 가 이름 변경에
+        // 영향받지 않도록 UUID 컬럼 추가. 기존 행은 NULL 로 시작하며 로드 시 lazy 부여된 뒤
+        // 다음 serialize_workspace 시점에 자연 저장된다.
+        sql!(
+            ALTER TABLE workspace_groups ADD COLUMN uuid TEXT;
+        ),
     ];
 
     // Allow recovering from bad migration that was initially shipped to nightly
@@ -1382,8 +1388,8 @@ impl WorkspaceDb {
                             group.center_group.item_count()
                         );
                         let wg_id: i64 = conn.select_row_bound::<_, i64>(sql!(
-                            INSERT INTO workspace_groups(workspace_id, name, position, active, color)
-                            VALUES (?, ?, ?, ?, ?)
+                            INSERT INTO workspace_groups(workspace_id, name, position, active, color, uuid)
+                            VALUES (?, ?, ?, ?, ?, ?)
                             RETURNING workspace_group_id
                         ))?((
                             workspace.id,
@@ -1391,6 +1397,7 @@ impl WorkspaceDb {
                             position,
                             group.active,
                             group.color.map(|c| c as i64),
+                            group.uuid.to_string(),
                         ))?
                         .context("Could not insert workspace_group")?;
 
@@ -1903,8 +1910,9 @@ impl WorkspaceDb {
 
     /// 워크스페이스 그룹 목록 로드
     fn get_workspace_groups(&self, workspace_id: WorkspaceId) -> Result<Vec<SerializedWorkspaceGroup>> {
-        let rows: Vec<(i64, String, i64, bool, Option<i64>)> = self.select_bound(sql!(
-            SELECT workspace_group_id, name, position, active, color
+        // uuid 컬럼은 마이그레이션 이전에 생성된 기존 행에서 NULL 일 수 있으므로 Option<String>
+        let rows: Vec<(i64, String, i64, bool, Option<i64>, Option<String>)> = self.select_bound(sql!(
+            SELECT workspace_group_id, name, position, active, color, uuid
             FROM workspace_groups
             WHERE workspace_id = ?
             ORDER BY position
@@ -1916,7 +1924,7 @@ impl WorkspaceDb {
         );
 
         let mut groups = Vec::new();
-        for (wg_id, name, _position, active, color) in rows {
+        for (wg_id, name, _position, active, color, uuid_str) in rows {
             let center_group = self.get_center_pane_group_for_wg(workspace_id, Some(wg_id))?;
             log::debug!(
                 "  그룹 wg_id={}, name='{}', active={}, center_items/children={}",
@@ -1926,7 +1934,14 @@ impl WorkspaceDb {
             let color = color
                 .and_then(|c| u8::try_from(c).ok())
                 .filter(|c| (*c as usize) < crate::workspace_group_panel::WORKSPACE_GROUP_COLOR_SLOTS.len());
+            // uuid 가 NULL/빈 값/파싱 실패면 새 UUID 부여 (lazy 마이그레이션). 다음 serialize_workspace
+            // 시 자연 저장된다.
+            let uuid = uuid_str
+                .as_deref()
+                .and_then(|s| Uuid::parse_str(s.trim()).ok())
+                .unwrap_or_else(Uuid::new_v4);
             groups.push(SerializedWorkspaceGroup {
+                uuid,
                 name,
                 center_group,
                 active,

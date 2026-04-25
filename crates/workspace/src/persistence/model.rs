@@ -75,9 +75,13 @@ pub struct SerializedMultiWorkspace {
     pub state: MultiWorkspaceState,
 }
 
-/// 직렬화된 워크스페이스 그룹 (이름 + 패인 트리 + 활성 여부 + 아이콘 색상 슬롯)
+/// 직렬화된 워크스페이스 그룹 (이름 + 패인 트리 + 활성 여부 + 아이콘 색상 슬롯 + 안정 식별자)
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) struct SerializedWorkspaceGroup {
+    /// 그룹 안정 식별자. DB 스키마에 컬럼이 추가된 이후 새로 만들어지는 그룹은
+    /// 항상 `Uuid::new_v4()` 가 부여되며, 기존 NULL 행은 로드 시 lazy 부여된다.
+    /// 외부 저장소(메모장 패널 등) 가 이름 변경에 영향받지 않도록 그룹을 가리킬 때 사용.
+    pub(crate) uuid: Uuid,
     pub(crate) name: String,
     pub(crate) center_group: SerializedPaneGroup,
     pub(crate) active: bool,

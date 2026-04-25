@@ -5139,7 +5139,7 @@ fn panels_page() -> SettingsPage {
         ]
     }
 
-    fn notepad_panel_section() -> [SettingsPageItem; 6] {
+    fn notepad_panel_section() -> [SettingsPageItem; 7] {
         [
             SettingsPageItem::SectionHeader("settings_page.section.notepad_panel"),
             SettingsPageItem::SettingItem(SettingItem {
@@ -5247,6 +5247,28 @@ fn panels_page() -> SettingsPage {
                             .notepad_panel
                             .get_or_insert_default()
                             .horizontal_scroll = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "settings.notepad_panel.multi_memo.title",
+                description: "settings.notepad_panel.multi_memo.description",
+                field: Box::new(SettingField {
+                    json_path: Some("notepad_panel.multi_memo"),
+                    pick: |settings_content| {
+                        settings_content
+                            .notepad_panel
+                            .as_ref()?
+                            .multi_memo
+                            .as_ref()
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .notepad_panel
+                            .get_or_insert_default()
+                            .multi_memo = value;
                     },
                 }),
                 metadata: None,

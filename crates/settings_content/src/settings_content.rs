@@ -696,6 +696,10 @@ pub struct NotepadPanelSettingsContent {
     ///
     /// Default: false
     pub horizontal_scroll: Option<bool>,
+    /// 워크스페이스 그룹마다 메모장 내용을 분리해 표시합니다.
+    ///
+    /// Default: true
+    pub multi_memo: Option<bool>,
 }
 
 #[with_fallible_options]

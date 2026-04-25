@@ -9,17 +9,21 @@ use editor::{
 use gpui::{
     actions, anchored, deferred, div, px, App, AsyncWindowContext, Context, DismissEvent, Entity,
     EventEmitter, FocusHandle, Focusable, IntoElement, MouseButton, MouseDownEvent, ParentElement,
-    Pixels, Point, Render, Styled, Subscription, WeakEntity, Window,
+    Pixels, Point, Render, Styled, Subscription, Task, WeakEntity, Window,
 };
 use i18n::t;
 use language::language_settings::SoftWrap;
+use project::debounced_delay::DebouncedDelay;
 use serde::{Deserialize, Serialize};
 use settings::{RegisterSetting, Settings, SettingsStore};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use terminal_view::{terminal_panel::TerminalPanel, TerminalView};
 use ui::{prelude::*, ContextMenu, IconName, Label};
+use uuid::Uuid;
 use workspace::{
     dock::{DockPosition, Panel, PanelEvent},
     Item, Workspace,
@@ -33,6 +37,8 @@ pub struct NotepadPanelSettings {
     pub default_width: Pixels,
     pub restore: bool,
     pub horizontal_scroll: bool,
+    /// 워크스페이스 그룹마다 메모장을 분리해 표시할지 여부
+    pub multi_memo: bool,
 }
 
 impl Settings for NotepadPanelSettings {
@@ -44,9 +50,38 @@ impl Settings for NotepadPanelSettings {
             default_width: px(notepad_panel.default_width.unwrap()),
             restore: notepad_panel.restore.unwrap(),
             horizontal_scroll: notepad_panel.horizontal_scroll.unwrap(),
+            multi_memo: notepad_panel.multi_memo.unwrap(),
         }
     }
 }
+
+/// 단일 모드 저장 파일 경로: data_dir()/notepad.json
+fn single_save_path() -> PathBuf {
+    paths::data_dir().join("notepad.json")
+}
+
+/// 멀티 모드 저장 디렉터리: data_dir()/notepad/
+fn multi_dir() -> PathBuf {
+    paths::data_dir().join("notepad")
+}
+
+/// 멀티 모드 그룹별 파일 경로: data_dir()/notepad/<uuid>.json
+fn group_file_path(uuid: &Uuid) -> PathBuf {
+    multi_dir().join(format!("{}.json", uuid))
+}
+
+/// 디스크에 기록되는 형태(말미 개행 제거 후)의 텍스트 해시. flush_save 의 변경 감지 가드용.
+fn text_hash_for_disk(text: &str) -> u64 {
+    let trimmed = text.trim_end_matches(|c: char| c == '\n' || c == '\r');
+    let mut hasher = DefaultHasher::new();
+    trimmed.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// 키스트로크 자동 저장 디바운스 시간.
+/// 키스트로크마다 동기 디스크 쓰기를 유발하던 기존 동작 → 디바운스 후 1 회로 축소해
+/// UI 스레드 블로킹 위험을 줄인다. swap·마이그레이션·드랍 시점에는 즉시 flush 한다.
+const SAVE_DEBOUNCE: Duration = Duration::from_millis(300);
 
 // 메모장 패널 토글 액션
 actions!(notepad_panel, [ToggleFocus]);
@@ -73,8 +108,6 @@ struct NotepadData {
 pub struct NotepadPanel {
     /// 텍스트 편집기
     editor: Entity<Editor>,
-    /// 저장 파일 경로
-    save_path: PathBuf,
     /// 파일 시스템 (설정 저장용)
     fs: Arc<dyn fs::Fs>,
     /// 상위 워크스페이스 약한 참조 (컨텍스트 메뉴에서 터미널 패널 조회용)
@@ -84,6 +117,22 @@ pub struct NotepadPanel {
     context_menu: Option<(Entity<ContextMenu>, Point<Pixels>, Subscription)>,
     /// 옵저버 변경 감지용 이전 설정값
     last_horizontal_scroll: bool,
+    /// 현재 모드 캐시 (글로벌 설정과 별개로 마이그레이션 진행 중 명시 제어용)
+    multi_memo: bool,
+    /// 멀티 모드에서 마지막으로 표시한 활성 그룹 UUID
+    last_active_uuid: Option<Uuid>,
+    /// 멀티 모드에서 마지막으로 확인한 전체 그룹 UUID 집합 (그룹 삭제 감지용)
+    last_known_uuids: HashSet<Uuid>,
+    /// set_text 등 마이그레이션·swap 중 BufferEdited 가 다시 save_content 를 호출하는
+    /// 재진입을 막기 위한 일시적 저장 억제 플래그.
+    suppress_save: bool,
+    /// 키스트로크 자동 저장 디바운스. 새 입력이 들어오면 이전 fire 가 oneshot 으로 cancel 되고
+    /// 새 timer 가 등록된다. swap·마이그레이션·release 시점에는 cancel + 동기 flush.
+    save_debouncer: DebouncedDelay<Self>,
+    /// 마지막으로 디스크에 기록한 텍스트의 해시. 디바운스 만료마다 동일 콘텐츠를
+    /// 매번 다시 쓰는 낭비를 막는다. set_text_suppressed 가 swap·마이그레이션 직후
+    /// 디스크와 동일한 해시로 갱신하므로 그 직후의 BufferEdited 로 트리거되는 저장도 skip 된다.
+    last_saved_hash: Option<u64>,
 }
 
 impl NotepadPanel {
@@ -93,8 +142,25 @@ impl NotepadPanel {
         cx: &mut Context<Self>,
     ) -> Self {
         let fs = workspace.app_state().fs.clone();
-        // 저장 경로: data_dir()/notepad.json
-        let save_path = paths::data_dir().join("notepad.json");
+
+        // 초기 모드·그룹 정보 캡처
+        let multi_memo = NotepadPanelSettings::get_global(cx).multi_memo;
+        let restore = NotepadPanelSettings::get_global(cx).restore;
+        let active_uuid = workspace.active_group_uuid();
+        let all_uuids: HashSet<Uuid> = workspace.group_uuids().collect();
+
+        // 초기 표시 텍스트 결정
+        let initial_text = if !restore {
+            String::new()
+        } else if multi_memo {
+            // 멀티 모드: 활성 그룹의 파일 콘텐츠
+            active_uuid.map(Self::load_for_uuid).unwrap_or_default()
+        } else {
+            // 단일 모드: 단일 파일 콘텐츠
+            Self::load_from_file(&single_save_path())
+        };
+        // 방금 읽어온 디스크 콘텐츠라 hash 동일. 이후 schedule_save 의 동일 콘텐츠 저장 skip 가드용.
+        let initial_hash = text_hash_for_disk(&initial_text);
 
         // 멀티라인 에디터 생성
         let editor = cx.new(|cx| {
@@ -121,52 +187,68 @@ impl NotepadPanel {
                 show_active_line_background: true,
                 sizing_behavior: SizingBehavior::Default,
             });
-            // 복원 설정이 켜져 있을 때만 기존 내용 로드
-            let restore = NotepadPanelSettings::get_global(cx).restore;
-            if restore {
-                let text = Self::load_from_file(&save_path);
-                if !text.is_empty() {
-                    editor.set_text(text, window, cx);
-                }
+            if !initial_text.is_empty() {
+                editor.set_text(initial_text, window, cx);
             }
             editor
         });
 
-        // 설정 변경 감지 → 가로 스크롤 모드 반영 (값 변경 시에만 에디터 레이아웃 재계산)
-        cx.observe_global::<SettingsStore>(|this, cx| {
-            let horizontal_scroll = NotepadPanelSettings::get_global(cx).horizontal_scroll;
-            if horizontal_scroll != this.last_horizontal_scroll {
-                this.last_horizontal_scroll = horizontal_scroll;
-                this.editor.update(cx, |editor, cx| {
-                    if horizontal_scroll {
-                        editor.set_soft_wrap_mode(SoftWrap::None, cx);
-                    } else {
-                        editor.set_soft_wrap_mode(SoftWrap::EditorWidth, cx);
-                    }
-                });
+        // 설정 변경 감지 → 가로 스크롤 + multi_memo 변화 처리
+        cx.observe_global_in::<SettingsStore>(window, |this, window, cx| {
+            this.handle_settings_change(window, cx);
+        })
+        .detach();
+
+        // 워크스페이스 entity 변경 감지 → 그룹 전환·삭제 추적
+        if let Some(workspace_entity) = workspace.weak_handle().upgrade() {
+            cx.observe_in(&workspace_entity, window, |this, ws, window, cx| {
+                this.handle_workspace_notify(ws, window, cx);
+            })
+            .detach();
+        }
+
+        // 에디터 변경 감지 → 디바운스 자동 저장 (키스트로크 폭주 시 디스크 I/O 누적 방지)
+        cx.subscribe_in(&editor, window, |this, _editor, event: &editor::EditorEvent, _window, cx| {
+            if matches!(event, editor::EditorEvent::BufferEdited { .. }) {
+                this.schedule_save(cx);
             }
         })
         .detach();
 
-        // 에디터 변경 감지 → 자동 저장
-        cx.subscribe_in(&editor, window, |this, _editor, event: &editor::EditorEvent, _window, cx| {
-            if matches!(event, editor::EditorEvent::BufferEdited { .. }) {
-                this.save_content(cx);
-            }
+        // 패널 release 시 pending 디바운스를 즉시 flush — 종료/창 닫힘 시 마지막 입력
+        // 손실 방지. self.save_debounce_task 의 drop 으로 timer future 가 cancel 되므로
+        // 타이머가 끝나기 전에 직접 flush_save 를 부른다.
+        cx.on_release(|this: &mut Self, cx: &mut App| {
+            this.flush_save(cx);
         })
         .detach();
 
         Self {
             editor,
-            save_path,
             fs,
             workspace: workspace.weak_handle(),
             context_menu: None,
             last_horizontal_scroll: NotepadPanelSettings::get_global(cx).horizontal_scroll,
+            multi_memo,
+            last_active_uuid: active_uuid,
+            last_known_uuids: all_uuids,
+            suppress_save: false,
+            save_debouncer: DebouncedDelay::new(),
+            last_saved_hash: Some(initial_hash),
         }
     }
 
-    /// 파일에서 메모 내용 로드
+    /// 현재 모드·활성 그룹에 대응하는 저장 경로.
+    /// 멀티 모드에서 활성 그룹 UUID 가 없으면 None — 저장이 skip 된다.
+    fn current_save_path(&self) -> Option<PathBuf> {
+        if self.multi_memo {
+            self.last_active_uuid.map(|uuid| group_file_path(&uuid))
+        } else {
+            Some(single_save_path())
+        }
+    }
+
+    /// 파일에서 메모 내용 로드 (없거나 손상이면 빈 문자열)
     fn load_from_file(path: &PathBuf) -> String {
         if let Ok(data) = std::fs::read_to_string(path) {
             if let Ok(notepad_data) = serde_json::from_str::<NotepadData>(&data) {
@@ -176,18 +258,308 @@ impl NotepadPanel {
         String::new()
     }
 
-    /// 현재 에디터 내용을 파일에 저장
-    fn save_content(&self, cx: &App) {
-        let text = self.editor.read(cx).text(cx);
-        // 마지막 빈 라인 제거 후 저장
-        let trimmed = text.trim_end_matches(|c: char| c == '\n' || c == '\r');
+    /// 멀티 모드에서 그룹 UUID 에 해당하는 파일 콘텐츠 로드.
+    fn load_for_uuid(uuid: Uuid) -> String {
+        Self::load_from_file(&group_file_path(&uuid))
+    }
+
+    /// 지정한 콘텐츠를 파일에 기록 (부모 디렉터리 자동 생성, 빈 콘텐츠도 기록).
+    /// 사용자 데이터 손실로 직결되므로 실패는 log::warn 으로 노출한다.
+    fn write_to_file(path: &PathBuf, content: &str) {
+        let trimmed = content.trim_end_matches(|c: char| c == '\n' || c == '\r');
         let data = NotepadData { content: trimmed.to_string() };
-        if let Some(parent) = self.save_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+        if let Some(parent) = path.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                log::warn!(
+                    "notepad_panel: 디렉터리 생성 실패 {:?}: {}",
+                    parent,
+                    e
+                );
+            }
         }
-        if let Ok(json) = serde_json::to_string_pretty(&data) {
-            let _ = std::fs::write(&self.save_path, json);
+        match serde_json::to_string_pretty(&data) {
+            Ok(json) => {
+                if let Err(e) = std::fs::write(path, json) {
+                    log::warn!("notepad_panel: 쓰기 실패 {:?}: {}", path, e);
+                }
+            }
+            Err(e) => {
+                log::warn!("notepad_panel: JSON 직렬화 실패 {:?}: {}", path, e);
+            }
         }
+    }
+
+    /// 현재 에디터 내용을 즉시 동기로 디스크에 기록.
+    /// suppress_save, 멀티 모드의 활성 UUID 없음, 디스크와 동일한 콘텐츠 — 어느 하나라도 해당하면 skip.
+    fn flush_save(&mut self, cx: &App) {
+        if self.suppress_save {
+            return;
+        }
+        let Some(save_path) = self.current_save_path() else {
+            return;
+        };
+        let text = self.editor.read(cx).text(cx);
+        let hash = text_hash_for_disk(&text);
+        if Some(hash) == self.last_saved_hash {
+            return;
+        }
+        Self::write_to_file(&save_path, &text);
+        self.last_saved_hash = Some(hash);
+    }
+
+    /// 마이그레이션·swap 직후 새 콘텐츠로 에디터를 갱신하면서 디스크와의 hash 도 동기화.
+    /// suppress_save 토글로 set_text 가 트리거하는 BufferEdited 의 재진입을 막는다.
+    fn set_text_suppressed(
+        &mut self,
+        text: String,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let hash = text_hash_for_disk(&text);
+        self.suppress_save = true;
+        self.editor.update(cx, |editor, cx| {
+            editor.set_text(text, window, cx);
+        });
+        self.suppress_save = false;
+        self.last_saved_hash = Some(hash);
+    }
+
+    /// 디바운스 큐에 저장을 예약. 이전 fire 는 DebouncedDelay 가 oneshot 으로 cancel.
+    /// 키스트로크 폭주 시 SAVE_DEBOUNCE 동안 한 번만 실제 디스크 I/O 가 일어난다.
+    ///
+    /// 디바운스 경로는 `fs::Fs::atomic_write` 를 사용 — 임시파일 + atomic rename 으로
+    /// 전원 단절 시 corruption 방어. on_release / 마이그레이션 / swap 의 동기 flush 는
+    /// 데이터 정합성(앱 종료/모드 전환 락스텝) 보장을 위해 `flush_save` 의 std::fs 동기 호출 유지.
+    fn schedule_save(&mut self, cx: &mut Context<Self>) {
+        if self.suppress_save {
+            return;
+        }
+        self.save_debouncer
+            .fire_new(SAVE_DEBOUNCE, cx, |this, cx| {
+                // 동기 가드 + 직렬화는 main thread 에서 수행 (entity 접근 필요).
+                if this.suppress_save {
+                    return Task::ready(());
+                }
+                let Some(save_path) = this.current_save_path() else {
+                    return Task::ready(());
+                };
+                let text = this.editor.read(cx).text(cx);
+                let hash = text_hash_for_disk(&text);
+                if Some(hash) == this.last_saved_hash {
+                    return Task::ready(());
+                }
+                let trimmed = text.trim_end_matches(|c: char| c == '\n' || c == '\r');
+                let data = NotepadData {
+                    content: trimmed.to_string(),
+                };
+                let json = match serde_json::to_string_pretty(&data) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        log::warn!(
+                            "notepad_panel: JSON 직렬화 실패 {:?}: {}",
+                            save_path,
+                            e
+                        );
+                        return Task::ready(());
+                    }
+                };
+                let fs = this.fs.clone();
+                cx.spawn(async move |this, cx| {
+                    // Windows atomic_write 는 path.parent() 에 임시파일을 만들므로
+                    // 부모 디렉터리 존재 보장 필요. fs::Fs::create_dir 은 내부적으로 create_dir_all 동작.
+                    if let Some(parent) = save_path.parent() {
+                        if let Err(e) = fs.create_dir(parent).await {
+                            log::warn!(
+                                "notepad_panel: 디렉터리 생성 실패 {:?}: {}",
+                                parent,
+                                e
+                            );
+                            // 다음 디바운스에서 재시도하도록 hash 무효화.
+                            this.update(cx, |this, _cx| {
+                                this.last_saved_hash = None;
+                            })
+                            .ok();
+                            return;
+                        }
+                    }
+
+                    if let Err(e) = fs.atomic_write(save_path.clone(), json).await {
+                        log::warn!(
+                            "notepad_panel: 비동기 쓰기 실패 {:?}: {}",
+                            save_path,
+                            e
+                        );
+                        this.update(cx, |this, _cx| {
+                            this.last_saved_hash = None;
+                        })
+                        .ok();
+                        return;
+                    }
+                    this.update(cx, |this, _cx| {
+                        this.last_saved_hash = Some(hash);
+                    })
+                    .ok();
+                })
+            });
+    }
+
+    /// pending 디바운스를 취소하고 즉시 저장.
+    /// 그룹 swap·모드 마이그레이션처럼 다음 동작 전에 현재 텍스트를 확정해야 하는 시점에 사용.
+    fn flush_pending_save(&mut self, cx: &App) {
+        self.save_debouncer.cancel();
+        self.flush_save(cx);
+    }
+
+    /// 설정 변경 핸들러 (가로 스크롤 + multi_memo 마이그레이션)
+    fn handle_settings_change(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // get_global 의 immutable borrow 가 길어지지 않도록 값만 즉시 추출
+        let (horizontal_scroll, new_multi_memo) = {
+            let settings = NotepadPanelSettings::get_global(cx);
+            (settings.horizontal_scroll, settings.multi_memo)
+        };
+
+        // 1) 가로 스크롤 변경
+        if horizontal_scroll != self.last_horizontal_scroll {
+            self.last_horizontal_scroll = horizontal_scroll;
+            self.editor.update(cx, |editor, cx| {
+                if horizontal_scroll {
+                    editor.set_soft_wrap_mode(SoftWrap::None, cx);
+                } else {
+                    editor.set_soft_wrap_mode(SoftWrap::EditorWidth, cx);
+                }
+            });
+        }
+
+        // 2) multi_memo 변경 → 마이그레이션
+        if new_multi_memo != self.multi_memo {
+            if new_multi_memo {
+                self.migrate_single_to_multi(window, cx);
+            } else {
+                self.migrate_multi_to_single(window, cx);
+            }
+        }
+    }
+
+    /// 워크스페이스 entity 의 cx.notify() 신호 핸들러.
+    /// 멀티 모드일 때만 동작:
+    ///   1) 사라진 그룹 UUID → 메모 파일 삭제
+    ///   2) 활성 그룹 UUID 변경 시 옛 파일 저장 → 새 파일 로드
+    fn handle_workspace_notify(
+        &mut self,
+        workspace: Entity<Workspace>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.multi_memo {
+            return;
+        }
+
+        // 빠른 가드: 그룹 수와 활성 UUID 둘 다 변하지 않았으면 HashSet 구축·diff 단계 skip.
+        // workspace.cx.notify() 는 탭 전환·포커스 등으로 자주 발생하므로 핫 패스 부담 회피.
+        let (group_count, active_uuid) = workspace.read_with(cx, |ws, _| {
+            (ws.workspace_group_count(), ws.active_group_uuid())
+        });
+        if group_count == self.last_known_uuids.len() && active_uuid == self.last_active_uuid {
+            return;
+        }
+
+        let current_uuids: HashSet<Uuid> =
+            workspace.read_with(cx, |ws, _| ws.group_uuids().collect());
+
+        for old_uuid in self.last_known_uuids.difference(&current_uuids) {
+            let path = group_file_path(old_uuid);
+            match std::fs::remove_file(&path) {
+                Ok(_) => {}
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                Err(e) => log::warn!("notepad_panel: 메모 파일 삭제 실패 {:?}: {}", path, e),
+            }
+        }
+
+        if active_uuid != self.last_active_uuid {
+            // 옛 활성 파일이 잘못된 키로 덮어쓰이지 않도록 active_uuid 변경 직전 확정.
+            self.flush_pending_save(cx);
+            self.last_active_uuid = active_uuid;
+
+            let new_content = active_uuid.map(Self::load_for_uuid).unwrap_or_default();
+            self.set_text_suppressed(new_content, window, cx);
+        }
+
+        self.last_known_uuids = current_uuids;
+    }
+
+    /// 단일 → 멀티 모드 마이그레이션.
+    /// 기존 단일 메모를 첫 번째 그룹의 파일로 이전한 뒤 활성 그룹 콘텐츠로 표시 갱신.
+    fn migrate_single_to_multi(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // 다음 단계에서 단일 콘텐츠를 복사하기 전에 디스크의 단일 파일을 최신화.
+        self.flush_pending_save(cx);
+
+        let Some(workspace) = self.workspace.upgrade() else {
+            log::warn!(
+                "notepad_panel: migrate_single_to_multi 워크스페이스 upgrade 실패, 모드만 갱신"
+            );
+            self.multi_memo = true;
+            self.last_active_uuid = None;
+            self.last_known_uuids.clear();
+            return;
+        };
+        let (first_uuid, active_uuid, all_uuids) = workspace.read_with(cx, |ws, _| {
+            let first = ws.workspace_groups().first().map(|g| g.uuid);
+            let active = ws.active_group_uuid();
+            let all: HashSet<Uuid> = ws.group_uuids().collect();
+            (first, active, all)
+        });
+
+        let Some(first_uuid) = first_uuid else {
+            log::warn!("notepad_panel: 첫 번째 워크스페이스 그룹 없음, 모드만 갱신");
+            self.multi_memo = true;
+            self.last_active_uuid = None;
+            self.last_known_uuids.clear();
+            return;
+        };
+
+        // 단일 콘텐츠는 방금 flush 로 디스크와 동기화된 에디터 메모리에서 직접 사용.
+        // (디스크 read 는 자기가 방금 쓴 내용을 다시 읽는 낭비)
+        let single_content = self.editor.read(cx).text(cx);
+        Self::write_to_file(&group_file_path(&first_uuid), &single_content);
+
+        self.multi_memo = true;
+        self.last_active_uuid = active_uuid;
+        self.last_known_uuids = all_uuids;
+
+        // 활성 그룹이 첫 번째 그룹과 다르면 활성 그룹 콘텐츠로 표시 갱신.
+        if active_uuid != Some(first_uuid) {
+            let active_content = active_uuid.map(Self::load_for_uuid).unwrap_or_default();
+            self.set_text_suppressed(active_content, window, cx);
+        }
+    }
+
+    /// 멀티 → 단일 모드 마이그레이션.
+    /// 첫 번째 그룹 메모를 단일 메모로 보존하고 나머지 그룹 메모 파일은 모두 삭제.
+    fn migrate_multi_to_single(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // 다음 단계에서 첫 번째 그룹 파일을 단일 파일로 옮기기 전에 활성 그룹 파일을 최신화.
+        self.flush_pending_save(cx);
+
+        let first_uuid = self
+            .workspace
+            .upgrade()
+            .and_then(|ws| ws.read_with(cx, |ws, _| ws.workspace_groups().first().map(|g| g.uuid)));
+
+        let first_content = first_uuid.map(Self::load_for_uuid).unwrap_or_default();
+        Self::write_to_file(&single_save_path(), &first_content);
+
+        // 사용자 명시 동작: notepad/ 디렉터리 통째로 삭제.
+        let dir = multi_dir();
+        match std::fs::remove_dir_all(&dir) {
+            Ok(_) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => log::warn!("notepad_panel: 멀티 디렉터리 삭제 실패 {:?}: {}", dir, e),
+        }
+
+        self.multi_memo = false;
+        self.last_active_uuid = None;
+        self.last_known_uuids.clear();
+
+        self.set_text_suppressed(first_content, window, cx);
     }
 
     /// 비동기 로드

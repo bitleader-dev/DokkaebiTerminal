@@ -29,4 +29,5 @@ terminal.workspace = true
 terminal_view.workspace = true
 ui.workspace = true
 util.workspace = true
+uuid.workspace = true
 workspace.workspace = true

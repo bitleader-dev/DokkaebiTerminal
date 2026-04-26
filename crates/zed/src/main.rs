@@ -1417,9 +1417,9 @@ pub(crate) async fn restore_or_create_workspace(
     // 복원 동안 cleanup 으로 마지막 윈도우가 일시적으로 닫혀도 quit_on_empty 가
     // 자동 cx.quit() 을 호출해 fallback 시도를 무산시키지 않도록 Explicit 로 강제.
     // 종단에서 Default 로 복원 (Dokkaebi 평소 모드).
-    cx.update(|cx| cx.set_quit_mode(QuitMode::Explicit)).ok();
+    cx.update(|cx| cx.set_quit_mode(QuitMode::Explicit));
     let restore_result = restore_or_create_workspace_inner(app_state, cx).await;
-    cx.update(|cx| cx.set_quit_mode(QuitMode::Default)).ok();
+    cx.update(|cx| cx.set_quit_mode(QuitMode::Default));
     restore_result
 }
 

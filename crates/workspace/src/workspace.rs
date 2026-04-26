@@ -1868,6 +1868,10 @@ impl Workspace {
                 });
             }
 
+            // 새 윈도우 경로(else 분기)에서 만든 윈도우는 후속 단계 실패 시 hidden
+            // 좀비 본체로 잔존할 수 있으므로 cleanup 대상이다. requesting_window 경로는
+            // 호출자가 소유한 기존 윈도우 재사용이라 cleanup하지 않는다.
+            let is_new_window = requesting_window.is_none();
             let (window, workspace): (WindowHandle<MultiWorkspace>, Entity<Workspace>) =
                 if let Some(window) = requesting_window {
                     let centered_layout = serialized_workspace
@@ -1954,10 +1958,18 @@ impl Workspace {
                             cx.new(|cx| MultiWorkspace::new(workspace, window, cx))
                         }
                     })?;
-                    let workspace =
-                        window.update(cx, |multi_workspace: &mut MultiWorkspace, _, _cx| {
+                    let workspace = match window
+                        .update(cx, |multi_workspace: &mut MultiWorkspace, _, _cx| {
                             multi_workspace.workspace().clone()
-                        })?;
+                        }) {
+                        Ok(ws) => ws,
+                        Err(e) => {
+                            // hidden 좀비 잔존 차단 — open_window 직후 update 실패 시
+                            // 새로 만든 윈도우를 명시 close.
+                            let _ = window.update(cx, |_, w, _| w.remove_window());
+                            return Err(e.into());
+                        }
+                    };
                     (window, workspace)
                 };
 
@@ -1971,14 +1983,21 @@ impl Workspace {
                 .map(|ws| !ws.paths.is_empty())
                 .unwrap_or(false);
 
-            let opened_items = window
-                .update(cx, |_, window, cx| {
-                    workspace.update(cx, |_workspace: &mut Workspace, cx| {
-                        open_items(serialized_workspace, project_paths, window, cx)
-                    })
-                })?
-                .await
-                .unwrap_or_default();
+            let opened_items = match window.update(cx, |_, window, cx| {
+                workspace.update(cx, |_workspace: &mut Workspace, cx| {
+                    open_items(serialized_workspace, project_paths, window, cx)
+                })
+            }) {
+                Ok(task) => task.await.unwrap_or_default(),
+                Err(e) => {
+                    // 새 윈도우 경로에서 open_items 동기 setup 실패 시 hidden 좀비
+                    // 잔존 차단. requesting_window 경로는 호출자 소유라 cleanup 제외.
+                    if is_new_window {
+                        let _ = window.update(cx, |_, w, _| w.remove_window());
+                    }
+                    return Err(e.into());
+                }
+            };
 
             // Restore default dock state for empty workspaces
             // Only restore if:

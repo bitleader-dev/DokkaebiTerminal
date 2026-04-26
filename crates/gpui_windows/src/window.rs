@@ -315,8 +315,15 @@ impl WindowsWindowInner {
     }
 
     fn set_window_placement(self: &Rc<Self>) -> Result<()> {
-        let Some(open_status) = self.state.initial_placement.take() else {
+        let Some(mut open_status) = self.state.initial_placement.take() else {
             return Ok(());
+        };
+        // GetWindowPlacement 결과의 showCmd 초기값(WS_VISIBLE 미포함 hidden 윈도우는
+        // SW_HIDE/SW_SHOWMINIMIZED 가 들어올 가능성)에 의존하지 않도록 분기별로 명시 설정.
+        // hidden 으로 생성된 첫 윈도우도 안정적으로 표시되도록 보장한다.
+        open_status.placement.showCmd = match open_status.state {
+            WindowOpenState::Maximized => SW_SHOWMAXIMIZED.0 as u32,
+            WindowOpenState::Fullscreen | WindowOpenState::Windowed => SW_SHOWNORMAL.0 as u32,
         };
         match open_status.state {
             WindowOpenState::Maximized => unsafe {
@@ -334,6 +341,10 @@ impl WindowsWindowInner {
             WindowOpenState::Windowed => unsafe {
                 SetWindowPlacement(self.hwnd, &open_status.placement)
                     .context("failed to set window placement")?;
+                // SetWindowPlacement 만으로는 일부 케이스에서 표시가 누락되어
+                // hidden 좀비 본체로 잔존하는 사례가 보고됨 (notes 2026-04-26).
+                // ShowWindowAsync 로 이중 안전망 — events.rs:999 와 동일 SW_NORMAL.
+                ShowWindowAsync(self.hwnd, SW_NORMAL).ok()?;
             },
         }
         Ok(())

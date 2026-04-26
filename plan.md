@@ -1,178 +1,351 @@
-# 메모장 자동 저장 비동기화 (`fs::Fs` 부분 도입) — 계획
+# 윈도우 표시 보장 + 표시 실패 cleanup — 계획 (v2)
 
-> **작성일**: 2026-04-25
-> **대상**: `crates/notepad_panel/src/notepad_panel.rs`
-> **배경**: `/simplify` 코드리뷰 보류 항목 #2. 현재 notepad_panel 은 `self.fs: Arc<dyn fs::Fs>` 필드를 보유하면서도 `std::fs::write/read_to_string/remove_file/remove_dir_all/create_dir_all` 동기 호출 사용. 코드베이스 다른 영속화 코드(`settings_store`, `assistant_text_thread`)는 `cx.spawn` 안에서 `fs.atomic_write(path, json).await` 패턴 일관 사용.
-> **목적**: ① 키스트로크 자동 저장 시 corruption 방어(`atomic_write` 의 임시파일 + rename), ② 코드베이스 일관성, ③ UI 스레드 블로킹 위험 추가 감소.
-> **비목적**: 마이그레이션·swap·on_release 의 동기 보장 흐름은 그대로 유지(앱 종료/모드 전환 race 방어).
-
----
-
-## 1. 옵션 비교
-
-### 옵션 A — Atomic Write 만 (std::fs 유지, fs::Fs 미도입)
-- `std::fs::write` 를 임시파일 + rename 패턴으로 교체 (직접 atomic 흉내)
-- async 도입 0, fs::Fs 도입 0
-- **장점**: 단순, 동기 보장 흐름 변경 없음, corruption 방어 핵심 가치
-- **단점**: 코드베이스 다른 곳들과 일관성 결여, FakeFs 테스트 주입 가치 미획득, 직접 작성한 atomic 패턴이 `fs::atomic_write` 의 플랫폼별 구현(Windows 의 `MoveFileEx` 등)을 재발명
-
-### 옵션 B — Hybrid (디바운스 경로만 async, on_release/마이그레이션은 std::fs) ★ 권고
-- 디바운스 자동 저장은 `cx.spawn` 안에서 `self.fs.atomic_write(path, json).await`
-- `on_release` / `flush_pending_save` (swap·마이그레이션) 는 `std::fs::write` 동기 그대로 유지
-- **장점**: 코드베이스 일관성(다른 영속화 코드와 같은 패턴), corruption 방어, 동기 보장 흐름 그대로
-- **단점**: 디스크 I/O 경로 두 가지(async / sync) 공존 — 작은 복잡도 증가
-
-### 옵션 C — 전면 async 화
-- 모든 디스크 I/O `fs::Fs` 트레이트 사용
-- `on_release` 는 best-effort `cx.spawn` (await 없음, 종료 race 위험)
-- 마이그레이션 함수도 async 로 재구성
-- **장점**: 완전 일관성
-- **단점**: on_release race 위험(앱 종료 시 마지막 입력 유실 가능), 마이그레이션 락스텝 깨짐, 사용자 명시 동작(모드 전환 즉시성) 보장 어려움
-
-**권고: 옵션 B**. 이유: corruption 방어와 일관성 가치를 가져가면서, 동기 보장 흐름은 데이터 정합성을 위해 유지. 안전성 최대화.
+> **작성일**: 2026-04-26 (v1) → **개정**: 2026-04-26 (v2, 리뷰 반영)
+> **대상**:
+> - `crates/gpui_windows/src/window.rs` (윈도우 표시 트리거 보강)
+> - `crates/workspace/src/workspace.rs` (`Workspace::new_local` cleanup)
+> - `crates/zed/src/main.rs` (`restore_or_create_workspace` 진입/종단 가드)
+>
+> **배경**: 사용자 보고 — 실행 시 프로세스만 살고 화면이 안 뜨는 증상 발생, 재실행해도 같은 증상 무한 반복. 좀비 본체 사이클로 식별.
+>
+> 1. **표시 트리거 누락**: `WindowOptions { show: false }` (zed.rs:349) 로 hidden 윈도우 생성 → 후속 `activate_window()` 만이 유일한 표시 트리거. `set_window_placement` 의 Windowed 분기는 `SetWindowPlacement` 만 호출하고 `ShowWindowAsync` 가 없으며, `placement.showCmd` 가 명시되지 않아 GetWindowPlacement 의 초기값(SW_HIDE/SW_SHOWMINIMIZED 가능)이 그대로 사용됨.
+> 2. **부분 실패 시 hidden 윈도우 잔존**: `Workspace::new_local` (workspace.rs:1789-2022) 에서 `cx.open_window?` 성공 후 후속 `?` 가 fail 하면 OS 윈도우 + GPUI 핸들이 만들어진 채로 cleanup 없이 dangling. 호출자 `restore_or_create_workspace` 의 모든 분기가 fail 해도 spawn 결과가 `detach_and_log_err` 로 swallow.
+>
+> **목적**:
+> - **(2)** 윈도우가 만들어지면 어떤 분기로 가도 표시 트리거가 보장되도록 한다.
+> - **(3)** 부분 실패로 hidden 윈도우가 잔존하지 않도록 cleanup. `restore_or_create_workspace` 종단에서 성공 카운트 0 이면 fail_to_open_window 진입.
+>
+> **비목적**:
+> - 좀비 본체에 args 보낸 두 번째 인스턴스 hang 문제 ((5) 타임아웃) — 범위 외.
+> - **`cx.open_window` 의 `build_root_view` 콜백에서 panic 하는 경우 (gpui app.rs:1081)** GPUI windows[id]=None 잔존 — gpui core 문제. 본 변경으로 해결 안 됨. 발생 시 좀비 사이클 재발 가능 — 별도 PR 필요.
+> - 좀비 본체 자가 종료 ((1)) — 범위 외.
+> - macOS/Linux 키맵·플랫폼 분기 — Windows 경로만 반영.
 
 ---
 
-## 2. 옵션 B 상세 설계
+## 1. v1 → v2 변경 요약 (리뷰 반영)
 
-### 2-1. 변경 범위
+| 영역 | v1 | v2 |
+|---|---|---|
+| (2) showCmd 설정 위치 | `retrieve_window_placement` 일괄 SW_SHOWNORMAL | `set_window_placement` 분기별 (Windowed=SW_SHOWNORMAL, Maximized=SW_SHOWMAXIMIZED) — Maximized 깜빡임 방지 |
+| (2) ShowWindow 상수 | SW_SHOWNORMAL | **SW_NORMAL** (코드베이스 컨벤션 — events.rs:999 일관) |
+| (3-B) 검증 기준 | `cx.windows().is_empty()` | **success_count 카운터** (hidden window가 컬렉션에 포함되는 약점 회피) |
+| (3-B) quit_on_empty 경쟁 | 미고려 | **`set_quit_mode(QuitMode::Explicit)` 진입/종단 토글** (cleanup 시 자동 cx.quit() 차단, bail 도달 보장) |
+| 검증 | `cargo check -p ...` | **`--tests` 추가** (구조 변경 검증 규칙) |
+| 구현 패턴 | 의사코드만 | helper closure로 cleanup 통합 명시 |
 
-**디바운스 경로 (async + atomic_write)**:
-- `schedule_save` 가 `DebouncedDelay::fire_new` 콜백 안에서 직접 async 흐름 작성
-- 흐름:
-  1. suppress_save 가드, current_save_path None 가드
-  2. 에디터 텍스트 추출, hash 계산
-  3. last_saved_hash 와 동일하면 skip (변경 감지 가드)
-  4. JSON 직렬화 (실패 시 log::warn + 종료)
-  5. `fs.atomic_write(save_path, json).await`
-  6. 성공 시 `this.update(cx, |this, _| this.last_saved_hash = Some(hash))`
-  7. 실패 시 log::warn (last_saved_hash 갱신 안 함 → 다음 디바운스에서 재시도)
-- `DebouncedDelay::fire_new` 는 콜백이 `Task<()>` 반환 — `cx.spawn` 으로 감싸 반환
+---
 
-**동기 경로 (std::fs 그대로)**:
-- `flush_save(&mut self, cx: &App)` — 그대로
-- `flush_pending_save(&mut self, cx: &App)` — 그대로 (cancel + 동기 flush_save)
-- `cx.on_release` — 그대로 (앱 종료 race 방어)
-- `migrate_single_to_multi` / `migrate_multi_to_single` 안의 `Self::write_to_file` — 그대로
+## 2. 변경 상세
 
-**삭제 경로 (그대로 std::fs)**:
-- `handle_workspace_notify` 의 사라진 그룹 파일 삭제 — std::fs::remove_file 그대로
-- `migrate_multi_to_single` 의 `notepad/` 디렉터리 삭제 — std::fs::remove_dir_all 그대로
-- 이유: 이 경로들은 마이그레이션·삭제 락스텝의 일부라 동기 보장 필요
+### (2-A) `set_window_placement` 분기별 showCmd 명시 + Windowed ShowWindowAsync 추가
 
-### 2-2. 코드 형태 (예상)
+**파일**: `crates/gpui_windows/src/window.rs` 라인 317-340
 
+**현재 코드 골격**:
 ```rust
-fn schedule_save(&mut self, cx: &mut Context<Self>) {
-    if self.suppress_save {
-        return;
+fn set_window_placement(self: &Rc<Self>) -> Result<()> {
+    let Some(open_status) = self.state.initial_placement.take() else {
+        return Ok(());
+    };
+    match open_status.state {
+        WindowOpenState::Maximized => unsafe {
+            SetWindowPlacement(self.hwnd, &open_status.placement)?;
+            ShowWindowAsync(self.hwnd, SW_MAXIMIZE).ok()?;
+        },
+        WindowOpenState::Fullscreen => { ... toggle_fullscreen() ... }
+        WindowOpenState::Windowed => unsafe {
+            SetWindowPlacement(self.hwnd, &open_status.placement)?;
+        },
     }
-    self.save_debouncer.fire_new(SAVE_DEBOUNCE, cx, |this, cx| {
-        // 동기 가드 + 직렬화는 main thread 에서
-        if this.suppress_save {
-            return Task::ready(());
-        }
-        let Some(save_path) = this.current_save_path() else {
-            return Task::ready(());
-        };
-        let text = this.editor.read(cx).text(cx);
-        let hash = text_hash_for_disk(&text);
-        if Some(hash) == this.last_saved_hash {
-            return Task::ready(());
-        }
-        let trimmed = text.trim_end_matches(|c: char| c == '\n' || c == '\r');
-        let data = NotepadData { content: trimmed.to_string() };
-        let json = match serde_json::to_string_pretty(&data) {
-            Ok(s) => s,
-            Err(e) => {
-                log::warn!("notepad_panel: JSON 직렬화 실패 {:?}: {}", save_path, e);
-                return Task::ready(());
-            }
-        };
-        let fs = this.fs.clone();
-        cx.spawn(async move |this, cx| {
-            if let Err(e) = fs.atomic_write(save_path.clone(), json).await {
-                log::warn!("notepad_panel: 비동기 쓰기 실패 {:?}: {}", save_path, e);
-                return;
-            }
-            this.update(cx, |this, _cx| {
-                this.last_saved_hash = Some(hash);
-            })
-            .ok();
-        })
-    });
+    Ok(())
 }
 ```
 
-### 2-3. 데이터 정합성 시나리오 검증
+**변경 후**:
+```rust
+fn set_window_placement(self: &Rc<Self>) -> Result<()> {
+    let Some(mut open_status) = self.state.initial_placement.take() else {
+        return Ok(());
+    };
+    // GetWindowPlacement 결과 showCmd 의 초기값(SW_HIDE 등)에 의존하지 않도록
+    // 분기별로 명시 설정 — hidden 윈도우(WS_VISIBLE 미포함)도 안정적으로 표시.
+    open_status.placement.showCmd = match open_status.state {
+        WindowOpenState::Maximized => SW_SHOWMAXIMIZED.0 as u32,
+        WindowOpenState::Fullscreen | WindowOpenState::Windowed => SW_SHOWNORMAL.0 as u32,
+    };
+    match open_status.state {
+        WindowOpenState::Maximized => unsafe {
+            SetWindowPlacement(self.hwnd, &open_status.placement)
+                .context("failed to set window placement")?;
+            ShowWindowAsync(self.hwnd, SW_MAXIMIZE).ok()?;
+        },
+        WindowOpenState::Fullscreen => {
+            unsafe {
+                SetWindowPlacement(self.hwnd, &open_status.placement)
+                    .context("failed to set window placement")?
+            };
+            self.toggle_fullscreen();
+        }
+        WindowOpenState::Windowed => unsafe {
+            SetWindowPlacement(self.hwnd, &open_status.placement)
+                .context("failed to set window placement")?;
+            // SetWindowPlacement 만으로는 일부 케이스에서 표시가 누락되는 사례가
+            // 보고됨. ShowWindowAsync 로 이중 안전망 — events.rs:999 와 동일 SW_NORMAL.
+            ShowWindowAsync(self.hwnd, SW_NORMAL).ok()?;
+        },
+    }
+    Ok(())
+}
+```
 
-- **A. 디바운스 fire 중 사용자가 추가 입력**: 새 입력은 `BufferEdited` → `schedule_save` 호출 → DebouncedDelay 가 이전 fire 를 oneshot 으로 cancel + 새 timer 등록. 이전 atomic_write 가 이미 시작됐으면 끝까지 진행, last_saved_hash 갱신은 update 콜백이 entity 업데이트 시점에 적용. 이후 다음 fire 가 새 hash 로 진행.
-- **B. 디바운스 fire 중 그룹 swap**: `handle_workspace_notify` 가 `flush_pending_save` 호출 → DebouncedDelay::cancel → pending 디바운스 즉시 취소. atomic_write 가 이미 fire 됐으면 끝까지 가서 옛 그룹 파일에 저장(정상). swap 본체는 동기 std::fs 로 옛 그룹에 또 저장 — 동일 콘텐츠라 idempotent.
-- **C. 디바운스 fire 중 앱 종료**: `cx.on_release` 가 동기 flush_save 호출(std::fs). pending atomic_write 는 task drop 으로 cancel(가능) 또는 끝까지 fire(가능). 어느 쪽이든 마지막 텍스트는 on_release 동기 flush 가 보장.
-- **D. atomic_write 실패**: log::warn 만 남기고 last_saved_hash 미갱신 → 다음 디바운스 fire 시 동일 hash 체크에서 갱신 안 된 hash 라 재시도. 단 사용자가 종료하면 손실 → on_release 동기 flush 가 폴백.
-- **E. last_saved_hash race**: atomic_write 완료 후 update 콜백이 hash 갱신 시점에, 사용자가 그 사이 더 입력해 두 번째 fire 가 또 진행 중일 수 있음. 두 fire 의 hash 가 다르므로 두 번째 fire 의 hash 가 update 시 덮어씀 — 정상.
+**주의**: `SW_SHOWNORMAL == SW_NORMAL == 1` (Win32). showCmd 필드에 setting 시에는 `SW_SHOWNORMAL` 명칭이 의미상 정명칭, ShowWindowAsync 인자에는 코드베이스 기존 컨벤션(`SW_NORMAL`) 사용. import 추가: `SW_SHOWNORMAL`.
 
-### 2-4. last_saved_hash 가 디스크와 어긋나는 경우
+### (2-B) `retrieve_window_placement` — 변경 없음
 
-- 시나리오 D 의 atomic_write 실패 → hash 미갱신. 다음 fire 가 같은 텍스트면 hash 동일 → skip. 디스크와 메모리 hash 불일치 지속.
-- 해결: 실패 시 `last_saved_hash = None` 으로 명시 무효화 → 다음 fire 가 무조건 재시도.
-- 단점: 사용자가 입력을 멈추면 다음 fire 가 안 옴 → 계속 미저장. 그러나 swap·종료 시 동기 flush 가 폴백.
-- **결정**: 실패 시 `last_saved_hash = None` 으로 무효화 (재시도 유리).
+**판단**: v1에서 여기에 showCmd를 일괄 설정하면 Maximized 분기에서 SetWindowPlacement(NORMAL) → ShowWindowAsync(MAXIMIZE) 순으로 깜빡임 발생. (2-A)에서 분기별로 덮어쓰는 게 깔끔하므로 retrieve 단계는 변경 없음.
+
+### (3-A) `Workspace::new_local` 새 윈도우 경로 cleanup
+
+**파일**: `crates/workspace/src/workspace.rs` 라인 1933-1962, 1974-1981
+
+**위험 지점 두 곳**:
+1. 라인 1933-1956: `cx.open_window(options, |window, cx| { ... })?` — 성공 시 윈도우 등록. 그 직후 1957-1960의 `window.update(...)?` 가 fail 하면 dangling.
+2. 라인 1974-1981: `window.update(cx, |_, window, cx| { ... open_items(...) })?` 의 outer `?` 또는 inner setup fail 시 dangling.
+
+**변경 패턴** (helper closure):
+```rust
+// 윈도우 생성 직후부터 활성화 직전까지의 fail-cleanup 영역.
+// 새로 만든 윈도우(requesting_window 가 None 인 경로) 한정.
+let cleanup_on_fail = |window: WindowHandle<MultiWorkspace>, cx: &mut AsyncApp| {
+    let _ = window.update(cx, |_, window, _| window.remove_window());
+};
+
+// (1957-1960) workspace clone 단계
+let workspace = match window.update(cx, |multi_workspace: &mut MultiWorkspace, _, _cx| {
+    multi_workspace.workspace().clone()
+}) {
+    Ok(ws) => ws,
+    Err(e) => {
+        cleanup_on_fail(window, cx);
+        return Err(e.into());
+    }
+};
+(window, workspace)
+```
+
+같은 패턴으로 1974-1979의 outer `?` 도 매치 분기로 풀어 cleanup 후 Err 전파.
+
+**`requesting_window: Some(...)` 경로 (1872-1904)**: 새 윈도우 생성 안 함 → cleanup 대상 아님. 1903의 `?` 실패 시 윈도우는 호출자 소유로 유지(기존 동작).
+
+### (3-B) `restore_or_create_workspace` — success_count + QuitMode 토글
+
+**파일**: `crates/zed/src/main.rs` 라인 1413-1555
+
+**변경**:
+```rust
+pub(crate) async fn restore_or_create_workspace(
+    app_state: Arc<AppState>,
+    cx: &mut AsyncApp,
+) -> Result<()> {
+    // cleanup 으로 마지막 윈도우가 닫혀 quit_on_empty 가 자동 cx.quit() 을
+    // 호출하지 않도록 복원 진행 동안 Explicit 로 강제. 종단에서 Default 복원.
+    let prev_quit_mode = cx.update(|cx| {
+        let mode = cx.quit_mode();
+        cx.set_quit_mode(QuitMode::Explicit);
+        mode
+    })?;
+    let restore_result = restore_or_create_workspace_inner(app_state, cx).await;
+    cx.update(|cx| cx.set_quit_mode(prev_quit_mode)).ok();
+    restore_result
+}
+
+async fn restore_or_create_workspace_inner(
+    app_state: Arc<AppState>,
+    cx: &mut AsyncApp,
+) -> Result<()> {
+    let kvp = cx.update(|cx| KeyValueStore::global(cx))?;
+    let mut success_count: usize = 0;
+
+    if let Some((multi_workspaces, remote_workspaces)) =
+        restorable_workspaces(cx, &app_state).await
+    {
+        // 기존 흐름 유지하되, restore_multiworkspace Ok 시 success_count += 1.
+        // remote tasks 의 Ok 결과도 동일.
+        for multi_workspace in multi_workspaces {
+            match restore_multiworkspace(multi_workspace, app_state.clone(), cx).await {
+                Ok(result) => {
+                    if result.errors.is_empty() {
+                        success_count += 1;
+                    }
+                    for error in result.errors {
+                        log::error!("Failed to restore workspace in group: {error:#}");
+                    }
+                }
+                Err(e) => {
+                    log::error!("Failed to restore workspace: {e:#}");
+                }
+            }
+        }
+        // remote 처리 동일 패턴
+        // ...
+        // fallback open_new 진입 조건은 success_count == 0 으로 단순화.
+        if success_count == 0 {
+            log::error!("All workspace restorations failed. Opening fallback empty workspace.");
+            cx.update(|cx| {
+                workspace::open_new(Default::default(), app_state.clone(), cx, |workspace, _window, cx| {
+                    workspace.show_toast(
+                        Toast::new(NotificationId::unique::<()>(), "Failed to restore workspaces..."),
+                        cx,
+                    );
+                })
+            })
+            .await?;
+            success_count += 1; // open_new 가 성공한 케이스
+        }
+    } else if matches!(kvp.read_kvp(FIRST_OPEN), Ok(None)) {
+        cx.update(|cx| show_onboarding_view(app_state, cx)).await?;
+        success_count += 1;
+    } else {
+        cx.update(|cx| {
+            workspace::open_new(Default::default(), app_state, cx, |workspace, window, cx| {
+                terminal_view::TerminalView::deploy(
+                    workspace, &workspace::NewCenterTerminal { local: false }, window, cx,
+                );
+            })
+        })
+        .await?;
+        success_count += 1;
+    }
+
+    if success_count == 0 {
+        anyhow::bail!("모든 워크스페이스 복원·신규 생성 시도 실패 — 표시할 윈도우 없음");
+    }
+    Ok(())
+}
+```
+
+**핵심**:
+- `success_count` 는 호출자 명시 카운트 — hidden window가 컬렉션에 포함되는 GPUI 동작과 무관.
+- QuitMode::Explicit 토글로 (3-A) cleanup → quit_on_empty 자동 발동 차단. bail 도달 보장.
+- bail → main.rs:998 의 `fail_to_open_window_async` → `process::exit(1)` → 다음 실행은 mutex 회수 후 first 진입.
+
+**부수**: `cx.quit_mode()` getter API 가 GPUI에 노출되어 있는지 확인 필요. 없으면 추가 또는 `QuitMode::Default` 로 단순 복원 (Dokkaebi는 Application 빌드 시 명시적으로 변경하지 않음 — main.rs:106의 `with_quit_mode(QuitMode::Explicit)` 는 fail_to_open_window 분기 한정).
 
 ---
 
-## 3. 변경 파일 목록
+## 3. 데이터/동작 시나리오 검증 (확장)
 
-| 파일 | 수정 내용 |
-|---|---|
-| `crates/notepad_panel/src/notepad_panel.rs` | (1) `schedule_save` 본체 교체 — fire_new 콜백 안에서 동기 가드 + 직렬화 → `cx.spawn` 안에서 `fs.atomic_write().await` + 성공 시 hash 갱신, 실패 시 `last_saved_hash = None`. (2) `Task::ready` import 그대로 활용. (3) 동기 `flush_save` / `flush_pending_save` / `write_to_file` / `on_release` 클로저 그대로 유지. |
-| `notes.md` | 2026-04-25 항목으로 변경 내역 추가 |
+### A. 정상 실행 흐름
+- 모든 `?` 통과 → `restore_multiworkspace` 끝의 `window.activate_window()` (workspace.rs:9381) → `set_window_placement(Windowed)` → SetWindowPlacement(showCmd=SHOWNORMAL) + ShowWindowAsync(SW_NORMAL) → 표시 보장. success_count > 0 → bail 안 함.
+- Maximized 워크스페이스: showCmd=SHOWMAXIMIZED → SetWindowPlacement → ShowWindowAsync(MAXIMIZE) — 깜빡임 없음.
 
-`release_notes.md`: 미반영. 사용자 체감 변화는 (a) atomic_write 으로 corruption 방어가 강화되었으나 평상시에 사용자가 인지할 변화 없음, (b) 평상시 키스트로크 자동 저장의 디스크 I/O 가 백그라운드로 이동해 UI 스레드 블로킹 추가 감소(이미 디바운스로 대부분 해소된 상태)라 별도 항목 분리 안 함. CLAUDE.md "내부 리팩토링·성능 개선" 기준에 부합.
+### B. open_items 실패 시
+- (3-A) cleanup → window.removed=true → 다음 effect cycle 에서 OS 윈도우 destroy. cx.windows에서 제거.
+- restore_multiworkspace 에 Err 전파 → restore_or_create_workspace 의 results 처리 → success_count 증가 안 함.
+- 모든 multi_workspace 실패 → fallback open_new 시도. 성공 시 success_count=1. 실패 시 `?` 로 함수 자체 Err 반환.
+- bail 또는 함수 Err → fail_to_open_window_async → process::exit(1).
+
+### C. requesting_window 경로 — 변경 없음, 안전
+
+### D. cx.open_window 콜백 panic
+- gpui app.rs:1097-1100: Window::new Err 면 cx.windows.remove(id). 그러나 build_root_view panic 케이스는 plan 비목적. 본 변경 효과 범위 외.
+
+### E. activate_window noop (foreground_executor 큐 막힘)
+- 본 변경으로 해결 안 됨 — 별도 GPUI 이슈.
+
+### F. WS_VISIBLE 미채택 — v1 판단 유지
+- CW_USEDEFAULT 위치에 잠깐 표시되는 시각 결함 야기.
+
+### G. quit_on_empty 경쟁 (v2 추가)
+- **시나리오**: 단일 multi_workspace 복원 → Workspace::new_local 첫 윈도우 생성 → open_items fail → cleanup `remove_window` → 다음 effect cycle에서 cx.windows 빔 → quit_on_empty=true 면 자동 cx.quit() → PostQuitMessage(0) → 메시지 펌프 종료.
+- **위험**: fallback open_new가 PostQuitMessage 이후 큐에 남으면 영원히 실행 안 됨 → success_count=0 검증 도달 안 함 → 좀비 잔존 가능 (또는 그냥 종료되지만 사용자에게는 검은 화면 후 즉시 종료처럼 보임).
+- **해결**: `restore_or_create_workspace` 진입 시 `set_quit_mode(QuitMode::Explicit)`. 이 동안 cleanup이 일어나도 자동 quit 안 함. 종단에서 이전 모드 복원.
+- **검증**: Explicit 동안 cx.quit() 호출은 명시적으로만 가능. cleanup-cascade 차단 확인.
+
+### H. macOS/Linux 영향
+- Windows 전용 코드(window.rs)는 영향 없음.
+- workspace.rs cleanup: macOS는 quit_on_empty=false 라 cleanup해도 자동 quit 안 됨 — 영향 없음. Linux는 Windows와 동일.
+- main.rs QuitMode 토글: 모든 플랫폼에서 동일 효과. macOS는 어차피 Default=Explicit 라 no-op.
+
+### I. requesting_window 경로 cleanup 재검토
+- 라인 1903의 `?` fail 시 cleanup 안 함이라 v1 결정. 호출자 (`restore_multiworkspace` 라인 9347) 가 errors.push 만 하고 윈도우는 유지. 새 hidden 좀비는 안 생김 — 결정 유지.
+
+### J. Maximized + showCmd 변경의 부수 효과
+- 기존: Maximized 분기에서 SetWindowPlacement(showCmd=GetWindowPlacement 값) → ShowWindowAsync(MAXIMIZE). 만약 직전값이 SW_HIDE면 SetWindowPlacement가 hidden으로 만든 후 ShowWindowAsync로 maximize → 잠깐 hidden 표시.
+- 변경: showCmd=SHOWMAXIMIZED 명시 → SetWindowPlacement가 즉시 maximize → ShowWindowAsync(MAXIMIZE)는 사실상 idempotent. 깜빡임 감소.
 
 ---
 
-## 4. 작업 단계
+## 4. 변경 파일 목록
+
+| 파일 | 수정 내용 | 예상 라인 변경 |
+|---|---|---|
+| `crates/gpui_windows/src/window.rs` | (2-A) `set_window_placement` 분기별 `placement.showCmd` 명시 + Windowed 분기에 `ShowWindowAsync(SW_NORMAL)` 추가. SW_SHOWNORMAL/SW_SHOWMAXIMIZED import. | +6 |
+| `crates/workspace/src/workspace.rs` | (3-A) `Workspace::new_local` 새 윈도우 경로 두 `?` 지점에 helper closure cleanup. | +12~15 |
+| `crates/zed/src/main.rs` | (3-B) `restore_or_create_workspace` 진입/종단 QuitMode::Explicit 토글 + success_count 카운터 + 종단 bail. inner 함수로 분리. | +25~30 |
+| `crates/gpui/src/app.rs` (필요 시) | `pub fn quit_mode(&self) -> QuitMode` getter 추가 (현재 setter 만 있음). 이전 모드 복원에 필요. | +3 |
+| `notes.md` | 2026-04-26 항목 추가 | +5 |
+| `assets/release_notes.md` | v0.4.0 `### 버그 수정` 카테고리에 항목 추가 | +1~2 |
+
+**`quit_mode()` getter 추가 가능성**: GPUI 자체에 setter 만 있다면 getter 추가가 필요 (구조 변경). 또는 단순화: 진입 전 `let was_explicit = false;` 가정하지 말고, **종단에서 무조건 `QuitMode::Default` 로 복원**(Dokkaebi 의 평소 모드는 Default). 이게 더 단순.
+
+**채택**: 종단 복원은 `QuitMode::Default` 하드코딩. getter 추가 불필요.
+
+---
+
+## 5. 작업 단계
 
 ### Phase A — 코드 변경
-- [x] **1. 범위 확인 — 승인 완료 (2026-04-25)**
-- [x] 2. `notepad_panel.rs` 의 `schedule_save` 본체를 옵션 B 형태로 교체 (fire_new 콜백 → 동기 가드/직렬화 → cx.spawn 안 fs.create_dir + fs.atomic_write)
-- [x] 3. atomic_write 실패 시 `last_saved_hash = None` 무효화 추가 (디렉터리 생성 실패 시도 동일)
-- [x] 4. 동기 경로(flush_save / flush_pending_save / on_release / migrate_*) 변경 없음 재확인
+- [x] **1. 범위 확인 — 승인 완료 (2026-04-26 v2 plan)**
+- [x] 2. (2-A) `gpui_windows/src/window.rs` `set_window_placement` 수정 (분기별 showCmd 명시 + Windowed ShowWindowAsync). SW_* import 는 이미 와일드카드 import 로 가용.
+- [x] 3. (3-A) `workspace/src/workspace.rs` `Workspace::new_local` `is_new_window` 도입 + 두 위험 지점에 cleanup
+- [x] 4. (3-B) `zed/src/main.rs` `restore_or_create_workspace` wrapper + `_inner` 분리 + QuitMode::Explicit/Default 토글 + success_count + bail. QuitMode import 이미 존재.
 
 ### Phase B — 검증
-- [x] 5. `cargo check -p notepad_panel` 통과 확인 (1.77s 증분, 신규 경고 0)
-- [x] 6. 코드 리뷰 — 데이터 정합성 시나리오 A~E 한 번 더 트레이스 (DebouncedDelay::fire_new 의 previous_task.await 직렬화로 두 fire 가 동시 진행 불가 → race 없음 확인)
-- [x] 7. 런타임 검증 (사용자 수동 — 2026-04-25 "잘됨" 확인)
+- [ ] 5. `cargo check -p gpui_windows` (사용자 직접 — Dev Drive 신뢰 탑재 에러로 Dokkaebi 인스턴스 cargo spawn 차단)
+- [ ] 6. `cargo check -p workspace` (사용자 직접)
+- [ ] 7. `cargo check -p workspace --tests` (사용자 직접)
+- [ ] 8. `cargo check -p Dokkaebi` (사용자 직접)
+- [ ] 9. `cargo check -p Dokkaebi --tests` (사용자 직접)
+- [x] 10. 코드 리뷰 — 시나리오 A~J 트레이스 재확인 (plan §3, 모든 분기 코드와 매칭 확인)
+- [ ] 11. 런타임 검증 (사용자 수동)
 
 ### Phase C — 문서
-- [x] 8. `notes.md` 항목 추가
-- [x] 9. 완료 보고
+- [x] 12. `notes.md` 항목 추가 (2026-04-26)
+- [x] 13. `assets/release_notes.md` — `crates/zed/Cargo.toml` 버전 v0.4.1 기준이라 파일 맨 위에 새 v0.4.1 (2026-04-26) 섹션 신설 + `### 버그 수정` 1 항목 + 구분자 `---`. (초안에서 v0.4.0 섹션에 잘못 추가 + 날짜 변경한 부분 원복 완료.)
+- [x] 14. 완료 보고 (이 메시지)
 
-> 검증 단계의 `[x]` 는 빌드/테스트 통과 후에만 표시한다.
+> 검증 단계의 `[x]` 는 빌드/체크 통과 후에만 표시한다.
 
 ---
 
-## 5. 검증 방법
+## 6. 검증 방법
 
 ### 빌드 검증
-- `cargo check -p notepad_panel` — 신규 경고 0 건
-- `cargo check -p Dokkaebi` (lib) — 신규 경고·에러 0 건
+- `cargo check -p gpui_windows` — 신규 경고 0
+- `cargo check -p workspace --tests` — 테스트 fixture까지 신규 경고 0
+- `cargo check -p Dokkaebi --tests` — 신규 경고·에러 0 (메모리 규칙)
 
 ### 런타임 검증 (사용자 수동)
-1. **기본 자동 저장**: 메모 입력 → 300ms 대기 → 입력 멈춤 → `data_dir()/notepad.json` 또는 `notepad/<uuid>.json` 의 content 가 갱신되는지 확인.
-2. **그룹 swap 시 즉시 저장**: 그룹 A 에 텍스트 입력 → 즉시(300ms 안에) 그룹 B 로 전환 → 그룹 A 의 파일에 저장되어 있는지 확인. (동기 flush_pending_save 가 폴백)
-3. **앱 종료 시 즉시 저장**: 메모 입력 직후(300ms 안에) 앱 닫기 → 다음 실행 시 콘텐츠 복원되는지 확인. (on_release 동기 flush 폴백)
-4. **모드 전환 마이그레이션**: 단일↔멀티 토글 시 데이터 손실 없이 정상 마이그레이션되는지 확인.
-5. **연속 키스트로크**: 빠르게 타이핑(SAVE_DEBOUNCE 미만 간격으로) → 디바운스로 마지막 1 회만 저장되는지 + UI 프리징 없는지 확인.
+1. **정상 실행**: dokkaebi.exe 실행 → 윈도우 즉시 표시. 깜빡임/지연 증가 없는지 확인.
+2. **Maximized 복원**: 종료 시 최대화 → 재실행 → 즉시 최대화로 표시 (NORMAL→MAXIMIZE 깜빡임 없음).
+3. **Fullscreen 복원**: 종료 시 fullscreen → 재실행 → 정상 복원.
+4. **다중 윈도우**: 워크스페이스 여러 개 열린 상태에서 종료 → 재실행 → 모두 정상 표시.
+5. **표시 실패 → process::exit 검증** (재현 가능 시): 손상된 세션 DB로 실행 → 콘솔 로그에 "표시할 윈도우 없음" → 프로세스 종료 → 작업 관리자에 dokkaebi.exe 잔존 안 함. 재실행 시 정상 first 진입 (mutex 회수).
+6. **마지막 윈도우 닫기**: 평소 사용 중 마지막 워크스페이스 탭 닫기 → 정상 cx.quit() 동작 (QuitMode 복원 확인).
 
 ---
 
-## 6. 승인 필요 항목
+## 7. 승인 필요 항목 (v2)
 
 CLAUDE.md "절대 금지 — 승인 필요":
-1. **동작 변경 (블로킹 → 비동기)**: 키스트로크 자동 저장 경로가 main thread std::fs::write 동기 → bg task atomic_write async 로 변경. UI 응답성 개선이 의도이나 데이터 정합성 시나리오 A~E 검토 필요.
-2. **옵션 B 채택**: 디바운스 경로만 async, 동기 보장 흐름(on_release/마이그레이션/swap)은 std::fs 유지. 옵션 A(전부 std::fs + 직접 atomic) 또는 옵션 C(전부 async)를 선호하면 그쪽으로 변경.
-3. **atomic_write 실패 시 hash 무효화**: 실패 시 `last_saved_hash = None` → 다음 디바운스 재시도. 알트: 실패 시 무한 재시도 task spawn (비권장 — 폭주 위험).
+1. **동작 변경 (윈도우 표시 흐름)**: `set_window_placement` 분기별 showCmd 명시 + Windowed 분기 ShowWindowAsync 추가. 깜빡임 영향 없음 또는 감소(시나리오 J).
+2. **흐름 변경 (실패 시 cleanup + bail + QuitMode 토글)**: cleanup으로 hidden 좀비 차단, bail로 fail_to_open_window 보장, QuitMode::Explicit 토글로 quit_on_empty 경쟁 차단. **복구 동작이 "재실행"으로 변경됨** (현재는 좀비 잔존). 일시적 fail에도 process::exit 됨 — 안전성 우선.
+3. **inner 함수 분리**: `restore_or_create_workspace_inner` 내부 함수 추가는 구조 변경 (CLAUDE.md "구조 변경" 해당). 외부 시그너처는 변경 없음.
+4. **알트 옵션**:
+   - (2-A) 의 ShowWindowAsync 추가 생략 — showCmd 명시만으로 충분할 가능성. 이중 안전망 vs 단순함.
+   - QuitMode 토글 대신 cleanup 시점을 success_count 검증 후로 지연 — 흐름 어색.
+   - GPUI에 `quit_mode()` getter 추가 — 더 정확한 복원, 그러나 GPUI core 변경.
 
 승인되면 Phase A 부터 구현 진행하겠습니다.

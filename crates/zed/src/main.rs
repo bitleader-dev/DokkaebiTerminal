@@ -1414,7 +1414,23 @@ pub(crate) async fn restore_or_create_workspace(
     app_state: Arc<AppState>,
     cx: &mut AsyncApp,
 ) -> Result<()> {
+    // 복원 동안 cleanup 으로 마지막 윈도우가 일시적으로 닫혀도 quit_on_empty 가
+    // 자동 cx.quit() 을 호출해 fallback 시도를 무산시키지 않도록 Explicit 로 강제.
+    // 종단에서 Default 로 복원 (Dokkaebi 평소 모드).
+    cx.update(|cx| cx.set_quit_mode(QuitMode::Explicit)).ok();
+    let restore_result = restore_or_create_workspace_inner(app_state, cx).await;
+    cx.update(|cx| cx.set_quit_mode(QuitMode::Default)).ok();
+    restore_result
+}
+
+async fn restore_or_create_workspace_inner(
+    app_state: Arc<AppState>,
+    cx: &mut AsyncApp,
+) -> Result<()> {
     let kvp = cx.update(|cx| KeyValueStore::global(cx));
+    // 종단에서 0 이면 표시할 윈도우가 하나도 없는 좀비 본체 상태이므로 bail.
+    let mut success_count: usize = 0;
+
     if let Some((multi_workspaces, remote_workspaces)) = restorable_workspaces(cx, &app_state).await
     {
         log::info!(
@@ -1427,6 +1443,9 @@ pub(crate) async fn restore_or_create_workspace(
         for multi_workspace in multi_workspaces {
             match restore_multiworkspace(multi_workspace, app_state.clone(), cx).await {
                 Ok(result) => {
+                    // multi_workspace 단위로 윈도우 1개가 열림. group 내부의 부분
+                    // 실패(result.errors)는 토스트로 알리지만 윈도우 자체는 열림.
+                    success_count += 1;
                     for error in result.errors {
                         log::error!("Failed to restore workspace in group: {error:#}");
                         results.push(Err(error));
@@ -1466,7 +1485,14 @@ pub(crate) async fn restore_or_create_workspace(
         }
 
         // Wait for all window groups and remote workspaces to open concurrently
-        results.extend(future::join_all(tasks).await);
+        let remote_results = future::join_all(tasks).await;
+        for r in &remote_results {
+            if r.is_ok() {
+                // remote 워크스페이스 1개당 윈도우 1개.
+                success_count += 1;
+            }
+        }
+        results.extend(remote_results);
 
         // Show notifications for any errors that occurred
         let mut error_count = 0;
@@ -1525,11 +1551,13 @@ pub(crate) async fn restore_or_create_workspace(
                     )
                 })
                 .await?;
+                success_count += 1;
             }
         }
     } else if matches!(kvp.read_kvp(FIRST_OPEN), Ok(None)) {
         log::info!("restore_or_create_workspace: 첫 실행 — 온보딩 표시");
         cx.update(|cx| show_onboarding_view(app_state, cx)).await?;
+        success_count += 1;
     } else {
         log::info!("restore_or_create_workspace: 복원할 워크스페이스 없음 — open_new로 새 워크스페이스 생성");
         cx.update(|cx| {
@@ -1549,8 +1577,14 @@ pub(crate) async fn restore_or_create_workspace(
             )
         })
         .await?;
+        success_count += 1;
     }
 
+    if success_count == 0 {
+        // 모든 분기에서 윈도우가 1개도 열리지 않은 좀비 본체 상태. fail_to_open_window
+        // 으로 process::exit(1) 시켜 사용자가 재실행 시 first instance 로 진입하도록 한다.
+        anyhow::bail!("모든 워크스페이스 복원·신규 생성 시도 실패 — 표시할 윈도우 없음");
+    }
     Ok(())
 }
 

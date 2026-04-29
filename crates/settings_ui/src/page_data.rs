@@ -6010,7 +6010,7 @@ fn terminal_page() -> SettingsPage {
         ]
     }
 
-    fn advanced_settings_section() -> [SettingsPageItem; 3] {
+    fn advanced_settings_section() -> [SettingsPageItem; 4] {
         [
             SettingsPageItem::SectionHeader("settings_page.section.advanced_settings"),
             SettingsPageItem::SettingItem(SettingItem {
@@ -6052,6 +6052,28 @@ fn terminal_page() -> SettingsPage {
                             .terminal
                             .get_or_insert_default()
                             .scroll_multiplier = value;
+                    },
+                }),
+                metadata: None,
+                files: USER,
+            }),
+            SettingsPageItem::SettingItem(SettingItem {
+                title: "settings_page.item.shell_integration",
+                description: "settings_page.desc.advanced_settings.shell_integration",
+                field: Box::new(SettingField {
+                    json_path: Some("terminal.shell_integration"),
+                    pick: |settings_content| {
+                        settings_content
+                            .terminal
+                            .as_ref()?
+                            .shell_integration
+                            .as_ref()
+                    },
+                    write: |settings_content, value| {
+                        settings_content
+                            .terminal
+                            .get_or_insert_default()
+                            .shell_integration = value;
                     },
                 }),
                 metadata: None,

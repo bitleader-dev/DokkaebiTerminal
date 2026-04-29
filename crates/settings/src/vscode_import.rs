@@ -896,6 +896,7 @@ impl VsCodeSettings {
             scroll_multiplier: None,
             toolbar: None,
             show_count_badge: None,
+            shell_integration: None,
         })
     }
 

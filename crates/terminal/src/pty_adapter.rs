@@ -11,11 +11,13 @@ use std::thread::JoinHandle;
 use alacritty_terminal::event::{Event as AlacTermEvent, EventListener};
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::Term;
+use futures::channel::mpsc::UnboundedSender;
 use portable_pty::{
     native_pty_system, Child, CommandBuilder, MasterPty, PtySize,
 };
 use alacritty_terminal::vte::ansi;
 
+use crate::shell_integration::{Osc133Scanner, ShellIntegrationEvent};
 use crate::ZedListener;
 
 /// PTY 읽기 버퍼 크기 (alacritty READ_BUFFER_SIZE와 동일)
@@ -178,16 +180,22 @@ pub fn spawn_pty(
 ///
 /// 읽은 바이트를 `vte::ansi::Processor`로 파싱하여 `Term`에 반영하고,
 /// `ZedListener`를 통해 `Event::Wakeup`을 전달한다.
+///
+/// `shell_events_tx` 가 `Some` 이면 OSC 133 (FinalTerm shell integration) 시퀀스를
+/// 병행 검출해 별도 채널로 emit 한다. alac VTE 0.15.0 은 OSC 133 미처리이므로
+/// alac 파서에는 무해하게 통과시키되, 본 스캐너가 동일 바이트를 검사한다.
 pub fn spawn_pty_reader(
     mut reader: Box<dyn Read + Send>,
     terminal: Arc<FairMutex<Term<ZedListener>>>,
     event_proxy: ZedListener,
+    shell_events_tx: Option<UnboundedSender<ShellIntegrationEvent>>,
 ) -> JoinHandle<()> {
     std::thread::Builder::new()
         .name("pty-reader".into())
         .spawn(move || {
             let mut buf = vec![0u8; READ_BUFFER_SIZE];
             let mut parser = ansi::Processor::<ansi::StdSyncHandler>::new();
+            let mut osc133 = Osc133Scanner::new();
 
             loop {
                 // PTY에서 데이터 읽기 (blocking)
@@ -208,6 +216,17 @@ pub fn spawn_pty_reader(
                         break;
                     }
                 };
+
+                // OSC 133 검출 — alac 파서로 넘기기 전에 동일 바이트를 스캐너에 공급
+                if let Some(ref tx) = shell_events_tx {
+                    let events = osc133.feed(&buf[..bytes_read]);
+                    for event in events {
+                        if tx.unbounded_send(event).is_err() {
+                            // 수신측이 끊겼다 — 이후 매칭은 무시
+                            break;
+                        }
+                    }
+                }
 
                 // 읽은 데이터를 파싱하여 Term에 반영
                 let mut offset = 0;

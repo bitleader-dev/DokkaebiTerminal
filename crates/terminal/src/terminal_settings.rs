@@ -51,6 +51,10 @@ pub struct TerminalSettings {
     pub path_hyperlink_regexes: Vec<String>,
     pub path_hyperlink_timeout_ms: u64,
     pub show_count_badge: bool,
+    /// OSC 133 / FinalTerm 셸 통합 활성화 여부. true 일 때만 PTY spawn 시 bash/pwsh 에
+    /// 셸 통합 스크립트가 자동 주입된다. 환경변수 `DOKKAEBI_SHELL_INTEGRATION=off` 도
+    /// 같은 효과를 가지며 본 설정과 OR 관계로 비활성 처리.
+    pub shell_integration: bool,
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, JsonSchema, PartialEq, Eq)]
@@ -132,6 +136,7 @@ impl settings::Settings for TerminalSettings {
                 .collect(),
             path_hyperlink_timeout_ms: project_content.path_hyperlink_timeout_ms.unwrap(),
             show_count_badge: user_content.show_count_badge.unwrap(),
+            shell_integration: user_content.shell_integration.unwrap(),
         }
     }
 }

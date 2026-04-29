@@ -586,7 +586,7 @@ async fn handle_notify_request(
         // dot 인디케이터 + 비활성 그룹 배지 적용 및 매칭 터미널의 "그룹 / 탭"
         // 라벨 + 소속 (윈도우, 워크스페이스) 타겟 수집.
         // cli가 보낸 ancestors가 비어있으면 pid 기반 sysinfo 폴백.
-        let target = mark_bell_for_notification(ancestors, pid, cwd.as_deref(), cx);
+        let target = mark_bell_for_notification(ancestors, pid, cwd.as_deref(), kind, cx);
 
         // 토스트 팝업은 `task_alert_toast` 가 true 이고 발신 터미널이 속한
         // 타겟 워크스페이스가 식별된 경우에만 그 워크스페이스 하나에만 표시.
@@ -817,6 +817,7 @@ async fn handle_subagent_request(
                     ancestors_for_match,
                     pid_for_match,
                     cwd_for_match.as_deref(),
+                    args.kind,
                     cx,
                 );
                 log::debug!(
@@ -1077,6 +1078,7 @@ fn mark_bell_for_notification(
     ancestors: Vec<u32>,
     pid: Option<u32>,
     _cwd_str: Option<&str>,
+    kind: NotifyKind,
     cx: &mut AsyncApp,
 ) -> Option<NotifyTarget> {
     use std::collections::HashSet;
@@ -1213,6 +1215,12 @@ fn mark_bell_for_notification(
                                 let item_id = tv.entity_id();
                                 tv.update(cx, |terminal_view, cx| {
                                     terminal_view.set_has_bell(cx);
+                                    // Stop 알림(작업 완료)은 dot 인디케이터 대신
+                                    // 탭 아이콘에 Check 를 표시해 사용자가 결과를
+                                    // 즉시 인지하도록 task_completed 도 함께 set.
+                                    if matches!(kind, NotifyKind::Stop) {
+                                        terminal_view.mark_task_completed(true, cx);
+                                    }
                                 });
                                 workspace.notify_bell_for_item(item_id, cx);
                             }

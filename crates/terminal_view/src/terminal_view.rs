@@ -32,8 +32,8 @@ use std::{
 use task::TaskId;
 use terminal::{
     Clear, Copy, Event, HoveredWord, MaybeNavigationTarget, Paste, ScrollLineDown, ScrollLineUp,
-    ScrollPageDown, ScrollPageUp, ScrollToBottom, ScrollToTop, ShowCharacterPalette, TaskState,
-    TaskStatus, Terminal, TerminalBounds, ToggleViMode,
+    ScrollPageDown, ScrollPageUp, ScrollToBottom, ScrollToTop, ShellCommandStatus,
+    ShowCharacterPalette, TaskState, TaskStatus, Terminal, TerminalBounds, ToggleViMode,
     alacritty_terminal::{
         index::Point as AlacPoint,
         term::{TermMode, point_to_viewport, search::RegexSearch},
@@ -425,6 +425,18 @@ impl TerminalView {
         if !self.has_bell {
             self.has_bell = true;
             cx.emit(Event::Wakeup);
+            cx.notify();
+        }
+    }
+
+    /// Claude Code IPC 의 작업 완료(NotifyKind::Stop) 신호용 인디케이터.
+    /// `task_completed` 를 명시 set 해 탭 아이콘을 Check/XCircle 로 표시하고,
+    /// `is_dirty()` 가 false 를 반환하도록 만들어 dot 인디케이터 중복 표시를 방지한다.
+    /// 사용자 입력 시 `clear_task_completed` 가 호출되며 알림이 종료된다.
+    pub fn mark_task_completed(&mut self, success: bool, cx: &mut Context<Self>) {
+        if self.task_completed != Some(success) {
+            self.task_completed = Some(success);
+            cx.emit(ItemEvent::UpdateTab);
             cx.notify();
         }
     }
@@ -1096,6 +1108,51 @@ fn terminal_rerun_override(task: &TaskId) -> zed_actions::Rerun {
     }
 }
 
+/// foreground 프로세스명을 Windows `.exe` suffix 제거 + 소문자 stem 으로 정규화.
+fn process_stem(name: Option<&str>) -> Option<String> {
+    let raw = name?;
+    let lower = raw.to_ascii_lowercase();
+    let stem = lower.strip_suffix(".exe").unwrap_or(lower.as_str());
+    Some(stem.to_owned())
+}
+
+/// foreground 프로세스명이 Claude Code CLI 인지 판정한다.
+/// Windows `claude.exe`, Unix `claude` 모두 인식. 대소문자 무시.
+fn is_claude_code_process(name: Option<&str>) -> bool {
+    matches!(process_stem(name).as_deref(), Some("claude"))
+}
+
+/// foreground 프로세스명이 Rust 도구 모음(cargo/rustc/clippy/rustup/cross 등) 인지 판정.
+/// 사용 가능한 IconName::FileRust 로 표시할 후보 식별용.
+fn is_rust_tool_process(name: Option<&str>) -> bool {
+    let Some(stem) = process_stem(name) else {
+        return false;
+    };
+    matches!(
+        stem.as_str(),
+        "cargo"
+            | "rustc"
+            | "rustup"
+            | "rust-analyzer"
+            | "rustfmt"
+            | "clippy"
+            | "clippy-driver"
+            | "cross"
+    )
+}
+
+/// foreground 프로세스명에 대응하는 전용 IconName 을 반환한다 (있으면).
+/// OSC 133 OFF 의 Idle 상태와 ON 의 Running 상태에서 동일하게 사용된다.
+fn process_specific_icon(name: Option<&str>) -> Option<IconName> {
+    if is_claude_code_process(name) {
+        Some(IconName::AiClaude)
+    } else if is_rust_tool_process(name) {
+        Some(IconName::FileRust)
+    } else {
+        None
+    }
+}
+
 fn subscribe_for_terminal_events(
     terminal: &Entity<Terminal>,
     workspace: WeakEntity<Workspace>,
@@ -1471,9 +1528,24 @@ impl Item for TerminalView {
             let terminal = self.terminal().read(cx);
             let title = terminal.title(false);
             let pid = terminal.pid_getter()?.fallback_pid();
+            // OSC 133 셸 통합 상태 — 일반 셸에서 마지막 명령 결과를 툴팁에 노출
+            let shell_status_line: Option<String> = match terminal.shell_command_status() {
+                ShellCommandStatus::Idle => None,
+                ShellCommandStatus::Running => Some(t("terminal.tooltip.running", cx).to_string()),
+                ShellCommandStatus::Succeeded => {
+                    Some(t("terminal.tooltip.last_succeeded", cx).to_string())
+                }
+                ShellCommandStatus::Failed { exit_code } => {
+                    let label = t("terminal.tooltip.last_failed", cx);
+                    Some(match exit_code {
+                        Some(code) => format!("{label} ({code})"),
+                        None => label.to_string(),
+                    })
+                }
+            };
 
             move |_, _| {
-                v_flex()
+                let mut root = v_flex()
                     .gap_1()
                     .child(Label::new(title.clone()))
                     .child(h_flex().flex_grow().child(Divider::horizontal()))
@@ -1481,8 +1553,15 @@ impl Item for TerminalView {
                         Label::new(format!("Process ID (PID): {}", pid))
                             .color(Color::Muted)
                             .size(LabelSize::Small),
-                    )
-                    .into_any_element()
+                    );
+                if let Some(line) = shell_status_line.clone() {
+                    root = root.child(
+                        Label::new(line)
+                            .color(Color::Muted)
+                            .size(LabelSize::Small),
+                    );
+                }
+                root.into_any_element()
             }
         }))))
     }
@@ -1518,7 +1597,39 @@ impl Item for TerminalView {
                     }
                 }
             },
-            None => (IconName::Terminal, Color::Muted, None),
+            // task 없는 일반 셸 — 도구 아이콘이 있으면 그것을 사용하고 색상으로 상태를 표현,
+            // 도구 아이콘이 없으면 상태별 기본 아이콘(Terminal/PlayFilled/Check/XCircle) 사용.
+            // 상태 우선순위: Claude IPC `task_completed` > OSC 133 `shell_command_status`.
+            None => {
+                let process_name_owned = terminal.foreground_process_name();
+                let process_name = process_name_owned.as_deref();
+                let process_icon = process_specific_icon(process_name);
+
+                // 0=Idle, 1=Running, 2=Succeeded, 3=Failed (로컬 분류)
+                let status_kind = if let Some(success) = self.task_completed {
+                    if success { 2 } else { 3 }
+                } else {
+                    match terminal.shell_command_status() {
+                        ShellCommandStatus::Idle => 0,
+                        ShellCommandStatus::Running => 1,
+                        ShellCommandStatus::Succeeded => 2,
+                        ShellCommandStatus::Failed { .. } => 3,
+                    }
+                };
+
+                match (process_icon, status_kind) {
+                    // 도구 아이콘 보존 + 색상으로 상태 표현 (claude 실행 중에 작업 완료 알림이 와도
+                    // AiClaude 아이콘은 유지하고 색상만 Success/Error 로 전환).
+                    (Some(icon), 2) => (icon, Color::Success, None),
+                    (Some(icon), 3) => (icon, Color::Error, None),
+                    (Some(icon), _) => (icon, Color::Default, None),
+                    // 도구 아이콘 없음 — 상태별 기본 아이콘
+                    (None, 1) => (IconName::PlayFilled, Color::Disabled, None),
+                    (None, 2) => (IconName::Check, Color::Success, None),
+                    (None, 3) => (IconName::XCircle, Color::Error, None),
+                    (None, _) => (IconName::Terminal, Color::Muted, None),
+                }
+            }
         };
 
         let self_handle = self.self_handle.clone();
@@ -1802,9 +1913,12 @@ impl Item for TerminalView {
     }
 
     fn is_dirty(&self, cx: &App) -> bool {
-        // 작업 완료(성공) 알림이 있으면 dirty 표시 (Accent 색상 점)
-        if self.task_completed == Some(true) {
-            return true;
+        // task_completed (Claude Code IPC 알림) 이 명시적으로 set 된 동안에는
+        // tab_content 의 Check/XCircle 아이콘으로 표시되므로 dot 을 중복 트리거하지 않는다.
+        // IPC 경로에서 set_has_bell 도 함께 호출되므로 has_bell 도 같이 차단해야 한다.
+        // 사용자 입력 시 clear_task_completed + clear_bell 이 동시 호출되어 알림이 종료된다.
+        if self.task_completed.is_some() {
+            return false;
         }
         match self.terminal.read(cx).task() {
             Some(task) => task.status == TaskStatus::Running,
@@ -1826,8 +1940,9 @@ impl Item for TerminalView {
     }
 
     fn has_conflict(&self, _cx: &App) -> bool {
-        // 작업 완료(실패) 알림이 있으면 conflict 표시 (Warning 색상 점)
-        self.task_completed == Some(false)
+        // 주의: Claude Code IPC 알림 (`task_completed == Some(false)`) 은
+        // tab_content 의 XCircle 아이콘으로 직접 표시하므로 여기서는 중복 dot 을 트리거하지 않는다.
+        false
     }
 
     fn can_save_as(&self, _cx: &App) -> bool {

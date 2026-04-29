@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "Dokkaebi"
-version = "0.4.1"
+version = "0.4.2"
 dependencies = [
  "acp_thread",
  "acp_tools",
@@ -14728,6 +14728,7 @@ dependencies = [
  "libc",
  "log",
  "parking_lot",
+ "paths",
  "portable-pty",
  "rand 0.9.4",
  "regex",

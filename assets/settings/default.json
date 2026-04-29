@@ -1905,6 +1905,12 @@
     "path_hyperlink_timeout_ms": 1,
     // Whether to show a badge on the terminal panel icon with the count of open terminals.
     "show_count_badge": false,
+    // Whether to enable Dokkaebi shell integration (OSC 133 / FinalTerm).
+    // When enabled, a startup script is auto-injected into bash and PowerShell
+    // so the terminal tab can show the previous command's exit-code icon and
+    // currently-running command name. User dotfiles are not modified.
+    // The env var DOKKAEBI_SHELL_INTEGRATION=off can also be set to disable.
+    "shell_integration": false,
   },
   "code_actions_on_format": {},
   // Settings related to running tasks.

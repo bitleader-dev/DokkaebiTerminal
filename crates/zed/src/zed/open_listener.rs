@@ -511,6 +511,28 @@ async fn handle_notify_request(
     responses: &IpcSender<CliResponse>,
     cx: &mut AsyncApp,
 ) {
+    // 본체 첫 실행 race 차단 — 워크스페이스 mount 완료까지 최대 3초 대기.
+    // restore_or_create_workspace_inner 가 비동기로 진행 중인 시점에 IPC 가
+    // 도달하면 cx.windows() 가 비어있어 mark_bell_for_notification 의 발신
+    // 터미널 매칭이 실패한다. 이미 ready 면 즉시 통과(AtomicBool fast-path).
+    // timeout 시에도 panic 없이 진행 — 호출측이 기존 동작으로 폴백.
+    use crate::zed::workspace_ready;
+    match workspace_ready::wait_for_ready(Duration::from_secs(3), cx).await {
+        workspace_ready::WaitResult::AlreadyReady => {}
+        workspace_ready::WaitResult::Notified => {
+            log::debug!(
+                "[notify-ipc] workspace ready 수신 — IPC 처리 진행 (kind={:?})",
+                args.kind
+            );
+        }
+        workspace_ready::WaitResult::Timeout => {
+            log::warn!(
+                "[notify-ipc] workspace ready timeout(3s) — 빈 windows 가능성 (kind={:?})",
+                args.kind
+            );
+        }
+    }
+
     // Subagent 이벤트는 토스트 알림과 무관한 별도 경로(서브에이전트 뷰 탭).
     // 기존 task_alert/task_alert_toast 설정과 충돌하지 않도록 먼저 분기 처리.
     if matches!(
@@ -1075,7 +1097,13 @@ fn mark_bell_for_notification(
         }
     };
 
+    log::debug!(
+        "[mark-bell] 진입 ancestor_pids.len()={} pid={:?}",
+        ancestor_pids.len(),
+        pid
+    );
     if ancestor_pids.is_empty() {
+        log::debug!("[mark-bell] target=None — ancestor chain 비어있음");
         return None;
     }
 
@@ -1100,9 +1128,15 @@ fn mark_bell_for_notification(
     // 소속 (윈도우, 워크스페이스) 를 타겟으로 캡처해 호출자가 토스트를 해당
     // 워크스페이스 한 곳에만 띄울 수 있게 한다.
     let mut target: Option<NotifyTarget> = None;
+    // 진단 카운터 — RUST_LOG=Dokkaebi=debug 일 때만 출력. 첫 실행 race 추적용.
+    let mut window_count: usize = 0;
+    let mut workspace_count: usize = 0;
+    let mut total_terminal_count: usize = 0;
+    let mut total_match_count: usize = 0;
 
     cx.update(|cx| {
         for window in cx.windows() {
+            window_count += 1;
             let Some(multi_handle) = window.downcast::<MultiWorkspace>() else {
                 continue;
             };
@@ -1113,13 +1147,17 @@ fn mark_bell_for_notification(
                 .update(cx, |multi_ws, _window, cx| {
                     let workspaces: Vec<_> = multi_ws.workspaces().to_vec();
                     for workspace_entity in workspaces {
+                        workspace_count += 1;
                         let workspace_for_target = workspace_entity.clone();
                         workspace_entity.update(cx, |workspace, cx| {
                             let active_index = workspace.active_group_index();
                             // (TerminalView, 그룹 인덱스) 쌍으로 수집
+                            let active_terminals: Vec<gpui::Entity<TerminalView>> =
+                                workspace.items_of_type::<TerminalView>(cx).collect();
+                            total_terminal_count += active_terminals.len();
                             let mut matched: Vec<(gpui::Entity<TerminalView>, usize)> =
-                                workspace
-                                    .items_of_type::<TerminalView>(cx)
+                                active_terminals
+                                    .into_iter()
                                     .filter(|tv| by_pid(tv, cx))
                                     .map(|tv| (tv, active_index))
                                     .collect();
@@ -1133,6 +1171,7 @@ fn mark_bell_for_notification(
                                         for tv in
                                             pane.read(cx).items_of_type::<TerminalView>()
                                         {
+                                            total_terminal_count += 1;
                                             if by_pid(&tv, cx) {
                                                 matched.push((tv, i));
                                             }
@@ -1140,6 +1179,7 @@ fn mark_bell_for_notification(
                                     }
                                 }
                             }
+                            total_match_count += matched.len();
 
                             // 첫 매칭에서 "그룹 / 탭" 라벨 + 소속 윈도우/워크스페이스
                             // + 발신 터미널이 속한 그룹 인덱스를 기록. 이후 매칭들은
@@ -1182,6 +1222,15 @@ fn mark_bell_for_notification(
                 .log_err();
         }
     });
+
+    log::debug!(
+        "[mark-bell] windows={} workspaces={} terminals={} matches={} target_found={}",
+        window_count,
+        workspace_count,
+        total_terminal_count,
+        total_match_count,
+        target.is_some()
+    );
 
     target
 }

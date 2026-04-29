@@ -7,10 +7,11 @@ This product is based on Zed, originally developed by Zed Industries, Inc.:
 
 Zed is licensed under the GNU General Public License, version 3 or later
 (GPL-3.0-or-later), with some components licensed under the Apache License
-2.0 (Apache-2.0) or the GNU Affero General Public License, version 3 or
-later (AGPL-3.0-or-later). Dokkaebi is distributed under the same
-GPL-3.0-or-later license. See LICENSE-GPL, LICENSE-AGPL, and LICENSE-APACHE
-for full license texts.
+2.0 (Apache-2.0). Dokkaebi is distributed under the same GPL-3.0-or-later
+license. See LICENSE-GPL and LICENSE-APACHE for full license texts.
+
+Dokkaebi source code is available at:
+  https://github.com/bitleader-dev/DokkaebiTerminal
 
 ==================================================================
 Modifications by Dokkaebi

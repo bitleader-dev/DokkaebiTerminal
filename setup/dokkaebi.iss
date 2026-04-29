@@ -3,7 +3,7 @@
 #define AppGuid "{B8F4E2A1-7C3D-4E5F-9A1B-6D8E0F2C3A4B}"
 #define AppId "{" + AppGuid
 #define AppName "Dokkaebi"
-#define Version "0.4.0"
+#define Version "0.4.1"
 #define AppSetupName "Dokkaebi-Setup-v" + Version
 #define AppMutex "Dokkaebi-Instance-Mutex"
 #define AppIconName "app-icon-dokkaebi"
@@ -21,6 +21,7 @@ AppName={#AppName}
 AppVerName={#AppName}
 UninstallDisplayName={#AppName}
 AppPublisher=Dokkaebi
+AppCopyright=Copyright (c) 2026 Dokkaebi. Based on Zed (c) 2022-2025 Zed Industries, Inc.
 AppPublisherURL=https://github.com/bitleader-dev/DokkaebiTerminal
 AppSupportURL=https://github.com/bitleader-dev/DokkaebiTerminal
 AppUpdatesURL=https://github.com/bitleader-dev/DokkaebiTerminal
@@ -101,6 +102,13 @@ Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{
 Name: "{app}"; AfterInstall: DisableAppDirInheritance
 
 [Files]
+; GPL §4·§5 의무 — 라이선스 사본·NOTICE·변경 고지를 수령자에게 함께 전달.
+; setup/dokkaebi.iss 위치 기준 상대경로(..\LICENSE-GPL 등)로 리포 루트의 원본을 참조.
+; .txt 확장자를 부여해 메모장 더블클릭으로 열람 가능하게 한다.
+; 이들 파일이 없으면 GPL 의무 위반이므로 #ifexist 가드 없이 컴파일 에러로 즉시 발견되도록 한다.
+Source: "..\LICENSE-GPL"; DestDir: "{app}\licenses"; DestName: "LICENSE-GPL.txt"; Flags: ignoreversion
+Source: "..\LICENSE-APACHE"; DestDir: "{app}\licenses"; DestName: "LICENSE-APACHE.txt"; Flags: ignoreversion
+Source: "..\NOTICE"; DestDir: "{app}\licenses"; DestName: "NOTICE.txt"; Flags: ignoreversion
 Source: "{#ResourcesDir}\{#AppExeName}.exe"; DestDir: "{app}"; Flags: ignoreversion
 #ifexist ResourcesDir + "\tools"
 Source: "{#ResourcesDir}\tools\*"; DestDir: "{app}\tools"; Flags: ignoreversion
@@ -148,10 +156,26 @@ Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}.exe"; AppUserModelID:
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}.exe"; Tasks: desktopicon; AppUserModelID: "{#AppUserId}"
 
 [Run]
-Filename: "{app}\{#AppExeName}.exe"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall; Check: WizardNotSilent
-; silent 업데이트(앱 내부 자동 업데이트) 후 앱을 자동 실행하며, --updated 파라미터로
-; "직전 설치가 업데이트였음" 시그널을 앱에 전달한다(릴리즈 노트 1회 자동 표시 트리거).
-Filename: "{app}\{#AppExeName}.exe"; Parameters: "--updated"; Flags: nowait; Check: WizardSilent
+; 인스톨러가 PostInstall 단계에서 dokkaebi 를 직접 spawn 하면 자식 chain
+; (dokkaebi → 터미널 → claude → bash → dispatch.sh → jq) 이 인스톨러 process
+; 의 spawn 컨텍스트(환경변수 PATH 중복 등)를 상속해 일부 user-owned reparse
+; point(예: %LOCALAPPDATA%\Microsoft\WinGet\Links\jq symlink) spawn 이 차단된다.
+; 결과적으로 Claude Code Task 호출 시 jq 가 실패 → SubagentStart/Stop IPC 가
+; 본체에 도달하지 않아 서브에이전트 뷰 탭 자동 생성이 안 된다 (사용자 보고:
+; "설치 후 자동 실행만 100% 재현, 종료 후 시작메뉴 직접 실행은 정상").
+;
+; explorer.exe 를 거쳐 spawn 하면 dokkaebi 의 부모가 인스톨러가 아닌
+; explorer 가 되어 시작메뉴 더블클릭과 동등한 컨텍스트로 시작되고 자식 chain
+; 도 정상 환경을 상속한다. 인스톨러 자체는 비-elevated(`PrivilegesRequired=lowest`)
+; 라 RunAs/권한 변경과는 무관 — 순수 spawn 컨텍스트 격리 fix.
+Filename: "{win}\explorer.exe"; Parameters: """{app}\{#AppExeName}.exe"""; Description: "{cm:LaunchProgram,{#AppName}}"; Flags: nowait postinstall; Check: WizardNotSilent
+; silent 업데이트(앱 내부 자동 업데이트) 후 앱을 자동 실행. 같은 explorer 우회
+; 적용. explorer.exe 가 추가 인자(`--updated`) 를 자식에 전달하지 않으므로
+; "방금 업데이트됐음" 시그널 기반 릴리즈 노트 1회 자동 표시는 본 fix 와 함께
+; 일시적으로 비활성된다. 자동 표시는 별도 follow-up 으로 본체 측 메커니즘
+; (예: 직전 버전 비교) 으로 재구현 예정. 우선순위는 핵심 기능(서브에이전트 탭
+; 자동 생성) 정상화이므로 release notes 자동 표시는 임시 trade-off.
+Filename: "{win}\explorer.exe"; Parameters: """{app}\{#AppExeName}.exe"""; Flags: nowait; Check: WizardSilent
 
 [Code]
 function WizardNotSilent(): Boolean;

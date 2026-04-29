@@ -13,6 +13,7 @@ pub mod remote_debug;
 pub mod visual_tests;
 #[cfg(target_os = "windows")]
 pub(crate) mod windows_only_instance;
+pub(crate) mod workspace_ready;
 
 use agent_ui::{AgentDiffToolbar, AgentPanelDelegate};
 use anyhow::Context as _;
@@ -4338,6 +4339,7 @@ mod tests {
                         SaveOptions {
                             format: true,
                             autosave: false,
+                            force_format: false,
                         },
                         project.clone(),
                         window,

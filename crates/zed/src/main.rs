@@ -1427,6 +1427,17 @@ async fn restore_or_create_workspace_inner(
     app_state: Arc<AppState>,
     cx: &mut AsyncApp,
 ) -> Result<()> {
+    // 워크스페이스 mount 가 끝났음을 IPC handler 측에 알린다. panic/early-return
+    // 시에도 발화되도록 RAII guard 로 둠. open_listener::handle_notify_request
+    // 진입에서 wait_for_ready 가 이 신호를 기다린다(첫 실행 race 차단).
+    struct ReadyGuard;
+    impl Drop for ReadyGuard {
+        fn drop(&mut self) {
+            crate::zed::workspace_ready::mark_ready();
+        }
+    }
+    let _ready_guard = ReadyGuard;
+
     let kvp = cx.update(|cx| KeyValueStore::global(cx));
     // 종단에서 0 이면 표시할 윈도우가 하나도 없는 좀비 본체 상태이므로 bail.
     let mut success_count: usize = 0;

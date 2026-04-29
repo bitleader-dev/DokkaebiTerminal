@@ -246,8 +246,9 @@ case "$KIND" in
     ;;
   subagent-start|subagent-stop)
     # PreToolUse/PostToolUse — matcher 제거로 모든 도구에 발화하므로 tool_name 으로
-    # 필터링해 Agent(서브에이전트) 도구만 트리거로 사용한다. 중첩 Tool 호출(Bash/Read/…)
-    # 은 outer payload 의 tool_name 이 그 내부 도구 이름이라 자연스럽게 걸러진다.
+    # 필터링해 Agent(서브에이전트, Task 도구) 만 트리거로 사용한다. 중첩 Tool 호출
+    # (Bash/Read/…) 은 outer payload 의 tool_name 이 그 내부 도구 이름이라 자연스럽게
+    # 걸러진다. hook payload 의 `tool_name` 필드는 Task 도구 호출 시 "Agent" 가 들어온다.
     #
     # 성능 최적화: 이전에는 tool_name/tool_use_id/tool_input/tool_response 가 각각
     # 별도 jq 프로세스를 spawn 해 훅당 4~5회 fork 비용이 발생했다. Windows Git Bash
@@ -268,19 +269,34 @@ case "$KIND" in
         ' 2>/dev/null)
         IFS=$'\t' read -r TOOL_NAME SUBAGENT_ID SUB_TYPE SUB_DESC SUB_PROMPT <<< "$JOINED"
       else
+        # tool_response 가 .text 없는 객체(배열) 라 fallback (tostring) 으로 떨어지면
+        # JSON 직렬화가 일어나 객체 안 String 의 진짜 newline 이 \n 두 글자(literal) 로
+        # escape 된다. 이후 @tsv 가 백슬래시를 한 번 더 escape (\\n) 해서 cli 까지
+        # 흘러가면, 본체 unescape_tsv_value 는 한 단계만 풀어 \n (백슬래시+n 두 글자)
+        # 가 그대로 화면에 노출된다. 이를 막기 위해 (tostring) 결과에 ujl 을 적용해
+        # JSON literal escape 를 진짜 character 로 먼저 복원한 뒤 @tsv 한 단계만
+        # 본체에서 풀게 한다. 문자열 분기와 .text 직접 추출 분기는 진짜 newline 이
+        # 이미 보존돼 있으므로 ujl 미적용(의도된 backslash-n 보존).
         JOINED=$(printf '%s' "$PAYLOAD" | "$JQ_PATH" -r '
+          def ujl:
+            gsub("\\\\\\\\"; "")
+            | gsub("\\\\n"; "\n")
+            | gsub("\\\\t"; "\t")
+            | gsub("\\\\r"; "\r")
+            | gsub("\\\\\""; "\"")
+            | gsub(""; "\\");
           [
             (.tool_name // ""),
             (.tool_use_id // ""),
             (
               .tool_response |
               if type == "string" then .
-              elif type == "array" then [.[] | if type == "object" and .text then .text else (tostring) end] | join(" ")
+              elif type == "array" then [.[] | if type == "object" and .text then .text else (tostring | ujl) end] | join(" ")
               elif type == "object" and .content then
                 if .content | type == "array" then
-                  [.content[] | if type == "object" and .text then .text else (tostring) end] | join(" ")
-                else (.content | tostring) end
-              else (tostring) end
+                  [.content[] | if type == "object" and .text then .text else (tostring | ujl) end] | join(" ")
+                else (.content | tostring | ujl) end
+              else (tostring | ujl) end
             )
           ] | @tsv
         ' 2>/dev/null)

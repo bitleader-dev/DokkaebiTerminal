@@ -1,79 +1,84 @@
-# 공개 배포용 라이선스 정합성 보강
+# Warp 기반 후속 작업 plan v6 (정리판 — 종료)
 
 > **작성일**: 2026-04-29
-> **상태**: 승인 대기
+> **종료일**: 2026-04-29
+> **상태**: ✅ 종료 — Phase F 완료, E/G/H 보류 결정
+> **이전 plan**: v5 Phase A/C/D/B 모두 완료 — `notes.md` 보존
+> **버전 기준**: `crates/zed/Cargo.toml` v0.4.1
 
-## 배경
+## 진행 결과
 
-공개 배포 전 라이선스 검토에서 다음 결손이 확인됨:
-1. Inno Setup 인스톨러가 `LICENSE-GPL`/`LICENSE-APACHE`/`NOTICE`를 함께 배포하지 않음 → GPL §4·§5("수령자에게 라이선스 사본 전달") 위반 소지
-2. 인스톨러 메타데이터에 `AppCopyright`/`VersionInfoCopyright` 누락
-3. AGPL 라이선스 컴포넌트가 실제로는 0건이지만 루트 `LICENSE-AGPL` 파일과 NOTICE의 AGPL 언급, `crates/ztracing*/LICENSE-AGPL`이 잔재로 남아 메타·실태 불일치
+| Phase | 결과 | 사유 |
+|---|---|---|
+| **F** description 편집 모달 markdown 미리보기 | **✅ 완료** | `Markdown::new_with_options + render_mermaid_diagrams: true` + Editor `BufferEdited` subscription 으로 실시간 갱신. 사용자 검증 통과 |
+| **E** Text Thread mermaid 렌더 | **보류** | TextThreadEditor 가 buffer 기반 코드 에디터, markdown 렌더 path 없음 — 적용 시 수백 라인 + UX 大 영향 |
+| **G** prompt_palette YAML import/export | **보류** | `prompts.json` 자체가 config 디렉터리에 있어 사용자 직접 복사로 동일 효과. ROI 낮음 |
+| **H** 활성 터미널 셸 호환성 표시 | **보류** | Terminal entity 에 shell_kind getter 미노출 + 단일 셸 환경 가치 미미. ROI 낮음 |
 
-아이콘(`welcome-icon*.png`/`app-icon-dokkaebi.ico`)은 사용자 확인 결과 자체 제작이라 작업 대상 아님.
+## 라이선스 게이트 (참고용 보존)
 
-## 목표
+본 plan 적용 시 준수했던 게이트 — 후속 plan 에서도 동일 적용:
 
-Dokkaebi의 GPL/Apache 의무를 인스톨러 배포 경로에서 정확히 충족시키고, AGPL 미사용 사실을 메타데이터에 일관되게 반영한다.
+1. Warp AGPL 본문 열람 금지. 차단 경로: `D:/Personal Project/Windows/warp-master/**/src/**`. 예외: `*.md`, `Cargo.toml`.
+2. 식별자·시그너처·자료구조 카피 금지. 표준 syntax 는 보호 대상 아님.
+3. 외부 의존성 추가는 MIT/Apache-2.0/BSD/MPL-2.0 만.
+4. AGPL 의존성 금지: `warpdotdev/command-corrections`, `warpdotdev/session-sharing-protocol`, `warpdotdev/warp-proto-apis`.
+5. Warp 코드 스니펫 첨부 시 인용 금지.
+6. 클린룸 결과 사후 diff 금지.
 
-## AGPL 검토 결과 (확정 사실)
+## Phase F 적용 내역 (완료)
 
-- 워크스페이스 모든 `Cargo.toml`에서 `license = "*AGPL*"` 표기 **0건** (Grep 검증 완료)
-- `crates/ztracing/Cargo.toml:6`·`crates/ztracing_macro/Cargo.toml:6` 모두 `license = "GPL-3.0-or-later"`
-- 메모리상 cargo-about 결과 13개 라이선스(Apache/MIT/MPL/Unicode/BSD/ISC/CC0/Zlib/MIT-0/NCSA/OpenSSL/bzip2)에 AGPL 부재
-- 결론: **Dokkaebi는 AGPL 컴포넌트 미사용**. 루트 `LICENSE-AGPL` 파일과 ztracing 디렉터리의 `LICENSE-AGPL`은 상류 Zed에서 inherit된 잔재이며 현 시점 의무 발생 근거 없음
+### 변경 파일
+| 파일 | 변경 |
+|---|---|
+| `crates/prompt_palette/Cargo.toml` | `markdown.workspace = true` 1줄 추가 |
+| `crates/prompt_palette/src/prompt_form_modal.rs` | `description_preview: Entity<Markdown>` + `_description_subscription: Subscription` 필드, new_create/new_edit 에 동기화, render 에 preview 박스 추가 |
+| `assets/locales/ko.json` + `en.json` | `prompt_palette.form.preview_label` 1키 추가 |
 
-## 작업 항목
+### 검증
+- ✓ `cargo check -p prompt_palette` 통과 (신규 warning 0)
+- ✓ `cargo check -p Dokkaebi` 통과
+- ✓ 단위 테스트 28 passed; 0 failed (이전 plan 누적)
+- ✓ 사용자 환경 수동 검증 통과 (markdown + mermaid 실시간 갱신)
 
-### A. 인스톨러에 라이선스 사본 동봉
-- [x] `setup/dokkaebi.iss` `[Files]` 섹션에 다음 3개 파일을 `{app}\licenses\` 로 복사 추가
-  - `LICENSE-GPL` → `licenses\LICENSE-GPL.txt` (확장자 부여로 메모장 더블클릭 열기 지원)
-  - `LICENSE-APACHE` → `licenses\LICENSE-APACHE.txt`
-  - `NOTICE` → `licenses\NOTICE.txt`
-- [x] Source 경로는 setup 디렉터리 기준 상대경로(`{#ResourcesDir}\..\LICENSE-GPL` 등)로 작성. 빌드 파이프라인이 setup/에 미리 복사하지 않아도 동작하도록 `#ifexist` 가드는 두지 않음(라이선스 동봉은 의무이므로 부재 시 빌드 실패가 정상)
-- [x] `assets/licenses.md`는 본체 바이너리에 임베드 + "오픈소스 라이선스" 메뉴로 접근 가능하므로 인스톨러 별도 동봉 불필요
+### 문서 갱신
+- ✓ `notes.md` Phase F 항목 추가
+- ✓ `release_notes.md` v0.4.1 `### UI/UX 개선` "프롬프트 등록 모달 설명 미리보기" 1줄 추가
 
-### B. 인스톨러 저작권 메타데이터 추가
-- [x] `setup/dokkaebi.iss` `[Setup]` 섹션에 `AppCopyright` 추가
-  - 값: `Copyright (c) 2026 Dokkaebi. Based on Zed (c) 2022-2025 Zed Industries, Inc.`
-  - Inno Setup이 `AppCopyright`를 자동으로 `VersionInfoCopyright`로도 사용하므로 별도 지정 불필요
+## v0.4.1 누적 변경 요약 (이전 plan 포함)
 
-### C. AGPL 잔재 정리 (실태 일치)
-- [x] 루트 `LICENSE-AGPL` 파일 삭제
-- [x] `crates/ztracing/LICENSE-AGPL` → `crates/ztracing/LICENSE-GPL`로 교체 (Cargo.toml 메타와 일치)
-- [x] `crates/ztracing_macro/LICENSE-AGPL` → `crates/ztracing_macro/LICENSE-GPL`로 교체
-- [x] `NOTICE` 본문에서 AGPL 언급 2곳 제거 + 표현 정정
-  - "with some components licensed under the Apache License 2.0 (Apache-2.0) **or the GNU Affero General Public License, version 3 or later (AGPL-3.0-or-later)**" → AGPL 절 제거
-  - "See LICENSE-GPL, **LICENSE-AGPL,** and LICENSE-APACHE" → AGPL 제거
+### 새로운 기능
+- 프롬프트 팔레트 파라미터 치환 (`{{name}}` placeholder, plan v5 Phase A)
 
-## 검증 방법
+### UI/UX 개선
+- AI 응답 mermaid 다이어그램 렌더링 (plan v3 Phase 2)
+- 프롬프트 팔레트 태그 다중 분류 (plan v5 Phase C)
+- 프롬프트 팔레트 사용 빈도 자동 정렬 (plan v5 Phase D)
+- 프롬프트 팔레트 설명 다중 줄 입력 (plan v5 Phase B)
+- 프롬프트 등록 모달 설명 미리보기 (plan v6 Phase F)
 
-- [x] **Inno Setup 컴파일 검증** (사용자 측): `setup/dokkaebi.iss` 컴파일 → `output\Dokkaebi-Setup-vX.Y.Z.exe` 생성 확인. 빌드 단계에서 `Source:` 경로 누락 시 컴파일 에러로 즉시 발견됨
-- [x] **설치 후 검증** (사용자 측): 설치 폴더 `%LOCALAPPDATA%\Programs\Dokkaebi\licenses\`에 3개 파일 존재 + 메모장으로 열림 확인
-- [x] **저작권 메타 검증** (사용자 측): 설치된 `dokkaebi.exe` 우클릭 → 속성 → 자세히 탭에서 Copyright 표기 확인 + Add/Remove Programs 게시자/저작권 확인
-- [x] **빌드 검증**: AGPL 파일 삭제·교체는 코드 컴파일 영향 0이지만 안전 차원에서 `cargo check -p Dokkaebi` 1회 실행
+### 정리
+- 공개 배포용 라이선스 사본 동봉 (이전)
 
-## 승인 필요 항목
+### 버그 수정
+- 4건 (이전)
 
-CLAUDE.md "승인 필요 조건"에 해당하는 작업:
-- C. **파일 삭제**: 루트 `LICENSE-AGPL` 1건
-- C. **파일 이름 변경(교체)**: `crates/ztracing/LICENSE-AGPL` → `LICENSE-GPL`, `crates/ztracing_macro/LICENSE-AGPL` → `LICENSE-GPL` 2건
-- A. **외부 호환성에 가까운 변경**: 인스톨러 페이로드 추가(설치 폴더 구조에 `licenses\` 폴더 신설)
+## 보류·자동 제외 후보 (별도 plan 시 재진입 가능)
 
----
+| 후보 | 보류/제외 사유 |
+|---|---|
+| Text Thread mermaid 렌더 | TextThreadEditor 가 buffer 기반 코드 에디터, markdown 렌더 path 없음. 별도 plan 필요 |
+| YAML import/export | `prompts.json` 직접 복사로 동일 효과, ROI 낮음 |
+| 활성 셸 호환성 표시 | Terminal entity shell_kind 미노출, 단일 셸 환경 가치 미미 |
+| prevent_sleep | 사용자 환경 절전 미사용으로 v3 보류, 환경 변경 시 재진입 |
+| Drive (cloud sync) | cloud 비활성 정책 위배 |
+| Agent Orchestration | ACP 외부 위임 구조와 충돌 |
+| Network Log in-app pane | cloud 비활성으로 호출 빈도 낮음 |
+| Managed Secrets (GCP) | cloud 비활성 |
+| MCP (warpdotdev fork) | Zed 자체 MCP 보유 |
+| Onboarding 슬라이드 | UI 단순화 지향 충돌 |
+| Computer Use | 보안 위험 + 일반 IDE 가치 낮음 |
+| 블록 기반 터미널 | 수개월 작업, portable-pty 마이그레이션 직후 안정성 위험 |
+| Voice Input | 음성 백엔드 라이선스 평가 큰 사전 작업 |
 
-## 결정 필요 사항 (사용자 선택)
-
-### 결정 1: 인스톨러 마법사에 라이선스 동의 페이지 추가 여부
-
-- **옵션 1 (현 plan 채택)**: `LicenseFile=` 미사용. 라이선스 동의 페이지 표시하지 않고 설치 폴더에 사본만 동봉. → GPL §4·§5 의무는 "수령자에게 라이선스 사본 전달"이지 "동의 페이지 표시"가 아니므로 충족
-- **옵션 2**: `LicenseFile=LICENSE-GPL` 추가 → 마법사에 GPL 전문 동의 페이지 표시. 사용자 경험상 무거워지나 더 보수적
-
-### 결정 2: NOTICE에 Dokkaebi source URL 추가 여부
-
-GPL §6은 바이너리 배포 시 source 위치 명시를 요구. 현재 인스톨러의 `AppPublisherURL=https://github.com/bitleader-dev/DokkaebiTerminal`이 그 역할이지만, NOTICE 본문에도 명시하면 더 명확.
-
-- **옵션 1 (권장)**: NOTICE에 "Source code: https://github.com/bitleader-dev/DokkaebiTerminal" 1줄 추가
-- **옵션 2**: 현 상태 유지 (인스톨러 메타로 충분하다고 판단)
-
-위 결정 2건에 대한 답변 + plan 전체 승인 후 진행하겠습니다.
+본 plan 종료. 추가 작업 진행 시 새 plan 으로 시작.

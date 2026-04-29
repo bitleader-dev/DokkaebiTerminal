@@ -11540,11 +11540,16 @@ name = "prompt_palette"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
+ "editor",
  "fuzzy",
  "gpui",
  "i18n",
+ "language",
+ "markdown",
  "paths",
  "picker",
+ "regex",
  "serde",
  "serde_json",
  "ui",

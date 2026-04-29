@@ -817,7 +817,8 @@ calloop = { git = "https://github.com/zed-industries/calloop" }
 [profile.dev]
 split-debuginfo = "unpacked"
 incremental = true
-codegen-units = 16
+# 변수 inspect 가능한 풀 DWARF/PDB 대신 file:line 정보만 유지해 dev 빌드 시간/디스크 사용 단축
+debug = "line-tables-only"
 
 # mirror configuration for crates compiled for the build platform
 # (without this cargo will compile ~400 crates twice)

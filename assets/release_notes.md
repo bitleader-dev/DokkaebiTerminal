@@ -33,6 +33,7 @@
 - **외부 디렉터리 symlink 변경 감지**: worktree 의 symlink 가 가리키는 외부 디렉터리에서 발생한 파일 변경도 즉시 인식되어 reload 트리거
 - **sticky header 가 현재 row 가리지 않음**: jump-to-definition·위 화살표 등에서 자동 스크롤이 sticky 헤더 영역을 고려해 보고 있던 줄을 가리지 않게 정렬
 - **Agent/MCP/cli 가 OS 기본 셸 사용**: `terminal.shell` 설정 대신 시스템 셸을 직접 호출해 tmux session 안에서도 hang 없이 동작
+- **메모장 우클릭 메뉴에서 선택 없이도 터미널 전송 가능**: 선택 텍스트가 없을 때도 터미널 항목이 노출되며 클릭 시 메모장 전체 내용을 앞·뒤 공백 제거 후 해당 터미널에 입력
 
 ### 버그 수정
 - **split diff 패닉 회피**: diff 가 동시 편집으로 사라지는 race condition 에서도 panic 대신 빈 결과로 안전 종료

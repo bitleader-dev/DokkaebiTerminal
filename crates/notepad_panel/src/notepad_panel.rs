@@ -663,11 +663,15 @@ impl NotepadPanel {
 
     /// 메모장 전용 우클릭 컨텍스트 메뉴를 구성해 NotepadPanel의 `context_menu` 필드에 저장한다.
     /// render에서 deferred anchored로 그려진다.
-    /// - 선택 텍스트가 공백뿐이거나 비어있으면 메뉴를 띄우지 않는다.
-    /// - 현재 워크스페이스의 TerminalPanel에 있는 모든 터미널 탭을 항목으로 노출한다.
-    /// - 터미널 탭이 하나도 없으면 메뉴를 띄우지 않는다.
+    /// - 편집 섹션(복사/잘라내기/붙여넣기)은 항상 표시한다.
+    /// - 터미널 섹션은 전송 가능한 텍스트가 있고 워크스페이스에 터미널 탭이 1개 이상일 때만 표시한다.
+    ///   "전송 가능한 텍스트" 의 정의:
+    ///   - 선택 텍스트가 있으면 → 선택 텍스트(공백 보존)
+    ///   - 선택 텍스트가 없으면 → 메모장 전체 텍스트의 앞·뒤 공백을 제거한 결과
+    ///     (trim 결과가 빈 문자열이면 터미널 섹션 비표시)
+    /// - 터미널 항목 클릭 시 위 규칙으로 결정된 텍스트를 해당 터미널에 paste 한다.
     ///
-    /// 메뉴를 실제로 띄웠으면 `true`를 반환한다. 호출 측은 이 값으로 이벤트 전파 차단 여부를 결정한다.
+    /// 메뉴는 항상 띄우므로 `true` 를 반환한다. 호출 측은 이 값으로 이벤트 전파 차단 여부를 결정한다.
     fn deploy_terminal_send_menu(
         &mut self,
         position: Point<Pixels>,
@@ -675,8 +679,21 @@ impl NotepadPanel {
         cx: &mut Context<Self>,
     ) -> bool {
         let editor = self.editor.clone();
-        // 선택 텍스트는 터미널 섹션용. 없어도 편집 섹션은 표시하므로 여기서 return하지 않는다.
-        let selected_text = Self::selected_text(&editor, cx);
+        // 터미널 전송 텍스트 결정:
+        // - 선택 텍스트가 있으면 그대로 사용 (사용자가 명시적으로 고른 범위는 보존, trim 미적용)
+        // - 선택 텍스트가 없으면 메모장 전체 텍스트의 앞·뒤 공백을 제거한 결과 사용
+        //   (trim 결과가 빈 문자열이면 None → 터미널 섹션 자체를 비표시)
+        let text_to_send: Option<String> = match Self::selected_text(&editor, cx) {
+            Some(selected) => Some(selected),
+            None => {
+                let trimmed = editor.read(cx).text(cx).trim().to_string();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed)
+                }
+            }
+        };
 
         let terminals = self
             .workspace
@@ -717,10 +734,10 @@ impl NotepadPanel {
                 }
             });
 
-            // 터미널 섹션: 선택 텍스트가 있고 터미널 탭이 1개 이상일 때만 구분선 + 엔트리 추가.
+            // 터미널 섹션: 전송 가능한 텍스트가 있고 터미널 탭이 1개 이상일 때만 구분선 + 엔트리 추가.
             // 각 터미널 entry 라벨 앞에 탭과 동일한 좌측 3px 컬러 바를 표시 (color 미지정 항목은
             // 동일 너비 투명 영역으로 정렬 일관성 유지).
-            if let Some(text) = selected_text.as_ref() {
+            if let Some(text) = text_to_send.as_ref() {
                 if !terminals.is_empty() {
                     menu = menu.separator();
                     for (label, terminal_view) in terminals.iter().cloned() {

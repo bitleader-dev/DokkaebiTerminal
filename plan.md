@@ -1,137 +1,84 @@
-# 터미널 탭 색상 커스터마이징 plan v1 (종료)
+# 메모장 패널 터미널 메뉴 색상 + 탭 색상 자동 부여 plan v1 (종료)
 
 > **작성일**: 2026-04-30
 > **종료일**: 2026-04-30
-> **상태**: ✅ 종료 — Phase 1~5 모두 완료, 사용자 수동 검증 대기
-> **버전 기준**: `crates/zed/Cargo.toml` **v0.4.3** (bump 완료)
-> **출처**: Warp `warp-master` 분석 결과 1순위 후보 (라이선스 검토 통과)
-> **이전 plan**: OSC 133 셸 통합 plan v1 종료 (v0.4.2 출시)
-> **사용자 결정 (2026-04-30)** ✅ 모두 적용:
-> - 팔레트: **8색 + 없음** (Red / Orange / Yellow / Green / Blue / Purple / Pink / Gray)
-> - 표시: **탭 좌측 3px 컬러 바**
-> - UI 진입점: **탭 우클릭 메뉴 "탭 색상" 서브메뉴**
+> **상태**: ✅ 종료 — Phase 1~3 모두 완료, 사용자 수동 검증 대기
+> **버전 기준**: `crates/zed/Cargo.toml` **v0.4.4** (bump 완료)
+> **이전 plan**: 터미널 탭 색상 커스터마이징 plan v1 종료 (v0.4.3 출시)
 
 ## 진행 결과
+
 | Phase | 결과 | 검증 |
 |---|---|---|
-| 1. 데이터 (enum + 필드) | ✅ 완료 | `cargo check -p terminal_view` |
-| 2. 시각 표시 (좌측 컬러 바) | ✅ 완료 | 통과 |
-| 3. 우클릭 메뉴 + 액션 | ✅ 완료 | 통과 |
-| 4. 영구 저장 (DB 컬럼 + 직렬화) | ✅ 완료 | 통과 |
-| 5. i18n + 문서 + 버전 bump | ✅ 완료 | `cargo check -p Dokkaebi` 통과 (신규 warning 0) |
+| 1. 메모장 터미널 메뉴 좌측 컬러 바 | ✅ 완료 | `cargo check -p notepad_panel` |
+| 2. 새 터미널 탭 색상 자동 부여 (`pick_auto_tab_color`) | ✅ 완료 | `cargo check -p terminal_view` |
+| 3. 검증 + 문서 + v0.4.4 bump | ✅ 완료 | `cargo check -p Dokkaebi` 통과 (신규 warning 0) |
 
-⏳ **사용자 환경 수동 검증 대기**: 우클릭 → 색상 선택 → 좌측 바 표시 / 다른 탭에 다른 색 / 재시작 후 보존 / "없음" 해제
-
-본 plan 종료. 후속 plan 후보로 "블록 단위 navigation (Ctrl+↑/↓)" 가 자연스러운 다음 진입점.
+본 plan 종료. 후속 plan 후보로는 "블록 단위 navigation" 또는 "탭 색상 컨텍스트 자동 분류" 가 다음 진입점.
 
 ## 목표
 
-사용자가 각 터미널 탭에 색상을 명시 지정해 워크스페이스/원격/태스크/도구별 터미널을 시각적으로 즉시 구분할 수 있게 한다. v0.4.2 의 도구별 아이콘(claude→AiClaude, cargo→FileRust 등) 과 결합되어 다음 사용자 가치 제공:
+v0.4.3 의 탭 색상 인프라를 두 위치로 확장한다.
 
-1. **여러 터미널 탭 식별성 향상** — 동일 도구 다중 터미널(예: claude × 3) 을 색상으로 구분
-2. **워크스페이스/원격 컨텍스트 구분** — 로컬·원격·sudo 등 위험도 다른 탭 색으로 표시
-3. **장기 사용 탭 라벨링** — 사용자가 의미 있는 탭(예: 빌드용·로그 모니터링용) 을 색으로 마킹
+1. **메모장 패널 → 텍스트 선택 → 우클릭 → 터미널 목록 메뉴**: 각 터미널 항목 라벨 앞에 해당 탭의 색상 dot 표시 (탭 색상 미지정 항목은 dot 없음). 사용자는 메뉴에서 색상으로 터미널을 즉시 식별 가능.
+2. **새 터미널 탭 생성 시 색상 자동 부여**: 같은 워크스페이스의 다른 터미널 탭들이 사용 중이지 않은 색상 중 하나를 자동 부여. 모든 색상이 이미 사용 중이면 카운트가 가장 적은 색상. 영구 저장에서 복원된 사용자 명시 색상은 그대로 유지.
 
-## 비목표 (이번 plan 에서 안 함)
+## 비목표
 
-- 탭 색상 자동 부여(워크플로우 컨텍스트 기반) — Warp 자동 부여 정책은 별도 plan
-- 탭 그룹화 / 폴더링
-- 임의 hex 색상 입력 — 사전 팔레트 8색만 지원(접근성·테마 호환성 보장)
-- 색상 단축키 일괄 일괄 변경 — 우클릭 메뉴와 액션만
-- DisplayOnly 터미널(스크롤백 전용) 색상 — 일반 PTY 탭만 대상
+- 자동 부여 색상에 대한 사용자 설정 토글 (현재는 항상 ON, 후속 plan 후보)
+- 색상이 task 터미널에도 적용되도록 확장 (현재는 일반 셸 한정)
+- 메모장 패널 외 다른 위치(예: agent panel 의 터미널 목록)의 색상 표시
 
 ## 라이선스 게이트
 
-- Warp `warp-master/**/src/**` 본문 열람 금지. 색상 팔레트 컬러 코드는 Dokkaebi 테마 시스템에서 자체 선정.
+- v0.4.3 의 색상 매핑 그대로 재사용 — 외부 코드 미참조.
 - 외부 의존성 추가 0건 예상.
-- 코드·이름·시그너처 카피 금지.
-
-## 사용자 결정 필요 (3건)
-
-### 1. 색상 팔레트 구성
-**기본 제안**: 8색 + "기본"(색상 없음 — 토글 해제용)
-- Red / Orange / Yellow / Green / Blue / Purple / Pink / Gray
-- GPUI `Color` 시스템과 매핑되는 의미 색상 사용 (테마 라이트/다크 자동 대응)
-
-대안: 6색 또는 12색. **색이 너무 많으면 선택 비용 증가**.
-
-### 2. 색상 표시 방식
-**기본 제안**: 탭 좌측 얇은 컬러 바 (3px)
-- 탭 컨텐츠(아이콘 + 텍스트) 는 그대로, 좌측에만 색 바 추가
-- 도구 아이콘 색조와 분리되어 두 정보 독립 인지
-
-대안:
-- 아이콘 색조 변경 (도구 아이콘과 충돌 — 도구 식별 손실)
-- 탭 배경 색조 (가독성 우려, 테마 호환 까다로움)
-- 좌측 바 + 아이콘 색조 둘 다 (정보 중복)
-
-### 3. UI 진입점
-**기본 제안**: 탭 우클릭 메뉴에 "탭 색상" 서브메뉴 (`color1`...`color8` + `없음`)
-- rename 과 같은 패턴 — 즉시 적용
-- i18n 키 9개 + 색상 9건
-
-대안: 명령 팔레트 액션만, 또는 둘 다.
 
 ## 작업 단계
 
-### Phase 1 — 색상 enum + 데이터 구조 (순수 추가)
-- [ ] `crates/terminal/src/terminal_settings.rs` 또는 `terminal_view.rs` 에 `TerminalTabColor` enum 추가 (None / Red / Orange / Yellow / Green / Blue / Purple / Pink / Gray, Serialize/Deserialize/JsonSchema). 기본값 None.
-- [ ] `crates/terminal_view/src/terminal_view.rs::TerminalView` 에 `custom_color: Option<TerminalTabColor>` 필드 추가 (None = 색상 없음 = 기본).
-- [ ] `pub fn set_custom_color(&mut self, color: Option<TerminalTabColor>, cx)` 메서드 — 변경 시 `ItemEvent::UpdateTab` + 영구화 트리거.
+### Phase 1 — 메모장 패널 터미널 메뉴 좌측 컬러 바 표시 [/]
+- [ ] `crates/notepad_panel/src/notepad_panel.rs::deploy_terminal_send_menu` 의 터미널 entry 생성부 수정.
+- [ ] 각 TerminalView 에서 `custom_color()` 게터 호출 (v0.4.3 에서 `pub fn` 으로 추가됨).
+- [ ] `terminal_view::TerminalTabColor` import 후 `color.hsla()` 로 컬러 바 색상 산출.
+- [ ] 터미널 entry 를 `ContextMenu::custom_entry` 로 그려 `h_flex { 좌측 3px × h_4 컬러 바 또는 동일 너비 투명 영역, 라벨 }` 형식. 탭의 좌측 컬러 바와 폭/모서리 일관성 유지(`rounded_sm`). custom_color None 인 항목은 동일 너비 투명 div 로 정렬을 맞춘다.
+- [ ] 단축키/dispatch 동작은 기존과 동일 — handler 만 그대로 유지.
 
-### Phase 2 — 시각적 표시 (UI 변경)
-- [ ] `tab_content` 의 `h_flex` 시작에 `custom_color` 가 Some 이면 좌측 3px 너비 컬러 바 child 추가. None 이면 기존 레이아웃 유지(픽셀 변화 없음).
-- [ ] 색상 → GPUI `Hsla` 매핑 함수 — 각 색상의 라이트/다크 테마 명도/채도 조정. `theme::ActiveTheme` 의 시맨틱 색상 가능한 한 재사용.
+### Phase 2 — 새 터미널 탭 생성 시 자동 색상 부여 [/]
+- [ ] `crates/terminal_view/src/terminal_view.rs` 에 신규 자유 함수 `pick_auto_tab_color(workspace: &Workspace, cx: &App) -> TerminalTabColor`.
+  - 워크스페이스의 모든 `TerminalView` 순회 (TerminalPanel + 중앙 panes), 각 `custom_color()` 카운트.
+  - `TerminalTabColor::ALL` 순서로 첫 미사용 색상 반환.
+  - 모두 사용 중이면 카운트 가장 작은 색상 반환 (동률 시 ALL 순서상 앞).
+- [ ] `TerminalView::new` 끝에서 `custom_color` 가 None 이고 task 가 None 이고 workspace 가 살아 있으면 `pick_auto_tab_color` 결과로 set. 단 영구화 트리거(`needs_serialize`) 는 그대로.
+  - **deserialize 경로 호환**: `deserialize` 의 마지막 `if custom_color.is_some() { view.custom_color = custom_color; }` 분기는 그대로 두면 사용자 명시 색상이 자동 부여 색상을 덮어쓴다. 추가 처리: deserialize 시 DB 의 custom_color 가 Some 이면 자동 부여 결과를 무시하기 위해, `new` 의 자동 부여 결과를 `view.custom_color = ...` 로 설정 후 deserialize 분기가 그것을 다시 덮어쓰는 순서가 자연스럽다 → 별도 변경 불필요.
 
-### Phase 3 — 우클릭 메뉴 + 액션
-- [ ] `crates/terminal_view/src/terminal_view.rs` 에 `actions!(terminal, [SetTabColor { color: TerminalTabColor }])` 액션 등록 — 또는 9개 별도 액션(SetTabColorRed 등).
-- [ ] 기존 우클릭 메뉴(deploy_context_menu 또는 동등)에 "탭 색상" 서브메뉴 노드 추가. 9개 항목 + 현재 선택된 색상에 체크 표시.
-- [ ] 액션 핸들러 — 선택된 색상으로 `set_custom_color` 호출.
-
-### Phase 4 — 영구 저장 (DB 스키마 — 후방 호환)
-- [ ] `persistence.rs::SerializedTerminal` 에 `custom_color: Option<TerminalTabColor>` 추가 (`#[serde(default)]` 으로 후방 호환).
-- [ ] serialize/deserialize 코드에서 필드 매핑.
-- [ ] **승인 필요**: 영구 저장 스키마 변경. 단 `serde(default)` 로 구버전 데이터는 None 으로 자동 채움 — 사용자 데이터 손실 없음.
-
-### Phase 5 — i18n + 문서 + 검증
-- [ ] i18n 키 신규 (ko + en):
-  - `terminal.tab.color.menu` ("탭 색상" / "Tab Color")
-  - `terminal.tab.color.none` ("없음" / "None")
-  - `terminal.tab.color.red` ~ `.gray` (8건)
-- [ ] `cargo check -p terminal -p terminal_view -p Dokkaebi` 통과
-- [ ] `cargo check --tests -p terminal_view` 통과
-- [ ] 사용자 환경 수동 검증: 우클릭 → 색상 선택 → 좌측 바 표시 / 다른 탭에 다른 색 적용 / Dokkaebi 재시작 후 색상 보존 / "없음" 으로 해제
-- [ ] `crates/zed/Cargo.toml` v0.4.2 → v0.4.3 bump
-- [ ] `assets/release_notes.md` v0.4.3 신규 섹션 — `### 새로운 기능` 또는 `### UI/UX 개선` 1줄
+### Phase 3 — 검증 + 문서
+- [ ] `cargo check -p notepad_panel -p terminal_view -p Dokkaebi` 통과 (신규 warning 0).
+- [ ] 사용자 환경 수동 검증:
+  1. 새 터미널 1개 생성 → 자동 색상 부여 확인 (좌측 컬러 바)
+  2. 새 터미널 추가 (총 2개) → 첫 번째와 다른 색상 부여
+  3. 8개 추가 → 모든 색상 사용 → 9번째는 카운트 가장 작은 색상
+  4. 메모장에서 텍스트 선택 → 우클릭 → 터미널 목록에 각 탭의 dot 표시
+  5. 사용자가 명시 변경한 색상은 재시작 후 유지 (자동 부여가 덮어쓰지 않음)
+- [ ] `crates/zed/Cargo.toml` v0.4.3 → v0.4.4 bump
+- [ ] `assets/release_notes.md` v0.4.4 신규 섹션 — 새 기능 2 (메뉴 dot, 자동 색상)
 - [ ] `notes.md` Phase 별 변경 기록
 
-## 승인 필요 사항 요약
+## 승인 필요 사항
 
 | 항목 | 사유 |
 |---|---|
-| **Phase 1** TerminalView 구조체 신규 필드 | 구조 변경 |
-| **Phase 3** 액션 enum + 우클릭 메뉴 | 공개 API + UI 변경 |
-| **Phase 4** SerializedTerminal 스키마 변경 | DB 스키마 변경 (후방 호환) |
-| **버전 bump** | v0.4.3 |
-| **사용자 결정 3건** (색 개수·표시 방식·UI 진입점) | 본 plan 상단 참조 |
+| **Phase 2** TerminalView::new 끝에서 색상 자동 set | 새 터미널 동작 변경. 사용자 환경 영향 |
+| **버전 bump** | v0.4.4 |
 
 ## 리스크 및 대응
 
 | 리스크 | 대응 |
 |---|---|
-| 색상이 테마(라이트/다크)에 따라 가독성 저하 | GPUI 시맨틱 색상 사용 + 라이트/다크별 명도 조정 함수 |
-| 좌측 컬러 바가 탭 폭 사용량 증가 | 3px 만 추가 — 텍스트 truncate 영향 미미 |
-| 우클릭 메뉴 항목 비대화 | 서브메뉴로 묶어 1차 메뉴는 1줄만 |
-| 색상 의미 사용자별 다름 | 사전 정의 색상 이름은 중립적(Red/Blue 등). 의미는 사용자 자유 |
-
-## 후속 plan 후보 (본 plan 종료 후)
-
-| 후보 | 트리거 |
-|---|---|
-| 블록 단위 navigation (Ctrl+↑/↓ 로 이전 명령 점프) | OSC 133 + 색상 안정 동작 후 |
-| 탭 색상 자동 부여(워크플로우/원격 등 컨텍스트) | 사용자 사용 패턴 분석 후 |
-| Kitty Keyboard Protocol 확장 | modern TUI 필요 사례 발생 시 |
+| `pick_auto_tab_color` 가 모든 TerminalView 순회 — 다수 탭일 때 비용 | O(N), N=탭 수. 일반 N<20 가정 시 무시 가능 |
+| 영구화된 색상이 자동 부여로 덮어쓰기 | new → deserialize 순서로 덮어쓰는 분기가 우선이라 보존됨 |
+| task 터미널에 자동 색상 부여 | task=Some 분기 skip 으로 차단 (기존 정책 일관) |
+| 색상 부여 직후 영구화 — 새 탭 닫고 재오픈 시 색상 변경 가능 | 자동 부여도 영구화되므로 재오픈 시 동일 색상. 단 워크스페이스 외부에서 보면 색상이 무작위로 보일 수 있음 (수용) |
 
 ---
 
-**다음 액션**: 위 사용자 결정 3건(① 색 개수·팔레트 ② 표시 방식 ③ UI 진입점) 확정 후 Phase 1 착수.
+**다음 액션**: 본 plan 승인 시 Phase 1 착수.

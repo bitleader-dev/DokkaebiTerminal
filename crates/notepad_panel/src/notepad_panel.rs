@@ -21,7 +21,7 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use terminal_view::{terminal_panel::TerminalPanel, TerminalView};
+use terminal_view::{terminal_panel::TerminalPanel, TerminalTabColor, TerminalView};
 use ui::{prelude::*, ContextMenu, IconName, Label};
 use uuid::Uuid;
 use workspace::{
@@ -718,6 +718,8 @@ impl NotepadPanel {
             });
 
             // 터미널 섹션: 선택 텍스트가 있고 터미널 탭이 1개 이상일 때만 구분선 + 엔트리 추가.
+            // 각 터미널 entry 라벨 앞에 탭과 동일한 좌측 3px 컬러 바를 표시 (color 미지정 항목은
+            // 동일 너비 투명 영역으로 정렬 일관성 유지).
             if let Some(text) = selected_text.as_ref() {
                 if !terminals.is_empty() {
                     menu = menu.separator();
@@ -725,13 +727,33 @@ impl NotepadPanel {
                         let text = text.clone();
                         let entry_label =
                             SharedString::from(format!("{} {}", label, send_suffix));
-                        menu = menu.entry(entry_label, None, move |_window, cx| {
+                        // 빌더 진입 시점에 1회 색상값을 추출해 render 클로저에 캡처
+                        let bar_color: Option<gpui::Hsla> = terminal_view
+                            .read(_cx)
+                            .custom_color()
+                            .map(TerminalTabColor::hsla);
+                        let label_for_render = entry_label.clone();
+                        let render_fn = move |_w: &mut Window, _c: &mut App| {
+                            ui::h_flex()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .w(px(3.))
+                                        .h_4()
+                                        .rounded_sm()
+                                        .when_some(bar_color, |this, color| this.bg(color)),
+                                )
+                                .child(Label::new(label_for_render.clone()))
+                                .into_any_element()
+                        };
+                        let handler = move |_w: &mut Window, cx: &mut App| {
                             terminal_view.update(cx, |view, cx| {
                                 view.terminal().update(cx, |terminal, _cx| {
                                     terminal.paste(&text);
                                 });
                             });
-                        });
+                        };
+                        menu = menu.custom_entry(render_fn, handler);
                     }
                 }
             }

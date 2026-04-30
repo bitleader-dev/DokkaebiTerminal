@@ -103,7 +103,7 @@ pub struct RenameTerminal;
 
 /// 터미널 탭 사용자 색상 (좌측 3px 컬러 바). None = 색상 미지정(기본 동작).
 /// 라이트/다크 테마 모두에서 가독성을 갖도록 채도·명도를 조정한 시맨틱 8색.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TerminalTabColor {
     Red,
@@ -392,6 +392,35 @@ impl TerminalView {
             cx.observe(&blink_manager, |_, _, cx| cx.notify()),
             cx.observe_global::<SettingsStore>(Self::settings_changed),
         ];
+
+        // 새 일반 셸 터미널이면 워크스페이스 내 다른 탭들과 중복되지 않는 색상을 자동 부여.
+        // 주의: TerminalView::new 는 호출처(예: add_center_terminal)가 이미 workspace 를
+        // mutably borrow 한 상태에서 호출되므로 여기서 workspace.read(cx) 를 직접 하면
+        // double borrow 패닉. cx.defer 로 다음 frame 으로 지연시켜 borrow 가 풀린 뒤 실행한다.
+        // task 터미널은 색상 정책 외 → defer 안에서 task() 체크.
+        // deserialize 경로는 new 직후 동기적으로 DB 의 custom_color 를 set 하므로 defer 가
+        // 실행될 시점엔 self.custom_color 가 Some 으로 채워져 자동 부여 분기를 skip 한다.
+        let workspace_for_auto = workspace_handle.clone();
+        let self_for_auto = cx.entity().downgrade();
+        cx.defer(move |cx| {
+            let Some(view) = self_for_auto.upgrade() else {
+                return;
+            };
+            // 현재 색상 상태 + task 여부 확인
+            let (custom_color, has_task) = view.read_with(cx, |view, cx| {
+                (view.custom_color, view.terminal.read(cx).task().is_some())
+            });
+            if custom_color.is_some() || has_task {
+                return;
+            }
+            let Some(ws) = workspace_for_auto.upgrade() else {
+                return;
+            };
+            let auto_color = ws.update(cx, |ws, cx| pick_auto_tab_color(ws, cx));
+            view.update(cx, |view, cx| {
+                view.set_custom_color(Some(auto_color), cx);
+            });
+        });
 
         Self {
             terminal,
@@ -1237,6 +1266,46 @@ fn terminal_rerun_override(task: &TaskId) -> zed_actions::Rerun {
         use_new_terminal: Some(false),
         reevaluate_context: false,
     }
+}
+
+/// 워크스페이스 내 다른 터미널 탭들이 사용 중이지 않은 `TerminalTabColor` 를 선택한다.
+/// `TerminalTabColor::ALL` 순서로 첫 미사용 색상을 반환하고, 모두 사용 중이면
+/// 카운트 가장 작은 색상(동률 시 ALL 순서상 앞)을 반환한다.
+/// `TerminalView::new` 종료 직전에 호출되므로 신규 view 자신은 카운트에 포함되지 않는다.
+pub fn pick_auto_tab_color(workspace: &Workspace, cx: &App) -> TerminalTabColor {
+    use std::collections::HashMap;
+    let mut counts: HashMap<TerminalTabColor, usize> = HashMap::new();
+
+    // TerminalPanel(dock) 내부 pane 순회
+    if let Some(terminal_panel) = workspace.panel::<TerminalPanel>(cx) {
+        let terminal_panel = terminal_panel.read(cx);
+        for pane in terminal_panel.center.panes() {
+            for item in pane.read(cx).items() {
+                if let Some(view) = item.downcast::<TerminalView>() {
+                    if let Some(color) = view.read(cx).custom_color() {
+                        *counts.entry(color).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    // 중앙 pane 의 TerminalView 순회
+    for view in workspace.items_of_type::<TerminalView>(cx) {
+        if let Some(color) = view.read(cx).custom_color() {
+            *counts.entry(color).or_insert(0) += 1;
+        }
+    }
+
+    for color in TerminalTabColor::ALL {
+        if !counts.contains_key(&color) {
+            return color;
+        }
+    }
+    TerminalTabColor::ALL
+        .into_iter()
+        .min_by_key(|color| counts.get(color).copied().unwrap_or(0))
+        .unwrap_or(TerminalTabColor::Blue)
 }
 
 /// foreground 프로세스명을 Windows `.exe` suffix 제거 + 소문자 stem 으로 정규화.

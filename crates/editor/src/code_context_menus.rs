@@ -1260,6 +1260,7 @@ impl CompletionsMenu {
                 sort_snippet: Reverse<i32>,
                 sort_score: Reverse<OrderedFloat<f64>>,
                 sort_positions: Vec<usize>,
+                sort_exact_case_matches: Reverse<usize>,
                 sort_text: Option<&'a str>,
                 sort_kind: usize,
                 sort_label: &'a str,
@@ -1315,6 +1316,10 @@ impl CompletionsMenu {
                     SnippetSortOrder::None => Reverse(0),
                 };
                 let sort_positions = string_match.positions.clone();
+                let sort_exact_case_matches = Reverse(exact_case_match_count(
+                    query.unwrap_or_default(),
+                    string_match,
+                ));
                 // This exact matching won't work for multi-word snippets, but it's fine
                 let sort_exact = Reverse(if Some(completion.label.filter_text()) == query {
                     1
@@ -1327,6 +1332,7 @@ impl CompletionsMenu {
                     sort_snippet,
                     sort_score,
                     sort_positions,
+                    sort_exact_case_matches,
                     sort_text,
                     sort_kind,
                     sort_label,
@@ -1381,6 +1387,32 @@ impl CompletionsMenu {
         cx.notify();
         self.scroll_handle_aside.set_offset(offset);
     }
+}
+
+/// query 문자와 candidate 문자의 case 까지 정확히 일치한 매치 개수를 센다.
+/// 정렬 tie-breaker 로 사용해 `a` 입력 시 `abc` 가 `ABC` 보다 먼저, `A` 입력 시 그 반대가 되도록 한다.
+fn exact_case_match_count(query: &str, string_match: &StringMatch) -> usize {
+    let mut exact_matches = 0;
+    let mut query_chars = query.chars();
+    let mut next_query_char = query_chars.next();
+    let mut matched_positions = string_match.positions.iter().copied().peekable();
+
+    for (index, candidate_char) in string_match.string.char_indices() {
+        if matched_positions.peek() == Some(&index) {
+            let Some(query_char) = next_query_char else {
+                break;
+            };
+
+            if query_char == candidate_char {
+                exact_matches += 1;
+            }
+
+            matched_positions.next();
+            next_query_char = query_chars.next();
+        }
+    }
+
+    exact_matches
 }
 
 #[derive(Clone)]

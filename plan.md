@@ -1,84 +1,59 @@
-# 메모장 패널 터미널 메뉴 색상 + 탭 색상 자동 부여 plan v1 (종료)
+# Windows 윈도우 클래스 이름 Zed → Dokkaebi 리네이밍 plan v1
 
 > **작성일**: 2026-04-30
-> **종료일**: 2026-04-30
-> **상태**: ✅ 종료 — Phase 1~3 모두 완료, 사용자 수동 검증 대기
-> **버전 기준**: `crates/zed/Cargo.toml` **v0.4.4** (bump 완료)
-> **이전 plan**: 터미널 탭 색상 커스터마이징 plan v1 종료 (v0.4.3 출시)
-
-## 진행 결과
-
-| Phase | 결과 | 검증 |
-|---|---|---|
-| 1. 메모장 터미널 메뉴 좌측 컬러 바 | ✅ 완료 | `cargo check -p notepad_panel` |
-| 2. 새 터미널 탭 색상 자동 부여 (`pick_auto_tab_color`) | ✅ 완료 | `cargo check -p terminal_view` |
-| 3. 검증 + 문서 + v0.4.4 bump | ✅ 완료 | `cargo check -p Dokkaebi` 통과 (신규 warning 0) |
-
-본 plan 종료. 후속 plan 후보로는 "블록 단위 navigation" 또는 "탭 색상 컨텍스트 자동 분류" 가 다음 진입점.
+> **상태**: ✅ 종료 (2026-04-30) — 기본 제안 모두 채택, 코드 2 파일 + CLAUDE.md + notes.md 갱신 완료
+> **트리거**: 사용자 요청 — "현재 프로젝트에서는 윈도우 클래스 이름이 `Dokkaebi::Window` / `Dokkaebi::PlatformWindow` 이렇게 표시되도록 수정 가능한가?"
 
 ## 목표
+Windows 에서 Dokkaebi 가 등록·생성하는 윈도우 클래스 이름을 상류 Zed 잔재 `Zed::Window` / `Zed::PlatformWindow` 에서 `Dokkaebi::Window` / `Dokkaebi::PlatformWindow` 로 교체. 외부 도구(AHK, Spy++, Inspect.exe, accessibility tool 등)가 윈도우 클래스로 Dokkaebi 창을 식별할 수 있게 한다.
 
-v0.4.3 의 탭 색상 인프라를 두 위치로 확장한다.
+## 범위
+- **수정 파일 2개** — 모두 `crates/gpui_windows`:
+  1. `crates/gpui_windows/src/window.rs:1247` — `const WINDOW_CLASS_NAME: PCWSTR = w!("Zed::Window");` → `w!("Dokkaebi::Window")`
+  2. `crates/gpui_windows/src/platform.rs:1322` — `const PLATFORM_WINDOW_CLASS_NAME: PCWSTR = w!("Zed::PlatformWindow");` → `w!("Dokkaebi::PlatformWindow")`
+- **CLAUDE.md 갱신** — 「이미 리네이밍된 식별자 (상류 동기화 시 충돌 주의)」 섹션에 본 항목 추가 (상류 PR이 윈도우 클래스 이름을 참조할 때 충돌 회피용)
 
-1. **메모장 패널 → 텍스트 선택 → 우클릭 → 터미널 목록 메뉴**: 각 터미널 항목 라벨 앞에 해당 탭의 색상 dot 표시 (탭 색상 미지정 항목은 dot 없음). 사용자는 메뉴에서 색상으로 터미널을 즉시 식별 가능.
-2. **새 터미널 탭 생성 시 색상 자동 부여**: 같은 워크스페이스의 다른 터미널 탭들이 사용 중이지 않은 색상 중 하나를 자동 부여. 모든 색상이 이미 사용 중이면 카운트가 가장 적은 색상. 영구 저장에서 복원된 사용자 명시 색상은 그대로 유지.
+## 영향 분석
+### 충돌 / 호환성
+- **윈도우 클래스 등록**: Windows 윈도우 클래스는 **프로세스별** 등록(`RegisterClassW` 의 `hInstance` 기준). 같은 머신에서 zed.exe 가 `Zed::Window` 를 등록해도 dokkaebi.exe 는 별도 프로세스라 충돌 없음. 본 변경 후에도 동일.
+- **상수 노출 범위**: 두 상수 모두 `const`(미pub) — 같은 파일 내부에서 `RegisterClassW` 와 `CreateWindowExW` 양쪽에 사용. 외부 crate 에서 참조 0건(grep 으로 전수 확인).
+- **실제 사용처**: `WINDOW_CLASS_NAME` 은 `register_window_class` (line 1249) 와 `CreateWindowExW` 호출(line 494) 2곳, `PLATFORM_WINDOW_CLASS_NAME` 은 `register_platform_window_class` (line 1324) 와 `CreateWindowExW` 호출(line 141) 2곳에서만 사용.
 
-## 비목표
+### 외부 도구 영향
+- **자동화 스크립트(AHK, AutoIt 등)**: 클래스 이름으로 `FindWindow`/`WinExist` 하던 외부 스크립트가 있다면 `Zed::Window` → `Dokkaebi::Window` 로 갱신 필요. Dokkaebi 는 별도 앱이라 이는 의도된 동작.
+- **접근성 도구(Inspect.exe, Spy++)**: 클래스 이름이 `Dokkaebi::*` 로 표시되어 Dokkaebi 식별이 직관적.
+- **OS 자체**: 클래스 이름은 식별자일 뿐이라 OS 동작에는 영향 없음.
 
-- 자동 부여 색상에 대한 사용자 설정 토글 (현재는 항상 ON, 후속 plan 후보)
-- 색상이 task 터미널에도 적용되도록 확장 (현재는 일반 셸 한정)
-- 메모장 패널 외 다른 위치(예: agent panel 의 터미널 목록)의 색상 표시
-
-## 라이선스 게이트
-
-- v0.4.3 의 색상 매핑 그대로 재사용 — 외부 코드 미참조.
-- 외부 의존성 추가 0건 예상.
+### Zed UI 백그라운드 표시 버그와의 관계
+- 본 변경이 「원본 zed.exe 실행 시 Dokkaebi UI 미표시」 버그의 직접 fix 는 **아님**(클래스는 프로세스별이라 충돌하지 않음). 다만 식별자 분리는 디버깅·모니터링 도구로 두 앱을 명확히 구분할 수 있게 해 진단 보조에 유리.
+- 본 plan 은 사용자 요청 「수정 가능한가」에만 응답. 위 버그의 진단·수정은 별도 plan 으로 진행 예정(사용자가 콘솔 메시지·작업 표시줄 동작·로그 확인 정보 제공 후).
 
 ## 작업 단계
+1. **[x] 코드 수정 2곳**
+   - `crates/gpui_windows/src/window.rs:1247` 문자열 교체
+   - `crates/gpui_windows/src/platform.rs:1322` 문자열 교체
+2. **[x] 검증**
+   - `cargo check -p gpui_windows` 통과 — 신규 warning 0
+   - `cargo check -p Dokkaebi` 통과 — 8 기존 warning 동일(`TryFutureExt` unused 등)
+   - `cargo check -p Dokkaebi --tests` 통과 — 9 기존 warning 동일
+   - 잔재 grep `Zed::Window`/`Zed::PlatformWindow` → 0건
+3. **[x] 문서 갱신**
+   - `CLAUDE.md` 「이미 리네이밍된 식별자」 섹션에 항목 추가
+   - `notes.md` 「## 최근 변경」 섹션 맨 위에 항목 추가
+   - `assets/release_notes.md` **갱신 제외** — 사용자 체감 동작 변화 없음
+   - 버전 bump 없음 (v0.5.0 유지)
 
-### Phase 1 — 메모장 패널 터미널 메뉴 좌측 컬러 바 표시 [/]
-- [ ] `crates/notepad_panel/src/notepad_panel.rs::deploy_terminal_send_menu` 의 터미널 entry 생성부 수정.
-- [ ] 각 TerminalView 에서 `custom_color()` 게터 호출 (v0.4.3 에서 `pub fn` 으로 추가됨).
-- [ ] `terminal_view::TerminalTabColor` import 후 `color.hsla()` 로 컬러 바 색상 산출.
-- [ ] 터미널 entry 를 `ContextMenu::custom_entry` 로 그려 `h_flex { 좌측 3px × h_4 컬러 바 또는 동일 너비 투명 영역, 라벨 }` 형식. 탭의 좌측 컬러 바와 폭/모서리 일관성 유지(`rounded_sm`). custom_color None 인 항목은 동일 너비 투명 div 로 정렬을 맞춘다.
-- [ ] 단축키/dispatch 동작은 기존과 동일 — handler 만 그대로 유지.
+## 검증 방법
+- `cargo check -p gpui_windows` 통과 (신규 warning 0)
+- `cargo check -p Dokkaebi` 통과 (신규 warning 0)
+- `cargo check -p Dokkaebi --tests` 통과 (memory `feedback_tests_check_on_api_removal` 규칙)
+- 잔재 grep: `"Zed::Window"`, `"Zed::PlatformWindow"`, `Zed::Window`, `Zed::PlatformWindow` 매치 0건 확인
 
-### Phase 2 — 새 터미널 탭 생성 시 자동 색상 부여 [/]
-- [ ] `crates/terminal_view/src/terminal_view.rs` 에 신규 자유 함수 `pick_auto_tab_color(workspace: &Workspace, cx: &App) -> TerminalTabColor`.
-  - 워크스페이스의 모든 `TerminalView` 순회 (TerminalPanel + 중앙 panes), 각 `custom_color()` 카운트.
-  - `TerminalTabColor::ALL` 순서로 첫 미사용 색상 반환.
-  - 모두 사용 중이면 카운트 가장 작은 색상 반환 (동률 시 ALL 순서상 앞).
-- [ ] `TerminalView::new` 끝에서 `custom_color` 가 None 이고 task 가 None 이고 workspace 가 살아 있으면 `pick_auto_tab_color` 결과로 set. 단 영구화 트리거(`needs_serialize`) 는 그대로.
-  - **deserialize 경로 호환**: `deserialize` 의 마지막 `if custom_color.is_some() { view.custom_color = custom_color; }` 분기는 그대로 두면 사용자 명시 색상이 자동 부여 색상을 덮어쓴다. 추가 처리: deserialize 시 DB 의 custom_color 가 Some 이면 자동 부여 결과를 무시하기 위해, `new` 의 자동 부여 결과를 `view.custom_color = ...` 로 설정 후 deserialize 분기가 그것을 다시 덮어쓰는 순서가 자연스럽다 → 별도 변경 불필요.
+## 승인 필요 항목
+- ✅ **plan 자체** — 본 plan 검토·승인
+- 본 변경은 작업 분류상 「공개 API 변경 아님」「DB 스키마 변경 아님」「의존성 추가 아님」「대량 수정 아님」 → CLAUDE.md 1단계 승인 필수 조건 비해당. 다만 memory `feedback_plan_approval.md` 규칙상 모든 코드 작업 전 plan 승인 필수 → 본 plan 자체 승인이 곧 작업 승인.
 
-### Phase 3 — 검증 + 문서
-- [ ] `cargo check -p notepad_panel -p terminal_view -p Dokkaebi` 통과 (신규 warning 0).
-- [ ] 사용자 환경 수동 검증:
-  1. 새 터미널 1개 생성 → 자동 색상 부여 확인 (좌측 컬러 바)
-  2. 새 터미널 추가 (총 2개) → 첫 번째와 다른 색상 부여
-  3. 8개 추가 → 모든 색상 사용 → 9번째는 카운트 가장 작은 색상
-  4. 메모장에서 텍스트 선택 → 우클릭 → 터미널 목록에 각 탭의 dot 표시
-  5. 사용자가 명시 변경한 색상은 재시작 후 유지 (자동 부여가 덮어쓰지 않음)
-- [ ] `crates/zed/Cargo.toml` v0.4.3 → v0.4.4 bump
-- [ ] `assets/release_notes.md` v0.4.4 신규 섹션 — 새 기능 2 (메뉴 dot, 자동 색상)
-- [ ] `notes.md` Phase 별 변경 기록
-
-## 승인 필요 사항
-
-| 항목 | 사유 |
-|---|---|
-| **Phase 2** TerminalView::new 끝에서 색상 자동 set | 새 터미널 동작 변경. 사용자 환경 영향 |
-| **버전 bump** | v0.4.4 |
-
-## 리스크 및 대응
-
-| 리스크 | 대응 |
-|---|---|
-| `pick_auto_tab_color` 가 모든 TerminalView 순회 — 다수 탭일 때 비용 | O(N), N=탭 수. 일반 N<20 가정 시 무시 가능 |
-| 영구화된 색상이 자동 부여로 덮어쓰기 | new → deserialize 순서로 덮어쓰는 분기가 우선이라 보존됨 |
-| task 터미널에 자동 색상 부여 | task=Some 분기 skip 으로 차단 (기존 정책 일관) |
-| 색상 부여 직후 영구화 — 새 탭 닫고 재오픈 시 색상 변경 가능 | 자동 부여도 영구화되므로 재오픈 시 동일 색상. 단 워크스페이스 외부에서 보면 색상이 무작위로 보일 수 있음 (수용) |
-
----
-
-**다음 액션**: 본 plan 승인 시 Phase 1 착수.
+## 결정 필요 사항 (사용자 답변 요청)
+1. **CLAUDE.md 갱신 여부**: 본 변경을 「이미 리네이밍된 식별자」 섹션에 추가할까요? (기본 제안: **추가** — 향후 상류 동기화 시 윈도우 클래스 관련 PR 이 들어오면 충돌 인식·자동 치환 가이드)
+2. **release_notes.md 갱신 여부**: 일반 사용자 가시 변경이 없어 기본 제외. 다만 「외부 자동화 스크립트 호환성 변경」 으로 보고 ` ### 외부 호환성` 카테고리에 1줄 기재할 수도 있음. (기본 제안: **제외**)
+3. **버전 bump 여부**: 사용자 가시 동작 0 → 기본 제안 **bump 없음**.

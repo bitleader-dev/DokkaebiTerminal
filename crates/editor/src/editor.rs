@@ -2577,7 +2577,7 @@ impl Editor {
                 EditorEvent::ScrollPositionChanged { local, .. } => {
                     if *local {
                         editor.hide_signature_help(cx, SignatureHelpHiddenBy::Escape);
-                        editor.inline_blame_popover.take();
+                        editor.hide_blame_popover(true, cx);
                         let snapshot = editor.snapshot(window, cx);
                         let new_anchor = editor
                             .scroll_manager
@@ -2909,6 +2909,19 @@ impl Editor {
         window: &mut Window,
         cx: &mut App,
     ) -> bool {
+        // Completions 메뉴는 모디파이어 미리보기로 덮어 써도 무방하지만 코드 액션 등
+        // 다른 활성 컨텍스트 메뉴까지 가려지면 키 입력 의도가 어긋난다. 활성 메뉴가
+        // Completions 가 아니면 미리보기 동작을 건너뛴다.
+        let can_supersede_active_menu = self
+            .context_menu
+            .borrow()
+            .as_ref()
+            .is_none_or(|menu| !menu.visible() || matches!(menu, CodeContextMenu::Completions(_)));
+
+        if !can_supersede_active_menu {
+            return false;
+        }
+
         let key_context = self.key_context_internal(true, window, cx);
         let actions: [&dyn Action; 3] = [
             &AcceptEditPrediction,
@@ -3665,7 +3678,7 @@ impl Editor {
             self.refresh_matching_bracket_highlights(&display_map, cx);
             self.refresh_outline_symbols_at_cursor(cx);
             self.update_visible_edit_prediction(window, cx);
-            self.inline_blame_popover.take();
+            self.hide_blame_popover(true, cx);
             if self.git_blame_inline_enabled {
                 self.start_inline_blame_timer(window, cx);
             }
@@ -7368,23 +7381,34 @@ impl Editor {
         self.mouse_context_menu.is_some()
     }
 
+    /// inline blame 팝오버를 숨긴다. 표시 중이면 즉시(또는 짧은 지연 후)
+    /// 닫고, 표시를 준비 중이던 task 가 있으면 중단한다.
+    ///
+    /// `ignore_timeout` 이 true 면 즉시 숨기고, false 면 100ms 지연 후 숨긴다.
+    ///
+    /// 표시 중이던 팝오버를 실제로 닫았으면 true, 아니면 false 를 반환한다.
     pub fn hide_blame_popover(&mut self, ignore_timeout: bool, cx: &mut Context<Self>) -> bool {
         self.inline_blame_popover_show_task.take();
+
         if let Some(state) = &mut self.inline_blame_popover {
-            let hide_task = cx.spawn(async move |editor, cx| {
-                if !ignore_timeout {
+            if ignore_timeout {
+                self.inline_blame_popover.take();
+                cx.notify();
+            } else {
+                state.hide_task = Some(cx.spawn(async move |editor, cx| {
                     cx.background_executor()
                         .timer(std::time::Duration::from_millis(100))
                         .await;
-                }
-                editor
-                    .update(cx, |editor, cx| {
-                        editor.inline_blame_popover.take();
-                        cx.notify();
-                    })
-                    .ok();
-            });
-            state.hide_task = Some(hide_task);
+
+                    editor
+                        .update(cx, |editor, cx| {
+                            editor.inline_blame_popover.take();
+                            cx.notify();
+                        })
+                        .ok();
+                }));
+            }
+
             true
         } else {
             false
@@ -18707,6 +18731,33 @@ impl Editor {
         self.pending_rename.as_ref()
     }
 
+    fn can_format_selections(&self, cx: &App) -> bool {
+        if !self.mode.is_full() {
+            return false;
+        }
+
+        let Some(project) = &self.project else {
+            return false;
+        };
+
+        let project = project.read(cx);
+        let multi_buffer = self.buffer.read(cx);
+        let snapshot = multi_buffer.snapshot(cx);
+
+        let buffer_ids: collections::HashSet<_> = self
+            .selections
+            .disjoint_anchor_ranges()
+            .filter(|range| range.start != range.end)
+            .flat_map(|range| [range.start, range.end])
+            .filter_map(|anchor| snapshot.buffer_id_for_anchor(anchor))
+            .collect();
+
+        buffer_ids
+            .into_iter()
+            .filter_map(|buffer_id| multi_buffer.buffer(buffer_id))
+            .any(|buffer| project.supports_range_formatting(&buffer, cx))
+    }
+
     fn format(
         &mut self,
         _: &Format,
@@ -28066,7 +28117,7 @@ pub fn diagnostic_style(severity: lsp::DiagnosticSeverity, colors: &StatusColors
         lsp::DiagnosticSeverity::ERROR => colors.error,
         lsp::DiagnosticSeverity::WARNING => colors.warning,
         lsp::DiagnosticSeverity::INFORMATION => colors.info,
-        lsp::DiagnosticSeverity::HINT => colors.info,
+        lsp::DiagnosticSeverity::HINT => colors.hint,
         _ => colors.ignored,
     }
 }

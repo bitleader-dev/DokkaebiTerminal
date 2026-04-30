@@ -134,9 +134,6 @@ pub struct SettingsContent {
     /// Default: VSCode
     pub base_keymap: Option<BaseKeymapContent>,
 
-    /// Configuration for the collab panel visual settings.
-    pub collaboration_panel: Option<PanelSettingsContent>,
-
     /// Configuration for Diagnostics-related features.
     pub diagnostics: Option<DiagnosticsSettingsContent>,
 
@@ -179,9 +176,6 @@ pub struct SettingsContent {
 
     /// Claude Code 통합 설정 (플러그인·알림·서브에이전트 뷰 등).
     pub claude_code: Option<ClaudeCodeSettingsContent>,
-
-    /// Configuration for the Notification Panel
-    pub notification_panel: Option<NotificationPanelSettingsContent>,
 
     /// Configuration for the Notepad Panel
     pub notepad_panel: Option<NotepadPanelSettingsContent>,
@@ -648,28 +642,6 @@ pub enum SubagentPanelPositionContent {
     Right,
     /// 활성 pane 을 아래쪽으로 split 해 하단 pane 에 탭 추가.
     Bottom,
-}
-
-#[with_fallible_options]
-#[derive(Clone, Default, Serialize, Deserialize, JsonSchema, MergeFrom, Debug, PartialEq)]
-pub struct NotificationPanelSettingsContent {
-    /// Whether to show the panel button in the status bar.
-    ///
-    /// Default: true
-    pub button: Option<bool>,
-    /// Where to dock the panel.
-    ///
-    /// Default: right
-    pub dock: Option<DockPosition>,
-    /// Default width of the panel in pixels.
-    ///
-    /// Default: 300
-    #[serde(serialize_with = "crate::serialize_optional_f32_with_two_decimal_places")]
-    pub default_width: Option<f32>,
-    /// Whether to show a badge on the notification panel icon with the count of unread notifications.
-    ///
-    /// Default: false
-    pub show_count_badge: Option<bool>,
 }
 
 #[with_fallible_options]

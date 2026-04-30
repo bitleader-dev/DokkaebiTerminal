@@ -721,6 +721,24 @@ impl WindowsWindowInner {
     fn handle_activate_msg(self: &Rc<Self>, wparam: WPARAM) -> Option<isize> {
         let activated = wparam.loword() > 0;
         let this = self.clone();
+
+        // 윈도우가 다시 포커스를 얻을 때 modifier 추적 상태를 리셋한다.
+        // Alt-Tab 으로 빠져나갔다가 돌아오면 stale modifier 상태(특히 Alt 키)가 남는데,
+        // 이는 Windows 가 포커스를 잃은 윈도우에 항상 key-up 이벤트를 보내지 않기 때문이다.
+        if activated {
+            this.state.last_reported_modifiers.set(None);
+            this.state.last_reported_capslock.set(None);
+
+            if let Some(mut func) = this.state.callbacks.input.take() {
+                let input = PlatformInput::ModifiersChanged(ModifiersChangedEvent {
+                    modifiers: current_modifiers(),
+                    capslock: current_capslock(),
+                });
+                func(input);
+                this.state.callbacks.input.set(Some(func));
+            }
+        }
+
         self.executor
             .spawn(async move {
                 if let Some(mut func) = this.state.callbacks.active_status_change.take() {

@@ -878,14 +878,6 @@
     // Set to 0 to collapse all items that have children, 1 or higher to collapse items at that depth or deeper.
     "expand_outlines_with_depth": 100,
   },
-  "collaboration_panel": {
-    // Whether to show the collaboration panel button in the status bar.
-    "button": true,
-    // Where to dock the collaboration panel. Can be 'left' or 'right'.
-    "dock": "left",
-    // Default width of the collaboration panel.
-    "default_width": 240,
-  },
   "git_panel": {
     // Whether to show the git panel button in the status bar.
     "button": true,
@@ -956,16 +948,6 @@
     // Whether to automatically replace emoji shortcodes with emoji characters.
     // For example: typing `:wave:` gets replaced with `👋`.
     "auto_replace_emoji_shortcode": true,
-  },
-  "notification_panel": {
-    // Whether to show the notification panel button in the status bar.
-    "button": true,
-    // Where to dock the notification panel. Can be 'left' or 'right'.
-    "dock": "right",
-    // Default width of the notification panel.
-    "default_width": 380,
-    // Whether to show a badge on the notification panel icon with the count of unread notifications.
-    "show_count_badge": false,
   },
   "notepad_panel": {
     // Whether to show the notepad panel button in the status bar.
@@ -1905,12 +1887,6 @@
     "path_hyperlink_timeout_ms": 1,
     // Whether to show a badge on the terminal panel icon with the count of open terminals.
     "show_count_badge": false,
-    // Whether to enable Dokkaebi shell integration (OSC 133 / FinalTerm).
-    // When enabled, a startup script is auto-injected into bash and PowerShell
-    // so the terminal tab can show the previous command's exit-code icon and
-    // currently-running command name. User dotfiles are not modified.
-    // The env var DOKKAEBI_SHELL_INTEGRATION=off can also be set to disable.
-    "shell_integration": false,
   },
   "code_actions_on_format": {},
   // Settings related to running tasks.

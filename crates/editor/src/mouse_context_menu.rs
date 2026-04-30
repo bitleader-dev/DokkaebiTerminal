@@ -217,6 +217,7 @@ pub fn deploy_context_menu(
                     .is_some()
             });
 
+        let format_selections = window.is_action_available(&FormatSelections, cx);
         let disable_ai = DisableAiSettings::is_ai_disabled_for_buffer(
             editor.buffer.read(cx).as_singleton().as_ref(),
             cx,
@@ -254,7 +255,7 @@ pub fn deploy_context_menu(
                 .separator()
                 .action(t("editor.context_menu.rename_symbol", cx), Box::new(Rename))
                 .action(t("editor.context_menu.format_buffer", cx), Box::new(Format))
-                .when(has_selections, |builder| {
+                .when(format_selections, |builder| {
                     builder.action(t("editor.context_menu.format_selections", cx), Box::new(FormatSelections))
                 })
                 .action(

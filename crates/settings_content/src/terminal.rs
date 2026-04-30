@@ -175,14 +175,6 @@ pub struct TerminalSettingsContent {
     ///
     /// Default: false
     pub show_count_badge: Option<bool>,
-    /// Whether to enable Dokkaebi shell integration (OSC 133 / FinalTerm).
-    /// Auto-injects a small startup script into bash and PowerShell so the tab
-    /// can show the previous command's exit-code icon and currently-running
-    /// command name. The user's `~/.bashrc` / `$PROFILE` is not modified.
-    /// The escape-hatch env var `DOKKAEBI_SHELL_INTEGRATION=off` is also honored.
-    ///
-    /// Default: false
-    pub shell_integration: Option<bool>,
 }
 
 /// Shell configuration to open the terminal with.

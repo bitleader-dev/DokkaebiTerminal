@@ -82,14 +82,30 @@ impl ManifestProvider for PyprojectTomlManifestProvider {
             delegate,
         }: ManifestQuery,
     ) -> Option<Arc<RelPath>> {
+        const WORKSPACE_LOCKFILES: &[&str] =
+            &["uv.lock", "poetry.lock", "pdm.lock", "Pipfile.lock"];
+
+        let mut innermost_pyproject = None;
+        let mut outermost_workspace_root = None;
+
         for path in path.ancestors().take(depth) {
-            let p = path.join(RelPath::unix("pyproject.toml").unwrap());
-            if delegate.exists(&p, Some(false)) {
-                return Some(path.into());
+            let pyproject_path = path.join(RelPath::unix("pyproject.toml").unwrap());
+            if delegate.exists(&pyproject_path, Some(false)) {
+                if innermost_pyproject.is_none() {
+                    innermost_pyproject = Some(Arc::from(path));
+                }
+
+                let has_lockfile = WORKSPACE_LOCKFILES.iter().any(|lockfile| {
+                    let lockfile_path = path.join(RelPath::unix(lockfile).unwrap());
+                    delegate.exists(&lockfile_path, Some(false))
+                });
+                if has_lockfile {
+                    outermost_workspace_root = Some(Arc::from(path));
+                }
             }
         }
 
-        None
+        outermost_workspace_root.or(innermost_pyproject)
     }
 }
 

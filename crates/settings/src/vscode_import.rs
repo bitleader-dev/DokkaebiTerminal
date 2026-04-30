@@ -179,7 +179,6 @@ impl VsCodeSettings {
             show_release_notes_after_update: None,
             base_keymap: Some(BaseKeymapContent::VSCode),
 
-            collaboration_panel: None,
             diagnostics: None,
             editor: self.editor_settings_content(),
             extension: ExtensionSettingsContent::default(),
@@ -199,7 +198,6 @@ impl VsCodeSettings {
             message_editor: None,
             node: self.node_binary_settings(),
             claude_code: None,
-            notification_panel: None,
             notepad_panel: None,
             workspace_group_panel: None,
             outline_panel: self.outline_panel_settings_content(),
@@ -896,7 +894,6 @@ impl VsCodeSettings {
             scroll_multiplier: None,
             toolbar: None,
             show_count_badge: None,
-            shell_integration: None,
         })
     }
 

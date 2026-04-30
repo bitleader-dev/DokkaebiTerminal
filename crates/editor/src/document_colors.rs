@@ -629,6 +629,7 @@ mod tests {
             editor.save(
                 SaveOptions {
                     format: true,
+                    force_format: false,
                     autosave: true,
                 },
                 project.clone(),
@@ -719,6 +720,7 @@ mod tests {
             editor.save(
                 SaveOptions {
                     format: false,
+                    force_format: false,
                     autosave: true,
                 },
                 project.clone(),

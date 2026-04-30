@@ -123,11 +123,16 @@ impl Editor {
             return;
         }
         if let Some(buffer) = self.buffer().read(cx).as_singleton() {
-            let buffer_id = buffer.read(cx).remote_id();
+            let buffer_read = buffer.read(cx);
+            // 디스크에 저장된 파일이 없는 미저장 버퍼에서는 runnable(예: gutter play 버튼)을 만들지 않는다.
+            // 클릭해도 실행할 수 있는 파일 경로가 없어 no-op 이 되므로 노출 자체를 막는다.
+            if buffer_read.file().is_none() {
+                self.clear_runnables(None);
+                return;
+            }
+            let buffer_id = buffer_read.remote_id();
             if invalidate_buffer_data != Some(buffer_id)
-                && self
-                    .runnables
-                    .has_cached(buffer_id, &buffer.read(cx).version())
+                && self.runnables.has_cached(buffer_id, &buffer_read.version())
             {
                 return;
             }

@@ -185,8 +185,13 @@ impl LanguageModelImage {
             // SAFETY: The base64 encoder should not produce non-UTF8.
             let source = unsafe { String::from_utf8_unchecked(base64_image) };
 
+            // 다운스케일 후 최종 dimensions 로 size 갱신 — 토큰 추산이 실제 전송된 크기와 맞도록.
+            let (final_width, final_height) = processed_image.dimensions();
+            let final_size =
+                size(DevicePixels(final_width as i32), DevicePixels(final_height as i32));
+
             Some(LanguageModelImage {
-                size: Some(image_size),
+                size: Some(final_size),
                 source: source.into(),
             })
         })

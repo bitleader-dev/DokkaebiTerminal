@@ -18,8 +18,7 @@ use futures::{AsyncBufReadExt as _, Future, StreamExt as _};
 use project::agent_server_store::AgentServerCommand;
 use project::{AgentId, Project};
 use serde::Deserialize;
-use settings::Settings as _;
-use task::{ShellBuilder, SpawnInTerminal};
+use task::{Shell, ShellBuilder, SpawnInTerminal};
 use util::ResultExt as _;
 use util::path_list::PathList;
 use util::process::Child;
@@ -36,7 +35,7 @@ use gpui::{App, AppContext as _, AsyncApp, Entity, SharedString, Task, WeakEntit
 
 use acp_thread::{AcpThread, AuthRequired, LoadError, TerminalProviderEvent};
 use terminal::TerminalBuilder;
-use terminal::terminal_settings::{AlternateScroll, CursorShape, TerminalSettings};
+use terminal::terminal_settings::{AlternateScroll, CursorShape};
 
 use crate::GEMINI_ID;
 
@@ -482,8 +481,7 @@ impl AcpConnection {
         default_config_options: HashMap<String, String>,
         cx: &mut AsyncApp,
     ) -> Result<Self> {
-        let shell = cx.update(|cx| TerminalSettings::get(None, cx).shell.clone());
-        let builder = ShellBuilder::new(&shell, cfg!(windows)).non_interactive();
+        let builder = ShellBuilder::new(&Shell::System, cfg!(windows)).non_interactive();
         let mut child =
             builder.build_std_command(Some(command.path.display().to_string()), &command.args);
         child.envs(command.env.iter().flatten());

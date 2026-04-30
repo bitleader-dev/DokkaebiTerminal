@@ -416,6 +416,15 @@ impl Platform for WindowsPlatform {
 
         self.inner
             .with_callback(|callbacks| &callbacks.quit, |callback| callback());
+
+        // CRT 종료 로직 우회 — atexit handler 실행 후 ExitProcess 경로의 데드락 회피.
+        // aws-lc 가 atexit handler 에서 의도적으로 lock 을 잡고 풀지 않으며, 동일 lock 을
+        // 사용하는 thread_local destructor 는 loader lock 하에 실행된다.
+        // atexit handler 실행 이후 thread 종료가 발생하면 TLS destructor 가 loader lock 을
+        // 보유한 채 lock 대기에 빠지고, ExitProcess 도 loader lock 을 요구하므로 데드락이 발생.
+        unsafe {
+            windows::Win32::System::Threading::ExitProcess(0);
+        }
     }
 
     fn quit(&self) {
@@ -1310,7 +1319,7 @@ fn handle_gpu_device_lost(
     Ok(())
 }
 
-const PLATFORM_WINDOW_CLASS_NAME: PCWSTR = w!("Zed::PlatformWindow");
+const PLATFORM_WINDOW_CLASS_NAME: PCWSTR = w!("Dokkaebi::PlatformWindow");
 
 fn register_platform_window_class() {
     let wc = WNDCLASSW {

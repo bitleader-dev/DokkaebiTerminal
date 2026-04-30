@@ -112,6 +112,9 @@ pub enum Operator {
         /// Represents whether the opening bracket was used for the target
         /// object.
         opening: bool,
+        /// `prepare_and_move_to_valid_bracket_pair` 가 미리 계산해 둔 열고 닫는 괄호 anchor.
+        /// `change_surrounds` 가 재검색 없이 그대로 사용해 symmetric quote 의 짝 매칭 오류를 방지.
+        bracket_anchors: Vec<Option<(Anchor, Anchor)>>,
     },
     DeleteSurrounds,
     Mark,

@@ -33,9 +33,9 @@ use git::{
     parse_git_remote_url,
     repository::{
         Branch, CommitDetails, CommitDiff, CommitFile, CommitOptions, DiffType, FetchOptions,
-        GitRepository, GitRepositoryCheckpoint, GraphCommitData, InitialGraphCommitData, LogOrder,
-        LogSource, PushOptions, Remote, RemoteCommandOutput, RepoPath, ResetMode, SearchCommitArgs,
-        UpstreamTrackingStatus, Worktree as GitWorktree,
+        GitCommitTemplate, GitRepository, GitRepositoryCheckpoint, GraphCommitData,
+        InitialGraphCommitData, LogOrder, LogSource, PushOptions, Remote, RemoteCommandOutput,
+        RepoPath, ResetMode, SearchCommitArgs, UpstreamTrackingStatus, Worktree as GitWorktree,
     },
     stash::{GitStash, StashEntry},
     status::{
@@ -3765,10 +3765,15 @@ impl RepositorySnapshot {
     }
 
     fn repo_path_to_abs_path(&self, repo_path: &RepoPath) -> PathBuf {
-        self.path_style
-            .join(&self.work_directory_abs_path, repo_path.as_std_path())
-            .unwrap()
-            .into()
+        // Windows 하위 폴더에서 git diff 가 빈 화면이 되는 문제 회피.
+        // 단순히 OS native path 로 join 하면 Windows 의 backslash 와 git 의 forward slash 가
+        // 어긋나 repo 내부 조회가 실패한다. path_style 기준 표시형으로 변환 후 join.
+        let repo_path = repo_path.display(self.path_style);
+        PathBuf::from(
+            self.path_style
+                .join(&self.work_directory_abs_path, repo_path.as_ref())
+                .unwrap(),
+        )
     }
 
     #[inline]
@@ -6578,6 +6583,19 @@ impl Repository {
         });
 
         cx.spawn(|_: &mut AsyncApp| async move { rx.await? })
+    }
+
+    pub fn load_commit_template_text(
+        &mut self,
+    ) -> oneshot::Receiver<Result<Option<GitCommitTemplate>>> {
+        self.send_job(None, move |git_repo, _cx| async move {
+            match git_repo {
+                RepositoryState::Local(LocalRepositoryState { backend, .. }) => {
+                    backend.load_commit_template().await
+                }
+                RepositoryState::Remote(_) => Ok(None),
+            }
+        })
     }
 
     fn load_blob_content(&mut self, oid: Oid, cx: &App) -> Task<Result<String>> {

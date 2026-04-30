@@ -5,13 +5,11 @@ use crate::prompt_store::{
     PromptArgument, PromptEntry, add_prompt, load_prompts, parse_tags_input, remove_prompt,
     save_prompts, update_arguments, update_prompt,
 };
-use editor::{Editor, EditorEvent};
+use editor::Editor;
 use gpui::{
-    App, Context, DismissEvent, Entity, EventEmitter, Focusable, Render, Subscription, WeakEntity,
-    Window,
+    App, Context, DismissEvent, Entity, EventEmitter, Focusable, Render, WeakEntity, Window,
 };
 use language::language_settings::SoftWrap;
-use markdown::{Markdown, MarkdownElement, MarkdownOptions, MarkdownStyle};
 use ui::{
     Button, ButtonCommon, ButtonStyle, Color, Divider, FluentBuilder, Icon, IconButton, IconName,
     Label, LabelCommon, LabelSize, TintColor, prelude::*,
@@ -104,11 +102,6 @@ pub struct PromptFormModal {
     prompt_input: Entity<InputField>,
     /// 설명글 입력 (다중 줄 가능 — multi-line Editor 사용, 줄바꿈 보존)
     description_input: Entity<Editor>,
-    /// 설명글 markdown 미리보기 — description_input 변경 시 실시간 갱신.
-    /// mermaid 코드 펜스도 SVG 다이어그램으로 렌더링됨 (v3 Phase 2 인프라 재사용).
-    description_preview: Entity<Markdown>,
-    /// description_input 의 변경 이벤트 구독 — drop 시 자동 해제
-    _description_subscription: Subscription,
     /// 태그 입력 (쉼표 구분 텍스트)
     tags_input: Entity<InputField>,
     /// arguments rows — `+` 버튼으로 추가, 각 row 의 삭제 버튼으로 제거
@@ -164,29 +157,6 @@ impl PromptFormModal {
             editor.set_placeholder_text(&desc_placeholder, window, cx);
             editor
         });
-        // 설명 markdown 미리보기 — mermaid 토글 활성화 (v3 Phase 2 인프라 재사용)
-        let description_preview = cx.new(|cx| {
-            Markdown::new_with_options(
-                SharedString::default(),
-                None,
-                None,
-                MarkdownOptions {
-                    render_mermaid_diagrams: true,
-                    ..Default::default()
-                },
-                cx,
-            )
-        });
-        // description_input 의 buffer 변경을 description_preview 에 실시간 반영
-        let _description_subscription =
-            cx.subscribe(&description_input, |this, editor, event, cx| {
-                if let EditorEvent::BufferEdited = event {
-                    let text = editor.read(cx).text(cx);
-                    this.description_preview.update(cx, |md, cx| {
-                        md.replace(text, cx);
-                    });
-                }
-            });
         let tags_input = cx.new(|cx| {
             InputField::new(window, cx, &tags_placeholder)
                 .label(tags_label)
@@ -201,8 +171,6 @@ impl PromptFormModal {
             mode: FormMode::Create,
             prompt_input,
             description_input,
-            description_preview,
-            _description_subscription,
             tags_input,
             argument_rows: Vec::new(),
             return_to_palette,
@@ -233,10 +201,6 @@ impl PromptFormModal {
         modal
             .description_input
             .update(cx, |editor, cx| editor.set_text(description_text.as_str(), window, cx));
-        // description_preview 도 초기 텍스트로 동기화 (subscription 은 BufferEdited 만 받으므로 set_text 직후 명시 호출)
-        modal.description_preview.update(cx, |md, cx| {
-            md.replace(description_text.clone(), cx);
-        });
         modal
             .tags_input
             .update(cx, |input, cx| input.set_text(&tags_text, window, cx));
@@ -446,28 +410,6 @@ impl Render for PromptFormModal {
                             .border_1()
                             .border_color(cx.theme().colors().border)
                             .child(self.description_input.clone()),
-                    )
-                    // 미리보기 라벨
-                    .child(
-                        Label::new(i18n::t("prompt_palette.form.preview_label", cx))
-                            .size(LabelSize::Small)
-                            .color(Color::Muted),
-                    )
-                    // markdown 미리보기 박스 — description_input 변경 시 실시간 반영
-                    .child(
-                        div()
-                            .min_h(rems(3.))
-                            .max_h(rems(10.))
-                            .px_2()
-                            .py_1()
-                            .rounded_md()
-                            .border_1()
-                            .border_color(cx.theme().colors().border_variant)
-                            .bg(cx.theme().colors().element_background)
-                            .child(MarkdownElement::new(
-                                self.description_preview.clone(),
-                                MarkdownStyle::default(),
-                            )),
                     ),
             )
             .child(self.tags_input.clone())

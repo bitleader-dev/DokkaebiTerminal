@@ -1,6 +1,5 @@
 pub mod mappings;
 pub mod pty_adapter;
-pub mod shell_integration;
 
 pub use alacritty_terminal;
 
@@ -78,14 +77,6 @@ use gpui::{
 };
 
 use crate::mappings::{colors::to_alac_rgb, keys::to_esc_str};
-use crate::shell_integration::ShellIntegrationEvent;
-
-/// 이벤트 루프에서 두 채널 중 어느 쪽이 도착했는지 표현하는 단순 변형.
-/// `futures::future::Either` 와 동일 의미지만 별도 의존성 없이 로컬 정의.
-enum Either<L, R> {
-    Left(L),
-    Right(R),
-}
 
 actions!(
     terminal,
@@ -394,9 +385,6 @@ pub const MAX_SCROLL_HISTORY_LINES: usize = 100_000;
 pub struct TerminalBuilder {
     terminal: Terminal,
     events_rx: UnboundedReceiver<AlacTermEvent>,
-    /// OSC 133 셸 통합 이벤트 수신 채널. PTY 빌더에서만 활성, display-only 빌더에서는
-    /// 즉시 닫힌 receiver 를 보유해 select_biased! 를 단순화한다.
-    shell_events_rx: UnboundedReceiver<crate::shell_integration::ShellIntegrationEvent>,
 }
 
 impl TerminalBuilder {
@@ -476,20 +464,13 @@ impl TerminalBuilder {
             path_style,
             content_dirty: true,
             last_sync_time: Instant::now(),
-            shell_command_status: ShellCommandStatus::Idle,
-            last_command_line: None,
             #[cfg(any(test, feature = "test-support"))]
             input_log: Vec::new(),
         };
 
-        // display-only 빌더는 PTY 가 없어 OSC 133 이벤트가 발생하지 않는다.
-        // sender 를 drop 하면 receiver 가 즉시 닫혀 select 시 None 만 반환한다.
-        let (_shell_tx, shell_events_rx) = unbounded();
-
         Ok(TerminalBuilder {
             terminal,
             events_rx,
-            shell_events_rx,
         })
     }
 
@@ -512,8 +493,6 @@ impl TerminalBuilder {
     ) -> Task<Result<TerminalBuilder>> {
         let version = release_channel::AppVersion::global(cx);
         let background_executor = cx.background_executor().clone();
-        // 사용자 설정 값을 spawn 클로저 진입 전에 캡처 (async 안에서는 cx 접근 불가)
-        let shell_integration_enabled = TerminalSettings::get_global(cx).shell_integration;
         let fut = async move {
             // Remove SHLVL so the spawned shell initializes it to 1, matching
             // the behavior of standalone terminal emulators like iTerm2/Kitty/Alacritty.
@@ -601,33 +580,12 @@ impl TerminalBuilder {
                     #[cfg(not(windows))]
                     { std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".to_string()) }
                 });
-            let mut pty_args = shell_params
+            let pty_args = shell_params
                 .as_ref()
                 .and_then(|p| p.args.clone())
                 .unwrap_or_default();
-            // OSC 133 셸 통합 자동 주입 — 설정 활성화 + task 가 아닌 일반 인터랙티브 셸에 한해 적용
-            let mut pty_env: Vec<(String, String)> =
+            let pty_env: Vec<(String, String)> =
                 env.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-            if task.is_none() && shell_integration_enabled {
-                let outcome = crate::shell_integration::inject_shell_integration(
-                    shell_kind,
-                    &mut pty_args,
-                    &mut pty_env,
-                );
-                match &outcome {
-                    crate::shell_integration::InjectOutcome::Applied { shell, script_path } => {
-                        log::info!(
-                            "Dokkaebi shell integration ({shell}) 적용 — {}",
-                            script_path.display()
-                        );
-                    }
-                    crate::shell_integration::InjectOutcome::Skipped { reason } => {
-                        log::debug!("Dokkaebi shell integration 비적용 — {reason}");
-                    }
-                }
-            } else if task.is_none() {
-                log::debug!("Dokkaebi shell integration 비활성 (terminal.shell_integration = false)");
-            }
 
             let default_cursor_style = AlacCursorStyle::from(cursor_shape);
             let scrolling_history = if task.is_some() {
@@ -671,8 +629,6 @@ impl TerminalBuilder {
 
             // GPUI 이벤트 채널 (alacritty EventLoop → subscribe() 경로 유지)
             let (events_tx, events_rx) = unbounded();
-            // OSC 133 셸 통합 이벤트 채널 — pty_adapter 의 스캐너 → Terminal::subscribe 이벤트 루프
-            let (shell_events_tx, shell_events_rx) = unbounded();
             let mut term = Term::new(
                 config.clone(),
                 &TerminalBounds::default(),
@@ -692,7 +648,6 @@ impl TerminalBuilder {
                 pty_reader,
                 term.clone(),
                 ZedListener(events_tx),
-                Some(shell_events_tx),
             );
 
             let no_task = task.is_none();
@@ -746,8 +701,6 @@ impl TerminalBuilder {
                 path_style,
                 content_dirty: true,
                 last_sync_time: Instant::now(),
-                shell_command_status: ShellCommandStatus::Idle,
-                last_command_line: None,
                 #[cfg(any(test, feature = "test-support"))]
                 input_log: Vec::new(),
             };
@@ -781,7 +734,6 @@ impl TerminalBuilder {
             Ok(TerminalBuilder {
                 terminal,
                 events_rx,
-                shell_events_rx,
             })
         };
         // the thread we spawn things on has an effect on signal handling
@@ -795,28 +747,11 @@ impl TerminalBuilder {
     pub fn subscribe(mut self, cx: &Context<Terminal>) -> Terminal {
         //Event loop
         self.terminal.event_loop_task = cx.spawn(async move |terminal, cx| {
-            loop {
-                // 두 채널을 동시에 대기 — 어느 한쪽이라도 도착하면 진행
-                let next_event: Either<AlacTermEvent, ShellIntegrationEvent> = futures::select_biased! {
-                    alac = self.events_rx.next().fuse() => match alac {
-                        Some(e) => Either::Left(e),
-                        None => break,
-                    },
-                    shell = self.shell_events_rx.next().fuse() => match shell {
-                        Some(e) => Either::Right(e),
-                        // shell 채널이 닫혀도 alac 채널은 살아 있을 수 있다 — 무시 후 재대기
-                        None => continue,
-                    },
-                };
-
-                terminal.update(cx, |terminal, cx| match next_event {
-                    Either::Left(event) => terminal.process_event(event, cx),
-                    Either::Right(event) => terminal.process_shell_event(event, cx),
-                })?;
+            while let Some(event) = self.events_rx.next().await {
+                terminal.update(cx, |terminal, cx| terminal.process_event(event, cx))?;
 
                 'outer: loop {
                     let mut events = Vec::new();
-                    let mut shell_events = Vec::new();
 
                     #[cfg(any(test, feature = "test-support"))]
                     let mut timer = cx.background_executor().simulate_random_delay().fuse();
@@ -845,16 +780,10 @@ impl TerminalBuilder {
                                     break;
                                 }
                             },
-                            shell_event = self.shell_events_rx.next() => {
-                                if let Some(event) = shell_event {
-                                    shell_events.push(event);
-                                }
-                                // 셸 채널 None 은 정상(빌더 정책상 살아 있음) — 계속
-                            },
                         }
                     }
 
-                    if events.is_empty() && shell_events.is_empty() && !wakeup {
+                    if events.is_empty() && !wakeup {
                         smol::future::yield_now().await;
                         break 'outer;
                     }
@@ -866,9 +795,6 @@ impl TerminalBuilder {
 
                         for event in events {
                             this.process_event(event, cx);
-                        }
-                        for event in shell_events {
-                            this.process_shell_event(event, cx);
                         }
                     })?;
                     smol::future::yield_now().await;
@@ -1010,11 +936,6 @@ pub struct Terminal {
     content_dirty: bool,
     /// 마지막 sync 시점 (프레임 예산 제한용)
     last_sync_time: Instant,
-    /// OSC 133 셸 통합 기반 일반 셸 명령 상태. `task` 가 None 인 PTY 터미널에서만 의미.
-    shell_command_status: ShellCommandStatus,
-    /// 가장 최근 `133;C` 와 `133;D` 사이에 실행 중이던 명령 라인 (그리드에서 추출).
-    /// 추출 실패/미지원 셸 시 None.
-    last_command_line: Option<String>,
     #[cfg(any(test, feature = "test-support"))]
     input_log: Vec<Vec<u8>>,
 }
@@ -1047,21 +968,6 @@ pub enum TaskStatus {
     Running,
     /// After the start, the task stopped running and reported its error code back.
     Completed { success: bool },
-}
-
-/// OSC 133 셸 통합 신호를 기반으로 추적하는 일반 셸 명령 상태.
-/// `task` 가 없는 PTY 터미널에서 셸이 OSC 133;A/B/C/D 를 emit 할 때 갱신된다.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ShellCommandStatus {
-    /// 셸이 OSC 133 신호를 보낸 적 없음 또는 명령 미실행 상태.
-    /// 탭 아이콘은 기본값(Terminal) 유지.
-    Idle,
-    /// `133;C` 수신 후 — 명령이 실행 중.
-    Running,
-    /// `133;D;0` 수신 — 직전 명령 성공 종료.
-    Succeeded,
-    /// `133;D;<non-zero>` 수신 또는 종료 코드 미상으로 실패 추정.
-    Failed { exit_code: Option<i32> },
 }
 
 impl TaskStatus {
@@ -1185,60 +1091,6 @@ impl Terminal {
                 self.register_task_finished(Some(raw_status), cx);
             }
         }
-    }
-
-    /// OSC 133 셸 통합 이벤트를 받아 일반 셸 명령 상태를 갱신한다.
-    /// `task` 가 설정된 터미널은 task 자체 상태를 우선하므로 OSC 133 영향 없음.
-    fn process_shell_event(&mut self, event: ShellIntegrationEvent, cx: &mut Context<Self>) {
-        // task 터미널은 별도 status 라인이 있으므로 일반 셸 상태 추적을 건너뛴다.
-        if self.task.is_some() {
-            return;
-        }
-        let prev_status = self.shell_command_status;
-        match event {
-            ShellIntegrationEvent::PromptStart => {
-                // 새 프롬프트가 그려지기 시작 — 이전 명령 라인 정보는 보존하되
-                // Running 표시는 종료. 단 Succeeded/Failed 는 다음 명령 시작까지 유지.
-            }
-            ShellIntegrationEvent::CommandStart => {
-                // 사용자 입력 영역 시작. 아직 실행 전.
-            }
-            ShellIntegrationEvent::CommandExecuted => {
-                // 명령이 실행되기 시작 — Running 으로 전환.
-                // 명령 라인 추출은 그리드 기반이라 Phase 2 에서 추가 (현재는 None 유지).
-                self.shell_command_status = ShellCommandStatus::Running;
-                self.last_command_line = None;
-            }
-            ShellIntegrationEvent::CommandFinished { exit_code } => {
-                self.shell_command_status = match exit_code {
-                    Some(0) => ShellCommandStatus::Succeeded,
-                    Some(_code) => ShellCommandStatus::Failed { exit_code },
-                    None => {
-                        // 종료 코드 미보고 — 직전이 Running 이었다면 미상 실패로 간주,
-                        // Idle 이었다면 그대로 유지(노이즈 시퀀스 가능).
-                        if matches!(prev_status, ShellCommandStatus::Running) {
-                            ShellCommandStatus::Failed { exit_code: None }
-                        } else {
-                            prev_status
-                        }
-                    }
-                };
-            }
-        }
-        if self.shell_command_status != prev_status {
-            // 탭 아이콘/제목 갱신을 위해 변경 이벤트 emit
-            cx.emit(Event::TitleChanged);
-        }
-    }
-
-    /// 현재 추적 중인 셸 명령 상태(OSC 133 기반).
-    pub fn shell_command_status(&self) -> ShellCommandStatus {
-        self.shell_command_status
-    }
-
-    /// 가장 최근 추적된 명령 라인 (OSC 133 + 그리드 기반). Phase 2 에서 채워진다.
-    pub fn last_command_line(&self) -> Option<&str> {
-        self.last_command_line.as_deref()
     }
 
     /// Windows: 터미널 제목에서 유효한 Windows 디렉토리 경로를 추출한다.
@@ -2500,8 +2352,6 @@ impl Terminal {
 
     pub fn title(&self, truncate: bool) -> String {
         const MAX_CHARS: usize = 25;
-        // OSC 133 Running 상태에서 명령 라인 우측에 표시할 때 잘라낼 최대 길이
-        const COMMAND_MAX_CHARS: usize = 32;
         match &self.task {
             Some(task_state) => {
                 if truncate {
@@ -2526,35 +2376,11 @@ impl Terminal {
                                 .map(|name| name.to_string_lossy().into_owned())
                                 .unwrap_or_default();
 
-                            // OSC 133 Running 상태이면 foreground argv 까지 합쳐 명령 요약을 표시한다.
-                            // 그 외(Idle/Succeeded/Failed) 는 프로세스명만 노출하여 기존 동작 유지.
-                            let process_name = if matches!(
-                                self.shell_command_status,
-                                ShellCommandStatus::Running
-                            ) && !fpi.argv.is_empty()
-                            {
-                                let mut summary = fpi.name.clone();
-                                if fpi.argv.len() > 1 {
-                                    let args = fpi.argv[1..].join(" ");
-                                    summary.push(' ');
-                                    summary.push_str(&args);
-                                }
-                                summary
-                            } else {
-                                fpi.name.clone()
-                            };
+                            let process_name = fpi.name.clone();
                             let (process_file, process_name) = if truncate {
-                                let process_max = if matches!(
-                                    self.shell_command_status,
-                                    ShellCommandStatus::Running
-                                ) {
-                                    COMMAND_MAX_CHARS
-                                } else {
-                                    MAX_CHARS
-                                };
                                 (
                                     truncate_and_trailoff(&process_file, MAX_CHARS),
-                                    truncate_and_trailoff(&process_name, process_max),
+                                    truncate_and_trailoff(&process_name, MAX_CHARS),
                                 )
                             } else {
                                 (process_file, process_name)

@@ -198,9 +198,13 @@ where
             return;
         };
 
-        let diff = source_snapshot
-            .diff_for_buffer_id(first.source_buffer.remote_id())
-            .expect("buffer with no diff when creating patches");
+        let Some(diff) = source_snapshot.diff_for_buffer_id(first.source_buffer.remote_id())
+        else {
+            // diff 가 없는 버퍼면 패닉 대신 pending 을 비우고 종료한다.
+            // 동시 편집 중 diff 가 사라진 race condition 보호.
+            pending.clear();
+            return;
+        };
         let rhs_buffer = if first.source_buffer.remote_id() == diff.base_text().remote_id() {
             first.target_buffer
         } else {
@@ -448,7 +452,7 @@ impl SplittableEditor {
                 Editor::for_multibuffer(rhs_multibuffer.clone(), Some(project.clone()), window, cx);
             editor.set_expand_all_diff_hunks(cx);
             editor.disable_runnables();
-            editor.disable_diagnostics(cx);
+            editor.disable_inline_diagnostics();
             editor.set_minimap_visibility(crate::MinimapVisibility::Disabled, window, cx);
             editor
         });

@@ -61,6 +61,10 @@ pub fn hover_at(
             editor.hover_state.hiding_delay_task = None;
             editor.hover_state.closest_mouse_distance = None;
             show_hover(editor, anchor, false, window, cx);
+        } else if !editor.hover_state.visible() {
+            // hover popover 가 아직 보이기도 전에 hover 가 끝났으면 진행 중인 정보 task 도 취소한다.
+            // 그렇지 않으면 hover 종료 후에도 popover 가 잠깐 떠올라 잔상으로 보인다.
+            editor.hover_state.info_task = None;
         } else {
             let settings = EditorSettings::get_global(cx);
             if !settings.hover_popover_sticky {
@@ -1892,6 +1896,7 @@ mod tests {
             PointForPosition {
                 previous_valid,
                 next_valid,
+                nearest_valid: previous_valid,
                 exact_unclipped,
                 column_overshoot_after_line_end: 0,
             }
@@ -2019,6 +2024,7 @@ mod tests {
             PointForPosition {
                 previous_valid,
                 next_valid,
+                nearest_valid: previous_valid,
                 exact_unclipped,
                 column_overshoot_after_line_end: 0,
             }

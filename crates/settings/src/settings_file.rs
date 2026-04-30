@@ -134,6 +134,9 @@ pub fn watch_config_file(
 ) -> (mpsc::UnboundedReceiver<String>, gpui::Task<()>) {
     let (tx, rx) = mpsc::unbounded();
     let task = executor.spawn(async move {
+        // symlink 가 가리키는 실제 경로를 감시한다. 예: `~/.config/zed` 가
+        // dotfiles 디렉터리로 향한 symlink 일 때, target 측 파일 이벤트가 정상 전달되도록 해 준다.
+        let path = fs.canonicalize(&path).await.unwrap_or_else(|_| path);
         let (events, _) = fs.watch(&path, Duration::from_millis(100)).await;
         futures::pin_mut!(events);
 
@@ -196,8 +199,9 @@ pub fn watch_config_dir(
                             }
                             Some(PathEventKind::Rescan) => {
                                 for file_path in &config_paths {
-                                    let contents = fs.load(file_path).await.unwrap_or_default();
-                                    if tx.unbounded_send(contents).is_err() {
+                                    if let Ok(contents) = fs.load(file_path).await
+                                        && tx.unbounded_send(contents).is_err()
+                                    {
                                         return;
                                     }
                                 }
@@ -208,8 +212,9 @@ pub fn watch_config_dir(
                         && event.path == dir_path
                     {
                         for file_path in &config_paths {
-                            let contents = fs.load(file_path).await.unwrap_or_default();
-                            if tx.unbounded_send(contents).is_err() {
+                            if let Ok(contents) = fs.load(file_path).await
+                                && tx.unbounded_send(contents).is_err()
+                            {
                                 return;
                             }
                         }

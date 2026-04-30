@@ -319,6 +319,10 @@ impl LanguageRegistry {
         state
             .all_lsp_adapters
             .insert(cached.name.clone(), cached.clone());
+        // 새 LSP adapter 등록 사실을 구독자(LspStore 등) 에게 즉시 알리기 위해 버전 증가 + 구독 dirty.
+        // 세션 복원 직후 추가 등록되는 extension LSP 가 누락되지 않게 한다.
+        state.version += 1;
+        *state.subscription.0.borrow_mut() = ();
     }
 
     /// Register a fake language server and adapter
@@ -354,6 +358,8 @@ impl LanguageRegistry {
         state
             .all_lsp_adapters
             .insert(cached_adapter.name(), cached_adapter);
+        state.version += 1;
+        *state.subscription.0.borrow_mut() = ();
     }
 
     /// Register a fake language server (without the adapter)

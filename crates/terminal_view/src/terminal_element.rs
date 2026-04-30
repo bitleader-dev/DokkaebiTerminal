@@ -452,11 +452,13 @@ impl TerminalElement {
         minimum_contrast: f32,
     ) -> TextRun {
         let flags = indexed.cell.flags;
+        let is_true_color = matches!(fg, terminal::alacritty_terminal::vte::ansi::Color::Spec(_));
         let mut fg = convert_color(&fg, colors);
         let bg = convert_color(&bg, colors);
 
-        // Only apply contrast adjustment to non-decorative characters
-        if !Self::is_decorative_character(indexed.c) {
+        // 24-bit RGB(true-color) foreground 는 어플리케이션이 정확한 색상을 의도한 것이므로
+        // 명도 대비 보정을 건너뛴다. decorative 문자도 보정 제외.
+        if !is_true_color && !Self::is_decorative_character(indexed.c) {
             fg = ensure_minimum_contrast(fg, bg, minimum_contrast);
         }
 
@@ -1062,7 +1064,9 @@ impl Element for TerminalElement {
                         let (shape, text) = match cursor.shape {
                             AlacCursorShape::Block if !focused => (CursorShape::Hollow, None),
                             AlacCursorShape::Block => (CursorShape::Block, Some(cursor_text)),
+                            AlacCursorShape::Underline if !focused => (CursorShape::Hollow, None),
                             AlacCursorShape::Underline => (CursorShape::Underline, None),
+                            AlacCursorShape::Beam if !focused => (CursorShape::Hollow, None),
                             AlacCursorShape::Beam => (CursorShape::Bar, None),
                             AlacCursorShape::HollowBlock => (CursorShape::Hollow, None),
                             AlacCursorShape::Hidden => unreachable!(),
@@ -1755,6 +1759,41 @@ mod tests {
             good_contrast, black_fg,
             "Good contrast should not be adjusted"
         );
+    }
+
+    #[test]
+    fn test_true_color_red_blue_not_washed_out_on_dark_bg() {
+        // 빨강·파랑은 APCA 인지 명도가 본질적으로 낮다. 순수 #ff0000 도 #1e1e1e 위에서
+        // Lc ~35 만 나와 기본 임계값 Lc 45 미만이므로 ensure_minimum_contrast 가 색을
+        // 밝게 보정해 색감이 빠지게 된다. 이 때문에 cell_style 은 Color::Spec(24-bit
+        // true color) 에 대해 보정을 건너뛴다.
+        let dark_bg = gpui::Hsla {
+            h: 0.0,
+            s: 0.0,
+            l: 0.05,
+            a: 1.0,
+        };
+
+        for (name, r, g, b) in [
+            ("red", 225, 80, 80),
+            ("blue", 80, 80, 225),
+            ("pure red", 255, 0, 0),
+        ] {
+            let color = terminal::rgba_color(r, g, b);
+            let contrast = apca_contrast(color, dark_bg).abs();
+            assert!(
+                contrast < 45.0,
+                "{name} should have APCA < 45 on dark bg, got {contrast}",
+            );
+
+            let adjusted = ensure_minimum_contrast(color, dark_bg, 45.0);
+            assert!(
+                adjusted.l > color.l,
+                "{name} would be lightened by contrast adjustment (l: {} -> {})",
+                color.l,
+                adjusted.l,
+            );
+        }
     }
 
     #[test]

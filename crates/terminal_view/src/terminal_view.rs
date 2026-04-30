@@ -32,7 +32,8 @@ use std::{
 use task::TaskId;
 use terminal::{
     Clear, Copy, Event, HoveredWord, MaybeNavigationTarget, Paste, ScrollLineDown, ScrollLineUp,
-    ScrollPageDown, ScrollPageUp, ScrollToBottom, ScrollToTop, ShellCommandStatus,
+    ScrollPageDown, ScrollPageUp, ScrollToBottom,
+    ScrollToTop,
     ShowCharacterPalette, TaskState, TaskStatus, Terminal, TerminalBounds, ToggleViMode,
     alacritty_terminal::{
         index::Point as AlacPoint,
@@ -1316,10 +1317,22 @@ fn process_stem(name: Option<&str>) -> Option<String> {
     Some(stem.to_owned())
 }
 
-/// foreground 프로세스명이 Claude Code CLI 인지 판정한다.
-/// Windows `claude.exe`, Unix `claude` 모두 인식. 대소문자 무시.
-fn is_claude_code_process(name: Option<&str>) -> bool {
-    matches!(process_stem(name).as_deref(), Some("claude"))
+/// foreground 프로세스명이 AI CLI 도구이면 대응하는 전용 IconName 을 반환한다.
+/// Windows `.exe` suffix 와 대소문자는 `process_stem` 에서 정규화됨.
+/// 매핑 대상:
+/// - `claude` (Anthropic Claude Code) → `AiClaude`
+/// - `codex` (OpenAI Codex CLI) → `AiOpenAi`
+/// - `gemini` (Google Gemini CLI) → `AiGemini`
+/// - `opencode` (opencode.ai CLI) → `AiOpenCode`
+fn ai_cli_icon(name: Option<&str>) -> Option<IconName> {
+    let stem = process_stem(name)?;
+    match stem.as_str() {
+        "claude" => Some(IconName::AiClaude),
+        "codex" => Some(IconName::AiOpenAi),
+        "gemini" => Some(IconName::AiGemini),
+        "opencode" => Some(IconName::AiOpenCode),
+        _ => None,
+    }
 }
 
 /// foreground 프로세스명이 Rust 도구 모음(cargo/rustc/clippy/rustup/cross 등) 인지 판정.
@@ -1342,15 +1355,8 @@ fn is_rust_tool_process(name: Option<&str>) -> bool {
 }
 
 /// foreground 프로세스명에 대응하는 전용 IconName 을 반환한다 (있으면).
-/// OSC 133 OFF 의 Idle 상태와 ON 의 Running 상태에서 동일하게 사용된다.
 fn process_specific_icon(name: Option<&str>) -> Option<IconName> {
-    if is_claude_code_process(name) {
-        Some(IconName::AiClaude)
-    } else if is_rust_tool_process(name) {
-        Some(IconName::FileRust)
-    } else {
-        None
-    }
+    ai_cli_icon(name).or_else(|| is_rust_tool_process(name).then_some(IconName::FileRust))
 }
 
 fn subscribe_for_terminal_events(
@@ -1729,24 +1735,9 @@ impl Item for TerminalView {
             let terminal = self.terminal().read(cx);
             let title = terminal.title(false);
             let pid = terminal.pid_getter()?.fallback_pid();
-            // OSC 133 셸 통합 상태 — 일반 셸에서 마지막 명령 결과를 툴팁에 노출
-            let shell_status_line: Option<String> = match terminal.shell_command_status() {
-                ShellCommandStatus::Idle => None,
-                ShellCommandStatus::Running => Some(t("terminal.tooltip.running", cx).to_string()),
-                ShellCommandStatus::Succeeded => {
-                    Some(t("terminal.tooltip.last_succeeded", cx).to_string())
-                }
-                ShellCommandStatus::Failed { exit_code } => {
-                    let label = t("terminal.tooltip.last_failed", cx);
-                    Some(match exit_code {
-                        Some(code) => format!("{label} ({code})"),
-                        None => label.to_string(),
-                    })
-                }
-            };
 
             move |_, _| {
-                let mut root = v_flex()
+                v_flex()
                     .gap_1()
                     .child(Label::new(title.clone()))
                     .child(h_flex().flex_grow().child(Divider::horizontal()))
@@ -1754,15 +1745,8 @@ impl Item for TerminalView {
                         Label::new(format!("Process ID (PID): {}", pid))
                             .color(Color::Muted)
                             .size(LabelSize::Small),
-                    );
-                if let Some(line) = shell_status_line.clone() {
-                    root = root.child(
-                        Label::new(line)
-                            .color(Color::Muted)
-                            .size(LabelSize::Small),
-                    );
-                }
-                root.into_any_element()
+                    )
+                    .into_any_element()
             }
         }))))
     }
@@ -1799,36 +1783,23 @@ impl Item for TerminalView {
                 }
             },
             // task 없는 일반 셸 — 도구 아이콘이 있으면 그것을 사용하고 색상으로 상태를 표현,
-            // 도구 아이콘이 없으면 상태별 기본 아이콘(Terminal/PlayFilled/Check/XCircle) 사용.
-            // 상태 우선순위: Claude IPC `task_completed` > OSC 133 `shell_command_status`.
+            // 도구 아이콘이 없으면 상태별 기본 아이콘(Terminal/Check/XCircle) 사용.
+            // 상태 우선순위: Claude IPC `task_completed` 만 사용.
             None => {
                 let process_name_owned = terminal.foreground_process_name();
                 let process_name = process_name_owned.as_deref();
                 let process_icon = process_specific_icon(process_name);
 
-                // 0=Idle, 1=Running, 2=Succeeded, 3=Failed (로컬 분류)
-                let status_kind = if let Some(success) = self.task_completed {
-                    if success { 2 } else { 3 }
-                } else {
-                    match terminal.shell_command_status() {
-                        ShellCommandStatus::Idle => 0,
-                        ShellCommandStatus::Running => 1,
-                        ShellCommandStatus::Succeeded => 2,
-                        ShellCommandStatus::Failed { .. } => 3,
-                    }
-                };
-
-                match (process_icon, status_kind) {
-                    // 도구 아이콘 보존 + 색상으로 상태 표현 (claude 실행 중에 작업 완료 알림이 와도
-                    // AiClaude 아이콘은 유지하고 색상만 Success/Error 로 전환).
-                    (Some(icon), 2) => (icon, Color::Success, None),
-                    (Some(icon), 3) => (icon, Color::Error, None),
-                    (Some(icon), _) => (icon, Color::Default, None),
+                match (process_icon, self.task_completed) {
+                    // 도구 아이콘 보존 + 색상으로 상태 표현 (AI CLI/Rust 도구 실행 중에 작업 완료 알림이 와도
+                    // 해당 도구 아이콘은 유지하고 색상만 Success/Error 로 전환).
+                    (Some(icon), Some(true)) => (icon, Color::Success, None),
+                    (Some(icon), Some(false)) => (icon, Color::Error, None),
+                    (Some(icon), None) => (icon, Color::Default, None),
                     // 도구 아이콘 없음 — 상태별 기본 아이콘
-                    (None, 1) => (IconName::PlayFilled, Color::Disabled, None),
-                    (None, 2) => (IconName::Check, Color::Success, None),
-                    (None, 3) => (IconName::XCircle, Color::Error, None),
-                    (None, _) => (IconName::Terminal, Color::Muted, None),
+                    (None, Some(true)) => (IconName::Check, Color::Success, None),
+                    (None, Some(false)) => (IconName::XCircle, Color::Error, None),
+                    (None, None) => (IconName::Terminal, Color::Muted, None),
                 }
             }
         };
@@ -2528,8 +2499,10 @@ impl SearchableItem for TerminalView {
 }
 
 /// Gets the working directory for the given workspace, respecting the user's settings.
-/// Falls back to home directory when no project directory is available.
+/// 로컬 워크스페이스에 한해 home directory 로 폴백한다 (원격 워크스페이스에서는
+/// 로컬 home_dir 이 원격 사용자와 무관한 경로이므로 폴백하지 않는다).
 pub(crate) fn default_working_directory(workspace: &Workspace, cx: &App) -> Option<PathBuf> {
+    let should_fallback_to_local_home = workspace.project().read(cx).is_local();
     let settings = TerminalSettings::get_global(cx);
     let directory = match &settings.working_directory {
         WorkingDirectory::CurrentFileDirectory => workspace
@@ -2545,7 +2518,12 @@ pub(crate) fn default_working_directory(workspace: &Workspace, cx: &App) -> Opti
             .map(|dir| Path::new(&dir.to_string()).to_path_buf())
             .filter(|dir| dir.is_dir()),
     };
-    directory.or_else(dirs::home_dir)
+
+    if should_fallback_to_local_home {
+        directory.or_else(dirs::home_dir)
+    } else {
+        directory
+    }
 }
 
 /// workspace.active_worktree_override가 가리키는 워크트리의 root 디렉토리를 반환한다.

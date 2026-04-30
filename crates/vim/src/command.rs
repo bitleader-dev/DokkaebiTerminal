@@ -28,7 +28,7 @@ use std::{
     sync::OnceLock,
     time::Instant,
 };
-use task::{HideStrategy, RevealStrategy, SaveStrategy, SpawnInTerminal, TaskId};
+use task::{HideStrategy, RevealStrategy, SaveStrategy, Shell, SpawnInTerminal, TaskId};
 use ui::ActiveTheme;
 use util::{
     ResultExt,
@@ -1781,8 +1781,6 @@ fn generate_commands(_: &App) -> Vec<VimCommand> {
         VimCommand::str(("Ve", "xplore"), "project_panel::ToggleFocus"),
         VimCommand::str(("te", "rm"), "terminal_panel::Toggle"),
         VimCommand::str(("T", "erm"), "terminal_panel::Toggle"),
-        VimCommand::str(("C", "ollab"), "collab_panel::ToggleFocus"),
-        VimCommand::str(("No", "tifications"), "notification_panel::ToggleFocus"),
         VimCommand::str(("A", "I"), "agent::ToggleFocus"),
         VimCommand::str(("G", "it"), "git_panel::ToggleFocus"),
         VimCommand::new(("noh", "lsearch"), search::buffer_search::Dismiss),
@@ -2475,7 +2473,7 @@ impl ShellExec {
             workspace.update(cx, |workspace, cx| {
                 let project = workspace.project().read(cx);
                 let cwd = project.first_project_directory(cx);
-                let shell = project.terminal_settings(&cwd, cx).shell.clone();
+                let shell = Shell::System;
 
                 let spawn_in_terminal = SpawnInTerminal {
                     id: TaskId("vim".to_string()),

@@ -2155,6 +2155,13 @@ impl DisplaySnapshot {
         DisplayPoint(self.block_snapshot.clip_point(point.0, bias))
     }
 
+    /// 주어진 display point 위치의 inlay bias 를 반환한다. 클릭 위치가 inlay 와 인접할 때
+    /// 어느 쪽 valid point 로 붙일지 결정하는 데 사용한다 (`PositionMap::point_for_position`).
+    pub fn inlay_bias_at(&self, point: DisplayPoint) -> Option<Bias> {
+        let inlay_point = self.display_point_to_inlay_point(point, Bias::Left);
+        self.fold_snapshot().inlay_bias_at_point(inlay_point)
+    }
+
     pub fn clip_at_line_end(&self, display_point: DisplayPoint) -> DisplayPoint {
         let mut point = self.display_point_to_point(display_point, Bias::Left);
 

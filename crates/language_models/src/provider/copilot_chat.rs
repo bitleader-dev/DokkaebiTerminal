@@ -272,6 +272,7 @@ impl LanguageModel for CopilotChatLanguageModel {
                     "low" => "Low".into(),
                     "medium" => "Medium".into(),
                     "high" => "High".into(),
+                    "xhigh" => "Extra High".into(),
                     _ => SharedString::from(level.clone()),
                 };
                 LanguageModelEffortLevel {
@@ -382,7 +383,7 @@ impl LanguageModel for CopilotChatLanguageModel {
                         AnthropicModelMode::Thinking {
                             budget_tokens: None,
                         }
-                    } else if model.can_think() {
+                    } else if model.supports_thinking() {
                         AnthropicModelMode::Thinking {
                             budget_tokens: compute_thinking_budget(
                                 model.min_thinking_budget(),
@@ -414,11 +415,12 @@ impl LanguageModel for CopilotChatLanguageModel {
                     }
                 }
 
-                let anthropic_beta = if !model.supports_adaptive_thinking() && model.can_think() {
-                    Some("interleaved-thinking-2025-05-14".to_string())
-                } else {
-                    None
-                };
+                let anthropic_beta =
+                    if !model.supports_adaptive_thinking() && model.supports_thinking() {
+                        Some("interleaved-thinking-2025-05-14".to_string())
+                    } else {
+                        None
+                    };
 
                 let body = serde_json::to_string(&anthropic::StreamingRequest {
                     base: anthropic_request,
@@ -885,6 +887,7 @@ fn into_copilot_chat(
 ) -> Result<CopilotChatRequest> {
     let temperature = request.temperature;
     let tool_choice = request.tool_choice;
+    let thinking_allowed = request.thinking_allowed;
 
     let mut request_messages: Vec<LanguageModelRequestMessage> = Vec::new();
     for message in request.messages {
@@ -1054,7 +1057,15 @@ fn into_copilot_chat(
             LanguageModelToolChoice::Any => ToolChoice::Required,
             LanguageModelToolChoice::None => ToolChoice::None,
         }),
-        thinking_budget: None,
+        thinking_budget: if thinking_allowed && model.supports_thinking() {
+            compute_thinking_budget(
+                model.min_thinking_budget(),
+                model.max_thinking_budget(),
+                model.max_output_tokens() as u32,
+            )
+        } else {
+            None
+        },
     })
 }
 
@@ -1106,7 +1117,7 @@ fn into_copilot_responses(
         stop: _,
         temperature,
         thinking_allowed,
-        thinking_effort: _,
+        thinking_effort,
         speed: _,
     } = request;
 
@@ -1273,8 +1284,12 @@ fn into_copilot_responses(
         tools: converted_tools,
         tool_choice: mapped_tool_choice,
         reasoning: if thinking_allowed {
+            let effort = thinking_effort
+                .as_deref()
+                .and_then(|e| e.parse::<copilot_responses::ReasoningEffort>().ok())
+                .unwrap_or(copilot_responses::ReasoningEffort::Medium);
             Some(copilot_responses::ReasoningConfig {
-                effort: copilot_responses::ReasoningEffort::Medium,
+                effort,
                 summary: Some(copilot_responses::ReasoningSummary::Detailed),
             })
         } else {

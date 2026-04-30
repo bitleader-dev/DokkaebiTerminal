@@ -551,13 +551,15 @@ impl EditorElement {
                 cx.propagate();
             }
         });
-        register_action(editor, window, |editor, action, window, cx| {
-            if let Some(task) = editor.format_selections(action, window, cx) {
-                editor.detach_and_notify_err(task, window, cx);
-            } else {
-                cx.propagate();
-            }
-        });
+        if editor.read(cx).can_format_selections(cx) {
+            register_action(editor, window, |editor, action, window, cx| {
+                if let Some(task) = editor.format_selections(action, window, cx) {
+                    editor.detach_and_notify_err(task, window, cx);
+                } else {
+                    cx.propagate();
+                }
+            });
+        }
         register_action(editor, window, |editor, action, window, cx| {
             if let Some(task) = editor.organize_imports(action, window, cx) {
                 editor.detach_and_notify_err(task, window, cx);
@@ -833,7 +835,7 @@ impl EditorElement {
             }
         }
 
-        let position = point_for_position.previous_valid;
+        let position = point_for_position.nearest_valid;
         if let Some(mode) = Editor::columnar_selection_mode(&modifiers, cx) {
             editor.select(
                 SelectPhase::BeginColumnar {
@@ -891,7 +893,7 @@ impl EditorElement {
         mouse_context_menu::deploy_context_menu(
             editor,
             Some(event.position),
-            point_for_position.previous_valid,
+            point_for_position.nearest_valid,
             window,
             cx,
         );
@@ -910,7 +912,7 @@ impl EditorElement {
         }
 
         let point_for_position = position_map.point_for_position(event.position);
-        let position = point_for_position.previous_valid;
+        let position = point_for_position.nearest_valid;
 
         editor.select(
             SelectPhase::BeginColumnar {
@@ -952,7 +954,7 @@ impl EditorElement {
                 if event.position == *click_position {
                     editor.select(
                         SelectPhase::Begin {
-                            position: point_for_position.previous_valid,
+                            position: point_for_position.nearest_valid,
                             add: false,
                             click_count: 1, // ready to drag state only occurs on click count 1
                         },
@@ -976,7 +978,7 @@ impl EditorElement {
                         || cfg!(not(target_os = "macos")) && event.modifiers.control);
                     editor.move_selection_on_drop(
                         &selection.clone(),
-                        point_for_position.previous_valid,
+                        point_for_position.nearest_valid,
                         is_cut,
                         window,
                         cx,
@@ -1012,7 +1014,7 @@ impl EditorElement {
             if EditorSettings::get_global(cx).middle_click_paste {
                 if let Some(text) = cx.read_from_primary().and_then(|item| item.text()) {
                     let point_for_position = position_map.point_for_position(event.position);
-                    let position = point_for_position.previous_valid;
+                    let position = point_for_position.nearest_valid;
 
                     editor.select(
                         SelectPhase::Begin {
@@ -1141,7 +1143,7 @@ impl EditorElement {
         if !editor.has_pending_selection() {
             let drop_anchor = position_map
                 .snapshot
-                .display_point_to_anchor(point_for_position.previous_valid, Bias::Left);
+                .display_point_to_anchor(point_for_position.nearest_valid, Bias::Left);
             match editor.selection_drag_state {
                 SelectionDragState::Dragging {
                     ref mut drop_cursor,
@@ -1185,7 +1187,7 @@ impl EditorElement {
                         editor.selection_drag_state = SelectionDragState::None;
                         editor.select(
                             SelectPhase::Begin {
-                                position: click_point.previous_valid,
+                                position: click_point.nearest_valid,
                                 add: false,
                                 click_count: 1,
                             },
@@ -1194,7 +1196,7 @@ impl EditorElement {
                         );
                         editor.select(
                             SelectPhase::Update {
-                                position: point_for_position.previous_valid,
+                                position: point_for_position.nearest_valid,
                                 goal_column: point_for_position.exact_unclipped.column(),
                                 scroll_delta,
                             },
@@ -1208,7 +1210,7 @@ impl EditorElement {
         } else {
             editor.select(
                 SelectPhase::Update {
-                    position: point_for_position.previous_valid,
+                    position: point_for_position.nearest_valid,
                     goal_column: point_for_position.exact_unclipped.column(),
                     scroll_delta,
                 },
@@ -1235,7 +1237,7 @@ impl EditorElement {
         editor.show_mouse_cursor(cx);
 
         let point_for_position = position_map.point_for_position(event.position);
-        let valid_point = point_for_position.previous_valid;
+        let valid_point = point_for_position.nearest_valid;
 
         // Update diff review drag state if we're dragging
         if editor.diff_review_drag_state.is_some() {
@@ -6580,7 +6582,7 @@ impl EditorElement {
                         let snapshot = editor.snapshot(window, cx);
                         let anchor = snapshot
                             .display_snapshot
-                            .display_point_to_anchor(point_for_position.previous_valid, Bias::Left);
+                            .display_point_to_anchor(point_for_position.nearest_valid, Bias::Left);
                         editor.change_selections(
                             SelectionEffects::scroll(Autoscroll::top_relative(line_index)),
                             window,
@@ -8634,6 +8636,10 @@ fn render_blame_entry_popover(
     window: &mut Window,
     cx: &mut App,
 ) -> Option<AnyElement> {
+    if markdown.read(cx).is_parsing() {
+        return None;
+    }
+
     let renderer = cx.global::<GlobalBlameRenderer>().0.clone();
     let blame = blame.read(cx);
     let repository = blame.repository(cx, buffer)?;
@@ -10403,11 +10409,6 @@ impl Element for EditorElement {
                     } else {
                         None
                     };
-                    self.editor.update(cx, |editor, _| {
-                        editor.scroll_manager.set_sticky_header_line_count(
-                            sticky_headers.as_ref().map_or(0, |h| h.lines.len()),
-                        );
-                    });
                     let indent_guides =
                         if scroll_pixel_position != preliminary_scroll_pixel_position {
                             self.layout_indent_guides(
@@ -11014,33 +11015,58 @@ impl Element for EditorElement {
             window.with_text_style(Some(text_style), |window| {
                 window.with_content_mask(Some(ContentMask { bounds }), |window| {
                     self.paint_mouse_listeners(layout, window, cx);
-                    self.paint_background(layout, window, cx);
 
-                    self.paint_indent_guides(layout, window, cx);
-
-                    if layout.gutter_hitbox.size.width > Pixels::ZERO {
-                        self.paint_blamed_display_rows(layout, window, cx);
-                        self.paint_line_numbers(layout, window, cx);
-                    }
-
-                    self.paint_text(layout, window, cx);
-
-                    if !layout.spacer_blocks.is_empty() {
-                        window.with_element_namespace("blocks", |window| {
-                            self.paint_spacer_blocks(layout, window, cx);
+                    // sticky scroll header 아래 영역만 mask. transparent 배경에서
+                    // editor 내용이 sticky header 뒤로 비쳐 보이지 않도록 차단.
+                    let below_sticky_headers_mask = layout
+                        .sticky_headers
+                        .as_ref()
+                        .and_then(|h| h.lines.last())
+                        .map(|last| ContentMask {
+                            bounds: Bounds {
+                                origin: point(
+                                    bounds.origin.x,
+                                    bounds.origin.y + last.offset + layout.position_map.line_height,
+                                ),
+                                size: size(
+                                    bounds.size.width,
+                                    (bounds.size.height
+                                        - last.offset
+                                        - layout.position_map.line_height)
+                                        .max(Pixels::ZERO),
+                                ),
+                            },
                         });
-                    }
 
-                    if layout.gutter_hitbox.size.width > Pixels::ZERO {
-                        self.paint_gutter_highlights(layout, window, cx);
-                        self.paint_gutter_indicators(layout, window, cx);
-                    }
+                    window.with_content_mask(below_sticky_headers_mask, |window| {
+                        self.paint_background(layout, window, cx);
 
-                    if !layout.blocks.is_empty() {
-                        window.with_element_namespace("blocks", |window| {
-                            self.paint_non_spacer_blocks(layout, window, cx);
-                        });
-                    }
+                        self.paint_indent_guides(layout, window, cx);
+
+                        if layout.gutter_hitbox.size.width > Pixels::ZERO {
+                            self.paint_blamed_display_rows(layout, window, cx);
+                            self.paint_line_numbers(layout, window, cx);
+                        }
+
+                        self.paint_text(layout, window, cx);
+
+                        if !layout.spacer_blocks.is_empty() {
+                            window.with_element_namespace("blocks", |window| {
+                                self.paint_spacer_blocks(layout, window, cx);
+                            });
+                        }
+
+                        if layout.gutter_hitbox.size.width > Pixels::ZERO {
+                            self.paint_gutter_highlights(layout, window, cx);
+                            self.paint_gutter_indicators(layout, window, cx);
+                        }
+
+                        if !layout.blocks.is_empty() {
+                            window.with_element_namespace("blocks", |window| {
+                                self.paint_non_spacer_blocks(layout, window, cx);
+                            });
+                        }
+                    });
 
                     window.with_element_namespace("blocks", |window| {
                         if let Some(mut sticky_header) = layout.sticky_buffer_header.take() {
@@ -11823,6 +11849,9 @@ pub(crate) struct PositionMap {
 pub struct PointForPosition {
     pub previous_valid: DisplayPoint,
     pub next_valid: DisplayPoint,
+    /// inlay bias 를 반영해 가까운 valid point 를 선택. inlay 와 인접한 위치에서 클릭 시
+    /// 어색한 셀렉션 점프를 방지한다.
+    pub nearest_valid: DisplayPoint,
     pub exact_unclipped: DisplayPoint,
     pub column_overshoot_after_line_end: u32,
 }
@@ -11891,6 +11920,7 @@ impl PositionMap {
         let mut exact_unclipped = DisplayPoint::new(DisplayRow(row), column);
         let previous_valid = self.snapshot.clip_point(exact_unclipped, Bias::Left);
         let next_valid = self.snapshot.clip_point(exact_unclipped, Bias::Right);
+        let nearest_valid = self.pick_nearest_valid(exact_unclipped, previous_valid, next_valid);
 
         let column_overshoot_after_line_end =
             (x_overshoot_after_line_end / self.em_layout_width) as u32;
@@ -11898,6 +11928,7 @@ impl PositionMap {
         PointForPosition {
             previous_valid,
             next_valid,
+            nearest_valid,
             exact_unclipped,
             column_overshoot_after_line_end,
         }
@@ -11926,6 +11957,7 @@ impl PositionMap {
         let mut exact_unclipped = DisplayPoint::new(row, column);
         let previous_valid = self.snapshot.clip_point(exact_unclipped, Bias::Left);
         let next_valid = self.snapshot.clip_point(exact_unclipped, Bias::Right);
+        let nearest_valid = self.pick_nearest_valid(exact_unclipped, previous_valid, next_valid);
 
         let column_overshoot_after_line_end =
             (x_overshoot_after_line_end / self.em_layout_width) as u32;
@@ -11933,8 +11965,25 @@ impl PositionMap {
         PointForPosition {
             previous_valid,
             next_valid,
+            nearest_valid,
             exact_unclipped,
             column_overshoot_after_line_end,
+        }
+    }
+
+    /// inlay 인접 클릭에서 어느 쪽 valid point 로 붙일지 결정한다.
+    fn pick_nearest_valid(
+        &self,
+        exact_unclipped: DisplayPoint,
+        previous_valid: DisplayPoint,
+        next_valid: DisplayPoint,
+    ) -> DisplayPoint {
+        if previous_valid == next_valid {
+            return previous_valid;
+        }
+        match self.snapshot.inlay_bias_at(exact_unclipped) {
+            Some(Bias::Left) => next_valid,
+            Some(Bias::Right) | None => previous_valid,
         }
     }
 }

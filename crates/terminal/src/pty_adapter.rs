@@ -5,19 +5,18 @@
 //! alacritty의 `Term<ZedListener>` 그리드 파서와 연결된다.
 
 use std::io::{self, Read, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use alacritty_terminal::event::{Event as AlacTermEvent, EventListener};
 use alacritty_terminal::sync::FairMutex;
 use alacritty_terminal::Term;
-use futures::channel::mpsc::UnboundedSender;
+use parking_lot::Mutex;
 use portable_pty::{
     native_pty_system, Child, CommandBuilder, MasterPty, PtySize,
 };
 use alacritty_terminal::vte::ansi;
 
-use crate::shell_integration::{Osc133Scanner, ShellIntegrationEvent};
 use crate::ZedListener;
 
 /// PTY 읽기 버퍼 크기 (alacritty READ_BUFFER_SIZE와 동일)
@@ -39,45 +38,34 @@ impl PtyHandle {
         if data.is_empty() {
             return;
         }
-        if let Ok(mut writer) = self.writer.lock() {
-            writer.write_all(data).ok();
-        }
+        let mut writer = self.writer.lock();
+        writer.write_all(data).ok();
     }
 
     /// PTY 크기를 변경한다.
     pub fn resize(&self, size: PtySize) -> anyhow::Result<()> {
-        if let Ok(master) = self.master.lock() {
-            master
-                .resize(size)
-                .map_err(|e| anyhow::anyhow!("PTY resize 실패: {}", e))
-        } else {
-            Err(anyhow::anyhow!("PTY master lock 실패"))
-        }
+        let master = self.master.lock();
+        master
+            .resize(size)
+            .map_err(|e| anyhow::anyhow!("PTY resize 실패: {}", e))
     }
 
     /// 자식 프로세스 PID를 반환한다.
     pub fn process_id(&self) -> Option<u32> {
-        if let Ok(child) = self.child.lock() {
-            child.process_id()
-        } else {
-            None
-        }
+        let child = self.child.lock();
+        child.process_id()
     }
 
     /// 자식 프로세스가 종료했는지 확인한다 (논블로킹).
     pub fn try_wait(&self) -> Option<portable_pty::ExitStatus> {
-        if let Ok(mut child) = self.child.lock() {
-            child.try_wait().ok().flatten()
-        } else {
-            None
-        }
+        let mut child = self.child.lock();
+        child.try_wait().ok().flatten()
     }
 
     /// 자식 프로세스를 강제 종료한다.
     pub fn kill(&self) {
-        if let Ok(mut child) = self.child.lock() {
-            child.kill().ok();
-        }
+        let mut child = self.child.lock();
+        child.kill().ok();
     }
 
     #[cfg(windows)]
@@ -180,22 +168,16 @@ pub fn spawn_pty(
 ///
 /// 읽은 바이트를 `vte::ansi::Processor`로 파싱하여 `Term`에 반영하고,
 /// `ZedListener`를 통해 `Event::Wakeup`을 전달한다.
-///
-/// `shell_events_tx` 가 `Some` 이면 OSC 133 (FinalTerm shell integration) 시퀀스를
-/// 병행 검출해 별도 채널로 emit 한다. alac VTE 0.15.0 은 OSC 133 미처리이므로
-/// alac 파서에는 무해하게 통과시키되, 본 스캐너가 동일 바이트를 검사한다.
 pub fn spawn_pty_reader(
     mut reader: Box<dyn Read + Send>,
     terminal: Arc<FairMutex<Term<ZedListener>>>,
     event_proxy: ZedListener,
-    shell_events_tx: Option<UnboundedSender<ShellIntegrationEvent>>,
 ) -> JoinHandle<()> {
     std::thread::Builder::new()
         .name("pty-reader".into())
         .spawn(move || {
             let mut buf = vec![0u8; READ_BUFFER_SIZE];
             let mut parser = ansi::Processor::<ansi::StdSyncHandler>::new();
-            let mut osc133 = Osc133Scanner::new();
 
             loop {
                 // PTY에서 데이터 읽기 (blocking)
@@ -217,28 +199,14 @@ pub fn spawn_pty_reader(
                     }
                 };
 
-                // OSC 133 검출 — alac 파서로 넘기기 전에 동일 바이트를 스캐너에 공급
-                if let Some(ref tx) = shell_events_tx {
-                    let events = osc133.feed(&buf[..bytes_read]);
-                    for event in events {
-                        if tx.unbounded_send(event).is_err() {
-                            // 수신측이 끊겼다 — 이후 매칭은 무시
-                            break;
-                        }
-                    }
-                }
-
-                // 읽은 데이터를 파싱하여 Term에 반영
-                let mut offset = 0;
-                while offset < bytes_read {
-                    // Term 잠금 시도 (unfair — pty_read 스레드 우선)
+                // alac VTE 파서에 청크 단위로 advance — Term 잠금 시간을 줄이기 위해 분할.
+                let mut sub = 0;
+                while sub < bytes_read {
                     let _lease = terminal.lease();
                     let mut term = terminal.lock_unfair();
-
-                    let end = (offset + MAX_LOCKED_READ).min(bytes_read);
-                    parser.advance(&mut *term, &buf[offset..end]);
-                    offset = end;
-
+                    let end = (sub + MAX_LOCKED_READ).min(bytes_read);
+                    parser.advance(&mut *term, &buf[sub..end]);
+                    sub = end;
                     drop(term);
                     drop(_lease);
                 }

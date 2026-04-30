@@ -29,8 +29,8 @@ use editor::{
     movement::{self, FindRange},
 };
 use gpui::{
-    Action, App, AppContext, Axis, Context, Entity, EventEmitter, KeyContext, KeystrokeEvent,
-    Render, Subscription, Task, WeakEntity, Window, actions,
+    Action, App, AppContext, Axis, Context, Entity, EventEmitter, Focusable, KeyContext,
+    KeystrokeEvent, Render, Subscription, Task, WeakEntity, Window, actions,
 };
 use insert::{NormalBefore, TemporaryNormal};
 use language::{
@@ -764,6 +764,7 @@ impl Vim {
                         Operator::ChangeSurrounds {
                             target: action.target,
                             opening: false,
+                            bracket_anchors: Vec::new(),
                         },
                         window,
                         cx,
@@ -1029,8 +1030,17 @@ impl Vim {
     }
 
     pub fn pane(&self, window: &Window, cx: &Context<Self>) -> Option<Entity<Pane>> {
-        self.workspace(window, cx)
-            .map(|workspace| workspace.read(cx).focused_pane(window, cx))
+        let pane = self
+            .workspace(window, cx)
+            .map(|workspace| workspace.read(cx).focused_pane(window, cx))?;
+        // focused_pane 은 자체 pane 이 없는 dock panel(예: Agent panel) 이 포커스를
+        // 가졌을 때 center pane 으로 폴백한다. vim search/match 명령이
+        // 그 폴백 경로로 포커스를 빼앗지 않도록 가드한다.
+        if pane.read(cx).focus_handle(cx).contains_focused(window, cx) {
+            Some(pane)
+        } else {
+            None
+        }
     }
 
     pub fn enabled(cx: &mut App) -> bool {
@@ -1957,10 +1967,14 @@ impl Vim {
                 }
                 _ => self.clear_operator(window, cx),
             },
-            Some(Operator::ChangeSurrounds { target, opening }) => match self.mode {
+            Some(Operator::ChangeSurrounds {
+                target,
+                opening,
+                bracket_anchors,
+            }) => match self.mode {
                 Mode::Normal => {
                     if let Some(target) = target {
-                        self.change_surrounds(text, target, opening, window, cx);
+                        self.change_surrounds(text, target, opening, bracket_anchors, window, cx);
                         self.clear_operator(window, cx);
                     }
                 }

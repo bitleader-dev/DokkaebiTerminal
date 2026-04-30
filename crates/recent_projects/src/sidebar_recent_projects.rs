@@ -13,7 +13,7 @@ use picker::{
 };
 use remote::RemoteConnectionOptions;
 use settings::Settings;
-use ui::{KeyBinding, ListItem, ListItemSpacing, Tooltip, prelude::*};
+use ui::{ButtonLike, KeyBinding, ListItem, ListItemSpacing, Tooltip, prelude::*};
 use ui_input::ErasedEditor;
 use util::{ResultExt, paths::PathExt};
 use workspace::{
@@ -412,8 +412,18 @@ impl PickerDelegate for SidebarRecentProjectsDelegate {
                     let open_action = workspace::Open {
                         create_new_window: false,
                     };
-                    Button::new("open_local_folder", "Add Local Project")
-                        .key_binding(KeyBinding::for_action_in(&open_action, &focus_handle, cx))
+                    ButtonLike::new("open_local_folder")
+                        .child(
+                            h_flex()
+                                .w_full()
+                                .gap_1()
+                                .justify_between()
+                                .child(Label::new(i18n::t(
+                                    "recent_projects.add_local_project",
+                                    cx,
+                                )))
+                                .child(KeyBinding::for_action_in(&open_action, &focus_handle, cx)),
+                        )
                         .on_click(cx.listener(move |_, _, window, cx| {
                             cx.emit(DismissEvent);
                             window.dispatch_action(open_action.boxed_clone(), cx)

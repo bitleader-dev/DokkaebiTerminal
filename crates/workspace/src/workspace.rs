@@ -3192,24 +3192,29 @@ impl Workspace {
                                 };
                                 keystroke
                             };
-                            cx.update(|window, cx| {
-                                let focused = window.focused(cx);
-                                window.dispatch_keystroke(keystroke.clone(), cx);
-                                if window.focused(cx) != focused {
-                                    // dispatch_keystroke may cause the focus to change.
-                                    // draw's side effect is to schedule the FocusChanged events in the current flush effect cycle
-                                    // And we need that to happen before the next keystroke to keep vim mode happy...
-                                    // (Note that the tests always do this implicitly, so you must manually test with something like:
-                                    //   "bindings": { "g z": ["workspace::SendKeystrokes", ": j <enter> u"]}
-                                    // )
-                                    window.draw(cx).clear();
-                                }
-                            })
-                            .ok();
+                            // 포커스 변경이 일어난 경우에만 yield_now 한다. 변화 없는 keystroke
+                            // 마다 yield 하면 motion 도중에 화면 깜빡임이 발생한다.
+                            let focus_changed = cx
+                                .update(|window, cx| {
+                                    let focused = window.focused(cx);
+                                    window.dispatch_keystroke(keystroke.clone(), cx);
+                                    if window.focused(cx) != focused {
+                                        // dispatch_keystroke may cause the focus to change.
+                                        // draw's side effect is to schedule the FocusChanged events in the current flush effect cycle
+                                        // And we need that to happen before the next keystroke to keep vim mode happy...
+                                        // (Note that the tests always do this implicitly, so you must manually test with something like:
+                                        //   "bindings": { "g z": ["workspace::SendKeystrokes", ": j <enter> u"]}
+                                        // )
+                                        window.draw(cx).clear();
+                                        return true;
+                                    }
+                                    false
+                                })
+                                .unwrap_or(false);
 
-                            // Yield between synthetic keystrokes so deferred focus and
-                            // other effects can settle before dispatching the next key.
-                            yield_now().await;
+                            if focus_changed {
+                                yield_now().await;
+                            }
                         }
 
                         *keystrokes.borrow_mut() = Default::default();
@@ -3699,11 +3704,20 @@ impl Workspace {
                     .project
                     .read(cx)
                     .worktree_for_id(path.worktree_id, cx)?;
-                if worktree.read(cx).is_visible() {
-                    abs_path
-                } else {
-                    None
+                if !worktree.read(cx).is_visible() {
+                    return None;
                 }
+                // 의존성 디렉터리 등 read_only_files 패턴에 매치되는 경로는 "최근 활성 경로"
+                // 후보에서 제외해 Save Dialog 가 .venv/node_modules 같은 곳을 기본 진입하지 않게 한다.
+                let settings_location = SettingsLocation {
+                    worktree_id: path.worktree_id,
+                    path: &path.path,
+                };
+                if WorktreeSettings::get(Some(settings_location), cx).is_path_read_only(&path.path)
+                {
+                    return None;
+                }
+                abs_path
             })
             .next()
     }
@@ -7867,11 +7881,7 @@ impl Workspace {
     }
 
     #[cfg(any(test, feature = "test-support"))]
-    pub(crate) fn test_new(
-        project: Entity<Project>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Self {
+    pub fn test_new(project: Entity<Project>, window: &mut Window, cx: &mut Context<Self>) -> Self {
         use node_runtime::NodeRuntime;
         use session::Session;
 
@@ -9412,9 +9422,6 @@ actions!(
     collab,
     [
         /// Opens the channel notes for the current call.
-        ///
-        /// Use `collab_panel::OpenSelectedChannelNotes` to open the channel notes for the selected
-        /// channel in the collab panel.
         ///
         /// If you want to open a specific channel, use `zed::OpenZedUrl` with a channel notes URL -
         /// can be copied via "Copy link to section" in the context menu of the channel notes

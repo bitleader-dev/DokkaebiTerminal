@@ -1,5 +1,106 @@
 # Dokkaebi 릴리즈 노트
 
+## v0.5.0 (2026-04-30)
+
+### 새로운 기능
+- **`git: view commit` 액션**: 커맨드 팔레트에서 SHA·태그·브랜치 등 git ref 를 입력하면 해당 커밋의 details/diff 를 패널로 즉시 열기 가능
+- **`git config commit.template` 자동 적용**: 저장소 commit 템플릿이 설정되어 있으면 비어 있는 commit 메시지에 자동 채워져 커밋 작성 컨텍스트 그대로 시작
+- **DeepSeek V4 Pro/Flash 모델 추가**: 1M 토큰 컨텍스트 + thinking/reasoning_effort 지원으로 대형 리팩터링·복잡 추론 작업에서 활용 가능
+- **DeepSeek V3 Chat/Reasoner 모델 단종 + 기본값 V4 Pro 로 변경**: 모델 ID 가 `deepseek-chat`/`deepseek-reasoner` → `deepseek-v4-flash`/`deepseek-v4-pro` 로 교체
+- **`zed --wait --diff <left> <right>` 단일 diff 종료 동작**: diff 탭만 닫아도 cli 가 종료. 디렉터리·파일 동시에 안 받았을 때 워크스페이스 종료까지 기다리지 않음
+
+### UI/UX 개선
+- **git panel 섹션 헤더 체크박스**: 그룹 단위로 한 번에 stage/unstage 가능. 호버로 표시되며 부분 체크 상태도 시각적으로 구분
+- **inline blame popover 잔상 차단**: 모달이 열리거나 스크롤·커서 이동 시 popover 가 즉시 사라져 화면에 떠 있던 잔상 제거
+- **blame popover 빈 본문 차단**: 마크다운 파싱 중인 동안에는 popover 를 띄우지 않아 빈 박스가 잠깐 보이던 현상 해소
+- **`Format Selections` 메뉴 가용성 인식**: 활성 LSP/포매터가 range formatting 을 지원할 때만 컨텍스트 메뉴와 키바인딩에 노출
+- **Inline Assist 아이콘 자동 숨김**: 진단 패널 toolbar 의 Inline Assist 버튼이 Agent disabled 일 때 사라져 불필요한 아이콘 노출 차단
+- **Vim `/` 가 Agent panel 포커스 빼앗지 않음**: Agent 패널 포커스 상태에서 `/` 입력해도 vim search 가 center pane 으로 점프하지 않음
+- **Python LSP 가 uv/Poetry/PDM 워크스페이스 root 인식**: 서브 패키지의 `pyproject.toml` 이 아닌 `*.lock` 이 있는 최상위 디렉터리를 워크스페이스 root 로 사용
+- **JSON schema 다운로드 proxy 적용**: `http_client.proxy` 설정이 JSON LSP 의 schema 다운로드 요청에도 자동 전달
+- **AI 이미지 토큰 추산 정확도 향상**: 다운스케일된 이미지의 토큰 수를 다운스케일 후 실제 크기 기준으로 산출
+- **Copilot reasoning 효력 반영**: 이전에는 무시되던 thinking effort 값이 Copilot Chat 요청에 실제 적용되어 모델 응답 깊이 조절 가능
+- **Copilot `xhigh` reasoning 라벨 표시**: `xhigh` 값이 "Extra High" 로 UI 에 노출
+- **Mistral 도구 호출 id 처리 안정화**: 스트리밍 chunk 에서 보내오는 `"null"` id 무시로 도구 호출이 정상 누적
+- **OpenAI provider Responses API 기본 사용**: chat completions 가 아닌 Responses 엔드포인트가 기본 경로가 되어 reasoning 모델 응답이 일관되게 처리
+- **`onboarding` 스크롤바 위치 보정**: 스크롤바가 콘텐츠 컨테이너가 아닌 패널 우측 가장자리에 떠 본문 표시 영역과 충돌하지 않음
+- **Recent Projects 단축키 라벨 정렬**: 빈 영역의 "Add Local Project" 버튼이 keybinding 과 양 끝 정렬로 표시
+- **빈 프로젝트 패널에서 새 파일 생성 가능**: worktree 가 비어 있던 상태에서도 root 가 자동 등록되어 신규 파일 생성 동작
+- **Git Graph 행 위치 정확도**: 분수 ui_font_size 에서 canvas 와 table 행이 어긋나 스크롤 시 line/dot 이 row 와 분리되던 문제 해소
+- **branch picker Create/Confirm 버튼 활성화**: 두 버튼이 같은 element id 로 충돌해 클릭이 안 되던 문제 fix
+- **commit details 단복수 표기**: "1 Changed Files" → "1 Changed File"
+- **CLAUDE.md/AGENTS.md 규칙 파일 안정 로드**: worktree 초기 스캔이 끝날 때까지 기다린 뒤 규칙 파일을 읽어 첫 진입에서도 룰이 누락되지 않음
+- **외부 디렉터리 symlink 변경 감지**: worktree 의 symlink 가 가리키는 외부 디렉터리에서 발생한 파일 변경도 즉시 인식되어 reload 트리거
+- **sticky header 가 현재 row 가리지 않음**: jump-to-definition·위 화살표 등에서 자동 스크롤이 sticky 헤더 영역을 고려해 보고 있던 줄을 가리지 않게 정렬
+- **Agent/MCP/cli 가 OS 기본 셸 사용**: `terminal.shell` 설정 대신 시스템 셸을 직접 호출해 tmux session 안에서도 hang 없이 동작
+
+### 버그 수정
+- **split diff 패닉 회피**: diff 가 동시 편집으로 사라지는 race condition 에서도 panic 대신 빈 결과로 안전 종료
+- **extension `download_file` GzipTar 다운로드 실패 회피**: 큰 tar.gz 익스텐션 업데이트 시 `archive header` 오류 없이 받기 가능
+
+---
+
+## v0.4.8 (2026-04-30)
+
+### UI/UX 개선
+- **JS/TS 아웃라인 패널에 중첩 객체 메서드 표시**: 중첩 객체 리터럴 안의 메서드도 아웃라인에 노출되어 깊은 구조의 코드도 한눈에 탐색 가능
+- **`.mlx` 파일 OCaml 아이콘**: `.mlx` 확장자가 OCaml 아이콘으로 표시
+- **터미널 24비트 컬러 정확도 향상**: 어두운 배경 위 빨강·파랑처럼 인지 명도가 낮은 24비트 RGB 색상도 본래 의도한 색상 그대로 표시 (대비 보정으로 색이 빠지던 현상 해소)
+- **터미널 커서가 비활성 창에서 다른 모양으로 표시**: 막대(beam)/밑줄(underline) 커서도 포커스 잃었을 때 hollow 형태로 시각 구분
+- **자동완성에서 입력한 대소문자에 맞는 항목 우선**: 동률일 때 `a` 입력 시 `abc`, `A` 입력 시 `ABC` 가 위에 정렬
+- **터미널 hyperlink 가 도구 출력 패턴 인식**: `Update(path)`, `Write(path)` 같은 Claude Code 출력의 괄호 안 경로도 클릭으로 열기 가능
+- **Vim `cs` 연산자가 동일 줄에 따옴표 여러 개 있을 때 정확히 동작**: `I'm 'good'` 같은 줄에서 cs 가 짝을 잘못 매칭하던 문제 해소
+- **마크다운 hover popover 잔상 제거**: 호버가 끝나기 전에 popover 표시 task 가 진행 중이었을 때 종료 후에 잠깐 떠오르던 현상 차단
+- **Multi buffer 탭 툴팁 개선**: singleton 이 아닌 multi buffer 도 의미 있는 제목을 툴팁으로 표시
+- **분할 에디터에서 진단 밑줄 표시**: split 에디터에서도 inline 진단(밑줄)이 사라지고 gutter 진단 아이콘만 남도록 동작 정렬
+- **transparent 테마에서 sticky scroll 헤더 뒤 비침 차단**: sticky 헤더 영역 아래만 마스크해 본문 스크롤이 헤더 위로 비치지 않음
+- **hint 진단 색상 분리**: hint 레벨 진단이 info 색이 아닌 hint 전용 색으로 표시
+- **`AcceptEditPrediction` 모디파이어로 코드 액션 메뉴가 안 사라짐**: 다른 컨텍스트 메뉴가 활성 상태면 edit prediction 미리보기를 건너뛰어 액션 메뉴가 그대로 유지
+
+### 버그 수정
+- **Windows 모든 창 닫은 후 dokkaebi.exe 가 정상 종료**: aws-lc atexit / TLS destructor / loader lock 사이의 데드락으로 백그라운드 프로세스가 남던 문제 수정
+- **Windows Alt-Tab 후 Alt 모디파이어 stuck 해소**: 포커스를 다시 얻을 때 modifier 추적 상태가 리셋되어 stale Alt 가 다음 키 입력에 영향 주지 않음
+- **Windows 하위 폴더 git diff 빈 화면 수정**: 서브디렉터리 worktree 에서 git diff 가 비어 보이던 문제 해소
+- **Windows 에서 Node.js LSP 가 사용자 데이터 디렉터리로 시작 실패하던 문제 수정**: `\\?\` extended-length prefix 가 외부 프로세스 인자에서 제거되어 LSP 정상 시작
+- **세션 복원 시 extension 언어 서버 미시작 수정**: 세션 복원 후 늦게 로드된 extension LSP 도 이미 열려 있는 버퍼에 자동 등록
+- **inlay hint 가 인접 위치에서 정확한 좌표로 navigation**: inlay 좌우 어디로 붙여야 할지 bias 기반으로 결정해 클릭/이동이 어색한 점프 없이 동작
+- **edit prediction 자동완성 메뉴 오염 수정**: `show_in_completions_menu` 비활성 시 unicode 같은 무관한 snippet 이 자동완성 메뉴에 끼지 않음
+- **저장 안 된 버퍼의 gutter play 버튼 표시 안 함**: 디스크에 없는 새 파일에서 클릭해도 동작 안 하던 play 버튼이 처음부터 안 나옴
+- **읽기 전용 의존성 디렉터리가 Save Dialog 기본 진입 경로에서 제외**: `.venv`, `node_modules` 등 `read_only_files` 패턴에 매치되는 경로는 "최근 활성 경로" 후보에서 빠짐
+- **Vim 모션 화면 깜빡임 감소**: synthetic 키스트로크 시 포커스 변경이 없으면 yield 없이 처리되어 motion 도중 깜빡임이 줄어듦
+- **원격 워크스페이스에서 터미널이 로컬 home 디렉터리로 잘못 빠지지 않음**: remote project 일 때 home_dir 폴백을 건너뜀
+- **symlinked config 디렉터리에서 settings.json 변경 감지**: `~/.config/zed` 가 dotfiles 로 향한 symlink 일 때도 target 측 변경이 정상 전달
+
+---
+
+## v0.4.7 (2026-04-30)
+
+### 정리
+- **셸 통합 (OSC 133) 기능 제거**: 설정 → 터미널 → 고급 설정의 "셸 통합" 토글과 관련 부수 기능(탭 명령 결과 아이콘·툴팁의 마지막 명령 상태·실행 중 명령 인자 요약·bash/PowerShell 자동 주입 스크립트) 일괄 삭제. AI CLI 도구별 탭 아이콘과 Claude Code 작업 완료 알림 아이콘은 그대로 유지
+
+### 외부 호환성
+- **`Ctrl+↑/↓` 명령 단위 navigation 제거**: prompt mark 점프 단축키가 더 이상 동작하지 않음. 일반 라인 스크롤은 `Shift+↑/↓` 으로 가능
+- **`DOKKAEBI_SHELL_INTEGRATION=off` 환경변수 무효화**: 셸 통합 자체가 제거되어 환경변수 escape hatch도 함께 동작 중지
+
+---
+
+## v0.4.6 (2026-04-30)
+
+### UI/UX 개선
+- **AI CLI 탭 아이콘 확장**: 터미널 탭에 `claude` 외에 `codex`, `gemini`, `opencode` 실행 중에도 각 서비스 전용 아이콘이 표시되어 어떤 AI CLI 가 돌고 있는지 즉시 식별
+
+---
+
+## v0.4.5 (2026-04-30)
+
+### 새로운 기능
+- **터미널 명령 단위 navigation (Ctrl+↑/↓)**: 셸 통합(OSC 133) 활성 시 `Ctrl+↑` 로 직전 프롬프트, `Ctrl+↓` 로 다음 프롬프트 위치로 viewport 즉시 점프. 긴 빌드·테스트 로그에서 명령 단위로 빠르게 이동 가능. 셸 통합 OFF 또는 mark 가 없으면 동작 안 함
+
+### 외부 호환성
+- **Ctrl+화살표가 더 이상 셸로 직접 전달되지 않습니다**: bash 의 `forward-word`/`backward-word` (단어 단위 이동) 는 기존 PTY 표준 키인 `Alt+B` / `Alt+F` 또는 `Esc B` / `Esc F` 로 사용 가능. PowerShell PSReadLine 도 동일
+
+---
+
 ## v0.4.4 (2026-04-30)
 
 ### 새로운 기능

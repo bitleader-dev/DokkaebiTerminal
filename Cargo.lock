@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "Dokkaebi"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "acp_thread",
  "acp_tools",
@@ -2687,6 +2687,7 @@ dependencies = [
  "rayon",
  "release_channel",
  "serde",
+ "serde_json",
  "tempfile",
  "util",
  "walkdir",
@@ -3153,7 +3154,6 @@ dependencies = [
  "slotmap",
  "smol",
  "tempfile",
- "terminal",
  "tiny_http",
  "url",
  "util",
@@ -4169,6 +4169,7 @@ dependencies = [
 name = "diagnostics"
 version = "0.1.0"
 dependencies = [
+ "agent_settings",
  "anyhow",
  "collections",
  "component",
@@ -6116,6 +6117,7 @@ dependencies = [
  "schemars 1.0.4",
  "serde",
  "serde_json",
+ "shellexpand",
  "smallvec",
  "smol",
  "sum_tree",
@@ -6156,6 +6158,7 @@ dependencies = [
  "git",
  "git_ui",
  "gpui",
+ "i18n",
  "language",
  "menu",
  "project",
@@ -11546,7 +11549,6 @@ dependencies = [
  "gpui",
  "i18n",
  "language",
- "markdown",
  "paths",
  "picker",
  "regex",

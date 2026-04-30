@@ -1093,6 +1093,17 @@ impl InlaySnapshot {
         }
     }
 
+    /// 주어진 inlay point 위치에 inlay 가 있다면 그 inlay 의 anchor bias 를 반환한다.
+    /// 인근 클릭이 inlay 의 어느 쪽으로 흡수되어야 할지 결정하는 데 사용된다.
+    pub fn inlay_bias_at_point(&self, point: InlayPoint) -> Option<Bias> {
+        let mut cursor = self.transforms.cursor::<Dimensions<InlayPoint, Point>>(());
+        cursor.seek(&point, Bias::Left);
+        match cursor.item() {
+            Some(Transform::Inlay(inlay)) => Some(inlay.position.bias()),
+            _ => None,
+        }
+    }
+
     #[ztracing::instrument(skip_all)]
     pub fn text_summary(&self) -> MBTextSummary {
         self.transforms.summary().output

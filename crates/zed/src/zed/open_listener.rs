@@ -1368,7 +1368,7 @@ async fn open_workspaces(
 }
 
 async fn open_local_workspace(
-    workspace_paths: Vec<String>,
+    mut workspace_paths: Vec<String>,
     diff_paths: Vec<[String; 2]>,
     diff_all: bool,
     open_options: workspace::OpenOptions,
@@ -1376,6 +1376,16 @@ async fn open_local_workspace(
     app_state: &Arc<AppState>,
     cx: &mut AsyncApp,
 ) -> bool {
+    let user_provided_paths = !workspace_paths.is_empty();
+
+    // diff 경로만 제공된 경우 현재 작업 디렉터리를 추가해 워크스페이스가 올바른
+    // 컨텍스트로 열리도록 한다.
+    if !user_provided_paths && !diff_paths.is_empty() {
+        if let Ok(cwd) = std::env::current_dir() {
+            workspace_paths.push(cwd.to_string_lossy().into_owned());
+        }
+    }
+
     let paths_with_position =
         derive_paths_with_position(app_state.fs.as_ref(), workspace_paths).await;
 
@@ -1407,10 +1417,12 @@ async fn open_local_workspace(
     // the entire workspace is closed.
     if open_options.wait {
         let mut wait_for_window_close = paths_with_position.is_empty() && diff_paths.is_empty();
-        for path_with_position in &paths_with_position {
-            if app_state.fs.is_dir(&path_with_position.path).await {
-                wait_for_window_close = true;
-                break;
+        if user_provided_paths {
+            for path_with_position in &paths_with_position {
+                if app_state.fs.is_dir(&path_with_position.path).await {
+                    wait_for_window_close = true;
+                    break;
+                }
             }
         }
 

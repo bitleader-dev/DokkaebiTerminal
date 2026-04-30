@@ -67,7 +67,8 @@ use gpui::{
 pub use history_manager::*;
 pub use item::{
     FollowableItem, FollowableItemHandle, Item, ItemHandle, ItemSettings, PreviewTabsSettings,
-    ProjectItem, SerializableItem, SerializableItemHandle, WeakItemHandle,
+    ProjectItem, SerializableItem, SerializableItemHandle, TabContextMenuSubmenu,
+    TabContextMenuSubmenuEntry, WeakItemHandle,
 };
 use itertools::Itertools;
 use language::{LanguageRegistry, Rope, language_settings::all_language_settings};

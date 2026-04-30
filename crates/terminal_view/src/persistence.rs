@@ -415,6 +415,9 @@ impl Domain for TerminalDb {
         sql! (
             ALTER TABLE terminals ADD COLUMN custom_title TEXT;
         ),
+        sql! (
+            ALTER TABLE terminals ADD COLUMN custom_color TEXT;
+        ),
     ];
 }
 
@@ -499,6 +502,40 @@ impl TerminalDb {
     query! {
         pub fn get_custom_title(item_id: ItemId, workspace_id: WorkspaceId) -> Result<Option<String>> {
             SELECT custom_title
+            FROM terminals
+            WHERE item_id = ? AND workspace_id = ?
+        }
+    }
+
+    pub async fn save_custom_color(
+        &self,
+        item_id: ItemId,
+        workspace_id: WorkspaceId,
+        custom_color: Option<String>,
+    ) -> Result<()> {
+        log::debug!(
+            "Saving custom color {:?} for item {} in workspace {:?}",
+            custom_color,
+            item_id,
+            workspace_id
+        );
+        self.write(move |conn| {
+            let query = "INSERT INTO terminals (item_id, workspace_id, custom_color)
+                VALUES (?1, ?2, ?3)
+                ON CONFLICT (workspace_id, item_id) DO UPDATE SET
+                    custom_color = excluded.custom_color";
+            let mut statement = Statement::prepare(conn, query)?;
+            let mut next_index = statement.bind(&item_id, 1)?;
+            next_index = statement.bind(&workspace_id, next_index)?;
+            statement.bind(&custom_color, next_index)?;
+            statement.exec()
+        })
+        .await
+    }
+
+    query! {
+        pub fn get_custom_color(item_id: ItemId, workspace_id: WorkspaceId) -> Result<Option<String>> {
+            SELECT custom_color
             FROM terminals
             WHERE item_id = ? AND workspace_id = ?
         }

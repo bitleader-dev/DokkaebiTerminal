@@ -9,16 +9,16 @@ use assistant_slash_command::SlashCommandRegistry;
 use editor::{Editor, EditorSettings, actions::SelectAll, blink_manager::BlinkManager};
 use gpui::{
     Action, AnyElement, App, ClipboardEntry, DismissEvent, Entity, EventEmitter, ExternalPaths,
-    FocusHandle, Focusable, Font, KeyContext, KeyDownEvent, Keystroke, MouseButton, MouseDownEvent,
-    Pixels, Point, Render, ScrollWheelEvent, Styled, Subscription, Task, WeakEntity, actions,
-    anchored, deferred, div,
+    FocusHandle, Focusable, Font, Hsla, KeyContext, KeyDownEvent, Keystroke, MouseButton,
+    MouseDownEvent, Pixels, Point, Render, ScrollWheelEvent, Styled, Subscription, Task,
+    WeakEntity, actions, anchored, deferred, div,
 };
 use itertools::Itertools;
 use menu;
 use persistence::TerminalDb;
 use project::{Project, ProjectEntryId, search::SearchQuery};
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use settings::{Settings, SettingsStore, TerminalBlink, WorkingDirectory};
 use std::{
     any::Any,
@@ -101,6 +101,101 @@ actions!(
 #[action(namespace = terminal)]
 pub struct RenameTerminal;
 
+/// 터미널 탭 사용자 색상 (좌측 3px 컬러 바). None = 색상 미지정(기본 동작).
+/// 라이트/다크 테마 모두에서 가독성을 갖도록 채도·명도를 조정한 시맨틱 8색.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TerminalTabColor {
+    Red,
+    Orange,
+    Yellow,
+    Green,
+    Blue,
+    Purple,
+    Pink,
+    Gray,
+}
+
+impl TerminalTabColor {
+    /// 직렬화/액션 식별자 — DB 저장 + 액션 매개변수 매칭에 사용.
+    pub fn as_key(self) -> &'static str {
+        match self {
+            Self::Red => "red",
+            Self::Orange => "orange",
+            Self::Yellow => "yellow",
+            Self::Green => "green",
+            Self::Blue => "blue",
+            Self::Purple => "purple",
+            Self::Pink => "pink",
+            Self::Gray => "gray",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Self> {
+        Some(match key {
+            "red" => Self::Red,
+            "orange" => Self::Orange,
+            "yellow" => Self::Yellow,
+            "green" => Self::Green,
+            "blue" => Self::Blue,
+            "purple" => Self::Purple,
+            "pink" => Self::Pink,
+            "gray" => Self::Gray,
+            _ => return None,
+        })
+    }
+
+    /// 라이트·다크 테마 모두에서 컬러 바로 사용 가능한 채도/명도로 매핑된 Hsla 값.
+    /// 색상 코드는 자체 선정 — Warp/Kitty/iTerm2 등 외부 코드 미참조.
+    pub fn hsla(self) -> Hsla {
+        match self {
+            Self::Red => gpui::hsla(0.0 / 360.0, 0.70, 0.55, 1.0),
+            Self::Orange => gpui::hsla(25.0 / 360.0, 0.85, 0.55, 1.0),
+            Self::Yellow => gpui::hsla(50.0 / 360.0, 0.85, 0.55, 1.0),
+            Self::Green => gpui::hsla(135.0 / 360.0, 0.50, 0.50, 1.0),
+            Self::Blue => gpui::hsla(220.0 / 360.0, 0.70, 0.60, 1.0),
+            Self::Purple => gpui::hsla(270.0 / 360.0, 0.55, 0.60, 1.0),
+            Self::Pink => gpui::hsla(330.0 / 360.0, 0.70, 0.65, 1.0),
+            Self::Gray => gpui::hsla(0.0 / 360.0, 0.00, 0.55, 1.0),
+        }
+    }
+
+    /// i18n 키 — `terminal.tab.color.<key>` 형식.
+    pub fn i18n_key(self) -> &'static str {
+        match self {
+            Self::Red => "terminal.tab.color.red",
+            Self::Orange => "terminal.tab.color.orange",
+            Self::Yellow => "terminal.tab.color.yellow",
+            Self::Green => "terminal.tab.color.green",
+            Self::Blue => "terminal.tab.color.blue",
+            Self::Purple => "terminal.tab.color.purple",
+            Self::Pink => "terminal.tab.color.pink",
+            Self::Gray => "terminal.tab.color.gray",
+        }
+    }
+
+    /// 메뉴 노출 순서.
+    pub const ALL: [Self; 8] = [
+        Self::Red,
+        Self::Orange,
+        Self::Yellow,
+        Self::Green,
+        Self::Blue,
+        Self::Purple,
+        Self::Pink,
+        Self::Gray,
+    ];
+}
+
+/// 터미널 탭 색상을 지정/해제하는 액션. None = 색상 해제.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, JsonSchema, Action)]
+#[action(namespace = terminal)]
+pub struct SetTabColor {
+    /// 색상 키 ("red"/"orange"/.../"gray"). 빈 문자열 또는 미지정 시 색상 해제.
+    #[serde(default)]
+    pub color: String,
+}
+
 pub fn init(cx: &mut App) {
     assistant_slash_command::init(cx);
     terminal_panel::init(cx);
@@ -163,6 +258,8 @@ pub struct TerminalView {
     blinking_terminal_enabled: bool,
     needs_serialize: bool,
     custom_title: Option<String>,
+    /// 사용자 지정 탭 색상. Some 이면 탭 좌측에 3px 컬러 바 표시. 영구화 대상.
+    custom_color: Option<TerminalTabColor>,
     hover: Option<HoverTarget>,
     hover_tooltip_update: Task<()>,
     workspace_id: Option<WorkspaceId>,
@@ -319,6 +416,7 @@ impl TerminalView {
             scroll_handle,
             needs_serialize: workspace_id.is_some(),
             custom_title: None,
+            custom_color: None,
             ime_state: None,
             self_handle: cx.entity().downgrade(),
             rename_editor: None,
@@ -453,6 +551,39 @@ impl TerminalView {
             cx.emit(ItemEvent::UpdateTab);
             cx.notify();
         }
+    }
+
+    pub fn custom_color(&self) -> Option<TerminalTabColor> {
+        self.custom_color
+    }
+
+    /// 탭 색상을 지정한다. None 전달 시 색상 해제. 변경 시 영구화 + 탭 갱신 트리거.
+    pub fn set_custom_color(
+        &mut self,
+        color: Option<TerminalTabColor>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.custom_color != color {
+            self.custom_color = color;
+            self.needs_serialize = true;
+            cx.emit(ItemEvent::UpdateTab);
+            cx.notify();
+        }
+    }
+
+    /// `SetTabColor` 액션 핸들러. 빈 문자열 / 미인식 키는 None 으로 매핑되어 색상 해제.
+    fn handle_set_tab_color(
+        &mut self,
+        action: &SetTabColor,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let new_color = if action.color.is_empty() {
+            None
+        } else {
+            TerminalTabColor::from_key(&action.color)
+        };
+        self.set_custom_color(new_color, cx);
     }
 
     pub fn is_renaming(&self) -> bool {
@@ -1454,6 +1585,7 @@ impl Render for TerminalView {
             .on_action(cx.listener(TerminalView::select_all))
             .on_action(cx.listener(TerminalView::rerun_task))
             .on_action(cx.listener(TerminalView::rename_terminal))
+            .on_action(cx.listener(TerminalView::handle_set_tab_color))
             .on_key_down(cx.listener(Self::key_down))
             .on_mouse_down(
                 MouseButton::Right,
@@ -1633,6 +1765,7 @@ impl Item for TerminalView {
         };
 
         let self_handle = self.self_handle.clone();
+        let custom_color_bar = self.custom_color.map(|color| color.hsla());
         h_flex()
             .gap_1()
             .group("term-tab-icon")
@@ -1641,6 +1774,16 @@ impl Item for TerminalView {
                 self_handle
                     .update(cx, |this, cx| this.rename_terminal(action, window, cx))
                     .ok();
+            })
+            // 사용자 지정 탭 색상 — 좌측 3px 컬러 바 (None 이면 추가 안 함)
+            .when_some(custom_color_bar, |this, color| {
+                this.child(
+                    div()
+                        .w(px(3.))
+                        .h_4()
+                        .rounded_sm()
+                        .bg(color),
+                )
             })
             .child(
                 h_flex()
@@ -1872,6 +2015,42 @@ impl Item for TerminalView {
         }
     }
 
+    fn tab_extra_context_menu_submenus(
+        &self,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Vec<workspace::TabContextMenuSubmenu> {
+        let terminal = self.terminal.read(cx);
+        if terminal.task().is_some() {
+            // task 터미널은 색상 변경 대상 외 (목적이 한정적이고 자주 종료됨)
+            return Vec::new();
+        }
+        let current = self.custom_color;
+        let mut entries: Vec<workspace::TabContextMenuSubmenuEntry> = Vec::with_capacity(9);
+        entries.push(workspace::TabContextMenuSubmenuEntry {
+            label: t("terminal.tab.color.none", cx),
+            action: Box::new(SetTabColor {
+                color: String::new(),
+            }),
+            is_active: current.is_none(),
+            leading_color: None,
+        });
+        for color in TerminalTabColor::ALL {
+            entries.push(workspace::TabContextMenuSubmenuEntry {
+                label: t(color.i18n_key(), cx),
+                action: Box::new(SetTabColor {
+                    color: color.as_key().to_owned(),
+                }),
+                is_active: current == Some(color),
+                leading_color: Some(color.hsla()),
+            });
+        }
+        vec![workspace::TabContextMenuSubmenu {
+            label: t("terminal.tab.color.menu", cx),
+            entries,
+        }]
+    }
+
     fn buffer_kind(&self, _: &App) -> workspace::item::ItemBufferKind {
         workspace::item::ItemBufferKind::Singleton
     }
@@ -2038,6 +2217,7 @@ impl SerializableItem for TerminalView {
         let workspace_id = self.workspace_id?;
         let cwd = terminal.working_directory();
         let custom_title = self.custom_title.clone();
+        let custom_color = self.custom_color.map(|c| c.as_key().to_owned());
         self.needs_serialize = false;
 
         let db = TerminalDb::global(cx);
@@ -2047,6 +2227,8 @@ impl SerializableItem for TerminalView {
                     .await?;
             }
             db.save_custom_title(item_id, workspace_id, custom_title)
+                .await?;
+            db.save_custom_color(item_id, workspace_id, custom_color)
                 .await?;
             Ok(())
         }))
@@ -2065,7 +2247,7 @@ impl SerializableItem for TerminalView {
         cx: &mut App,
     ) -> Task<anyhow::Result<Entity<Self>>> {
         window.spawn(cx, async move |cx| {
-            let (cwd, custom_title) = cx
+            let (cwd, custom_title, custom_color) = cx
                 .update(|_window, cx| {
                     let db = TerminalDb::global(cx);
                     // DB에 저장된 마지막 종료 시 경로를 우선 사용하고,
@@ -2089,10 +2271,15 @@ impl SerializableItem for TerminalView {
                         .log_err()
                         .flatten()
                         .filter(|title| !title.trim().is_empty());
-                    (cwd, custom_title)
+                    let custom_color = db
+                        .get_custom_color(item_id, workspace_id)
+                        .log_err()
+                        .flatten()
+                        .and_then(|key| TerminalTabColor::from_key(&key));
+                    (cwd, custom_title, custom_color)
                 })
                 .ok()
-                .unwrap_or((None, None));
+                .unwrap_or((None, None, None));
 
             let terminal = project
                 .update(cx, |project, cx| project.create_terminal_shell(cwd, cx))
@@ -2109,6 +2296,9 @@ impl SerializableItem for TerminalView {
                     );
                     if custom_title.is_some() {
                         view.custom_title = custom_title;
+                    }
+                    if custom_color.is_some() {
+                        view.custom_color = custom_color;
                     }
                     view
                 })

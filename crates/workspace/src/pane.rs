@@ -3080,6 +3080,7 @@ impl Pane {
                 let pane = pane.clone();
                 let menu_context = menu_context.clone();
                 let extra_actions = item_handle.tab_extra_context_menu_actions(window, cx);
+                let extra_submenus = item_handle.tab_extra_context_menu_submenus(window, cx);
                 let item_can_save = item_handle.can_save(cx);
                 let item_can_save_as = item_handle.can_save_as(cx);
                 ContextMenu::build(window, cx, move |mut menu, window, cx| {
@@ -3416,10 +3417,84 @@ impl Pane {
                     };
 
                     // Add custom item-specific actions
-                    if !extra_actions.is_empty() {
+                    let has_extra_actions = !extra_actions.is_empty();
+                    if has_extra_actions {
                         menu = menu.separator();
                         for (label, action) in extra_actions {
                             menu = menu.action(label, action);
+                        }
+                    }
+
+                    // 탭별 서브메뉴 (예: 터미널 탭 색상). 자식 항목 중 is_active=true 면
+                    // 체크 표시. leading_color 가 Some 이면 라벨 앞에 작은 원형 색 인디케이터.
+                    // dispatch 전에 menu_context 로 focus 를 복원해야 (ContextMenu::action 패턴 동일)
+                    // dispatch 가 ContextMenu 자체로 가지 않고 item 의 action 핸들러로 도달한다.
+                    if !extra_submenus.is_empty() {
+                        if !has_extra_actions {
+                            menu = menu.separator();
+                        }
+                        for submenu in extra_submenus {
+                            let entries = submenu.entries;
+                            let menu_context_for_submenu = menu_context.clone();
+                            menu = menu.submenu(submenu.label, move |menu, _, _| {
+                                let mut menu = menu;
+                                let menu_context = menu_context_for_submenu.clone();
+                                for entry in entries.iter() {
+                                    let label = entry.label.clone();
+                                    let is_active = entry.is_active;
+                                    let leading_color = entry.leading_color;
+                                    let action_for_dispatch = entry.action.boxed_clone();
+                                    let action_for_label = entry.action.boxed_clone();
+                                    let context_for_handler = menu_context.clone();
+                                    let handler = move |window: &mut Window, cx: &mut App| {
+                                        // focus 를 item 의 menu_context 로 복원 후 dispatch
+                                        window.focus(&context_for_handler, cx);
+                                        window.dispatch_action(
+                                            action_for_dispatch.boxed_clone(),
+                                            cx,
+                                        );
+                                    };
+                                    if let Some(color) = leading_color {
+                                        // 색상 dot + 라벨 + (선택 시) 체크 표시 — custom_entry 로 직접 그림
+                                        menu = menu.custom_entry(
+                                            move |_window, _cx| {
+                                                ui::h_flex()
+                                                    .w_full()
+                                                    .gap_2()
+                                                    .child(
+                                                        ui::div()
+                                                            .size(ui::px(10.))
+                                                            .rounded_full()
+                                                            .bg(color),
+                                                    )
+                                                    .child(ui::Label::new(label.clone()))
+                                                    .when(is_active, |this| {
+                                                        this.child(
+                                                            ui::div().flex_grow(),
+                                                        )
+                                                        .child(
+                                                            ui::Icon::new(ui::IconName::Check)
+                                                                .size(ui::IconSize::Small)
+                                                                .color(ui::Color::Default),
+                                                        )
+                                                    })
+                                                    .into_any_element()
+                                            },
+                                            handler,
+                                        );
+                                    } else {
+                                        // dot 없는 일반 항목 (예: "없음")
+                                        menu = menu.toggleable_entry(
+                                            label,
+                                            is_active,
+                                            ui::IconPosition::End,
+                                            Some(action_for_label),
+                                            handler,
+                                        );
+                                    }
+                                }
+                                menu
+                            });
                         }
                     }
 

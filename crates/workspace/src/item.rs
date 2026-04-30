@@ -389,6 +389,32 @@ pub trait Item: Focusable + EventEmitter<Self::Event> + Render + Sized {
     ) -> Vec<(SharedString, Box<dyn Action>)> {
         Vec::new()
     }
+
+    /// 탭 우클릭 메뉴에 추가할 서브메뉴 목록.
+    /// 반환 형식: `(서브메뉴 라벨, 자식 항목 벡터(자식 라벨 + dispatch 할 액션))`.
+    /// 자식 항목 중 `is_active=true` 인 항목은 체크 표시로 노출된다.
+    fn tab_extra_context_menu_submenus(
+        &self,
+        _window: &mut Window,
+        _cx: &mut Context<Self>,
+    ) -> Vec<TabContextMenuSubmenu> {
+        Vec::new()
+    }
+}
+
+/// 탭 우클릭 메뉴 서브메뉴 정의. `Item::tab_extra_context_menu_submenus` 의 반환 타입.
+pub struct TabContextMenuSubmenu {
+    pub label: SharedString,
+    pub entries: Vec<TabContextMenuSubmenuEntry>,
+}
+
+/// 서브메뉴 항목. `is_active=true` 면 체크(현재 선택) 표시 + 토글 가능 entry 로 그려진다.
+/// `leading_color` 가 Some 이면 라벨 앞에 해당 색상의 작은 원형 인디케이터를 표시한다.
+pub struct TabContextMenuSubmenuEntry {
+    pub label: SharedString,
+    pub action: Box<dyn Action>,
+    pub is_active: bool,
+    pub leading_color: Option<gpui::Hsla>,
 }
 
 pub trait SerializableItem: Item {
@@ -575,6 +601,11 @@ pub trait ItemHandle: 'static + Send {
         window: &mut Window,
         cx: &mut App,
     ) -> Vec<(SharedString, Box<dyn Action>)>;
+    fn tab_extra_context_menu_submenus(
+        &self,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Vec<TabContextMenuSubmenu>;
     fn can_autosave(&self, cx: &App) -> bool {
         let is_deleted = self.project_entry_ids(cx).is_empty();
         self.is_dirty(cx) && !self.has_conflict(cx) && self.can_save(cx) && !is_deleted
@@ -1178,6 +1209,16 @@ impl<T: Item> ItemHandle for Entity<T> {
     ) -> Vec<(SharedString, Box<dyn Action>)> {
         self.update(cx, |this, cx| {
             this.tab_extra_context_menu_actions(window, cx)
+        })
+    }
+
+    fn tab_extra_context_menu_submenus(
+        &self,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Vec<TabContextMenuSubmenu> {
+        self.update(cx, |this, cx| {
+            this.tab_extra_context_menu_submenus(window, cx)
         })
     }
 }

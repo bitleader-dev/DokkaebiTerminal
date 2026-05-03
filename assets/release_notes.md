@@ -48,6 +48,7 @@
 
 ### 보안
 - **rustls-webpki DoS 패치 적용**: 잘못된 인증서 폐기 목록(CRL) 입력으로 panic 을 유도할 수 있던 취약점(GHSA-82j2-j2ch-gfr8) 해소
+- **레이아웃 엔진 의존성 grid 패치 적용**: 정수 오버플로우로 안전 API 가 미정의 동작에 도달할 수 있던 취약점(GHSA-38c5-483c-4qqp) 해소. 상류 Zed 와 동일한 taffy 0.10.1 / grid 1.0.1 로 동기화
 
 ### 정리
 - **`soft_wrap` 설정 단순화**: `preferred_line_length` 값을 사용하던 사용자 설정은 자동으로 `bounded` 로 인식 (호환 유지)

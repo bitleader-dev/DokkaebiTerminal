@@ -84,7 +84,6 @@ codestral.workspace = true
 collections.workspace = true
 command_palette.workspace = true
 component.workspace = true
-component_preview.workspace = true
 copilot.workspace = true
 copilot_chat.workspace = true
 copilot_ui.workspace = true
@@ -110,7 +109,6 @@ git_ui.workspace = true
 github_update.workspace = true
 go_to_line.workspace = true
 system_monitor.workspace = true
-system_specs.workspace = true
 gpui.workspace = true
 gpui_platform = {workspace = true, features=["screen-capture", "font-kit", "wayland", "x11"]}
 image = { workspace = true, optional = true }
@@ -126,7 +124,6 @@ rayon.workspace = true
 i18n.workspace = true
 http_client.workspace = true
 image_viewer.workspace = true
-inspector_ui.workspace = true
 install_cli.workspace = true
 json_schema_store.workspace = true
 keymap_editor.workspace = true
@@ -134,7 +131,6 @@ language.workspace = true
 language_extension.workspace = true
 language_model.workspace = true
 language_models.workspace = true
-language_onboarding.workspace = true
 language_selector.workspace = true
 language_tools.workspace = true
 languages = { workspace = true, features = ["load-grammars"] }
@@ -144,7 +140,6 @@ markdown.workspace = true
 markdown_preview.workspace = true
 menu.workspace = true
 migrator.workspace = true
-miniprofiler_ui.workspace = true
 mimalloc = { version = "0.1", optional = true }
 nc.workspace = true
 node_runtime.workspace = true

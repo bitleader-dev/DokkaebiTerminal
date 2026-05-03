@@ -1,59 +1,90 @@
-# Windows 윈도우 클래스 이름 Zed → Dokkaebi 리네이밍 plan v1
+# 탭 back/forward 광범위 fix plan v1
 
-> **작성일**: 2026-04-30
-> **상태**: ✅ 종료 (2026-04-30) — 기본 제안 모두 채택, 코드 2 파일 + CLAUDE.md + notes.md 갱신 완료
-> **트리거**: 사용자 요청 — "현재 프로젝트에서는 윈도우 클래스 이름이 `Dokkaebi::Window` / `Dokkaebi::PlatformWindow` 이렇게 표시되도록 수정 가능한가?"
+> **작성일**: 2026-05-03
+> **상태**: ✅ 종료 (2026-05-03)
+> **트리거**: 사용자 보고 — 탭이 여러 개 있는 상태에서 뒤로 가기/앞으로 가기 버튼이 비활성. "모든 탭에서 발생" + "옵션 B(광범위 fix)" 선택
 
 ## 목표
-Windows 에서 Dokkaebi 가 등록·생성하는 윈도우 클래스 이름을 상류 Zed 잔재 `Zed::Window` / `Zed::PlatformWindow` 에서 `Dokkaebi::Window` / `Dokkaebi::PlatformWindow` 로 교체. 외부 도구(AHK, Spy++, Inspect.exe, accessibility tool 등)가 윈도우 클래스로 Dokkaebi 창을 식별할 수 있게 한다.
+Pane 탭 바 좌측의 ←/→ 버튼이 모든 Item 타입(서브에이전트 뷰·터미널 뷰·마크다운 미리보기·Editor 등)에서 일관되게 동작하도록 한다. 탭 사이 이동을 nav_history 에 자동 push 해서 VSCode/IntelliJ 와 유사한 "탭 이동 history" 동작을 제공.
 
-## 범위
-- **수정 파일 2개** — 모두 `crates/gpui_windows`:
-  1. `crates/gpui_windows/src/window.rs:1247` — `const WINDOW_CLASS_NAME: PCWSTR = w!("Zed::Window");` → `w!("Dokkaebi::Window")`
-  2. `crates/gpui_windows/src/platform.rs:1322` — `const PLATFORM_WINDOW_CLASS_NAME: PCWSTR = w!("Zed::PlatformWindow");` → `w!("Dokkaebi::PlatformWindow")`
-- **CLAUDE.md 갱신** — 「이미 리네이밍된 식별자 (상류 동기화 시 충돌 주의)」 섹션에 본 항목 추가 (상류 PR이 윈도우 클래스 이름을 참조할 때 충돌 회피용)
+## 현재 상태 (재진단)
+- `crates/workspace/src/pane.rs:914-919` — `can_navigate_backward/forward()` 가 `nav_history.backward_stack/forward_stack` 의 비어있음으로 결정
+- `crates/editor/src/items.rs:821-824` — Editor 만 `Item::deactivated()` 에서 cursor 위치를 `push_to_nav_history` 로 push
+- 다른 Item (ClaudeSubagentView, TerminalView, MarkdownPreview 등) 의 `set_nav_history` / `deactivated` 는 default empty → nav_history 에 어떤 entry 도 추가되지 않음
+- 결과: Editor 가 한 번도 활성화 안 된 워크스페이스(서브에이전트 뷰만 있는 시나리오 등)에서는 backward_stack 영구히 비어 → 버튼 비활성
 
-## 영향 분석
-### 충돌 / 호환성
-- **윈도우 클래스 등록**: Windows 윈도우 클래스는 **프로세스별** 등록(`RegisterClassW` 의 `hInstance` 기준). 같은 머신에서 zed.exe 가 `Zed::Window` 를 등록해도 dokkaebi.exe 는 별도 프로세스라 충돌 없음. 본 변경 후에도 동일.
-- **상수 노출 범위**: 두 상수 모두 `const`(미pub) — 같은 파일 내부에서 `RegisterClassW` 와 `CreateWindowExW` 양쪽에 사용. 외부 crate 에서 참조 0건(grep 으로 전수 확인).
-- **실제 사용처**: `WINDOW_CLASS_NAME` 은 `register_window_class` (line 1249) 와 `CreateWindowExW` 호출(line 494) 2곳, `PLATFORM_WINDOW_CLASS_NAME` 은 `register_platform_window_class` (line 1324) 와 `CreateWindowExW` 호출(line 141) 2곳에서만 사용.
+## 범위 (코드 변경)
 
-### 외부 도구 영향
-- **자동화 스크립트(AHK, AutoIt 등)**: 클래스 이름으로 `FindWindow`/`WinExist` 하던 외부 스크립트가 있다면 `Zed::Window` → `Dokkaebi::Window` 로 갱신 필요. Dokkaebi 는 별도 앱이라 이는 의도된 동작.
-- **접근성 도구(Inspect.exe, Spy++)**: 클래스 이름이 `Dokkaebi::*` 로 표시되어 Dokkaebi 식별이 직관적.
-- **OS 자체**: 클래스 이름은 식별자일 뿐이라 OS 동작에는 영향 없음.
+### 1. `crates/workspace/src/pane.rs::NavHistory` 에 helper 추가
+신규 메서드 `push_dedup_by_item()` — Item 핸들만 받아 NavigationEntry 를 backward_stack 에 push 하되, **마지막 entry 의 item_id 가 같으면 skip** (Editor 가 이미 deactivated 시 push 한 케이스와의 중복 방지).
 
-### Zed UI 백그라운드 표시 버그와의 관계
-- 본 변경이 「원본 zed.exe 실행 시 Dokkaebi UI 미표시」 버그의 직접 fix 는 **아님**(클래스는 프로세스별이라 충돌하지 않음). 다만 식별자 분리는 디버깅·모니터링 도구로 두 앱을 명확히 구분할 수 있게 해 진단 보조에 유리.
-- 본 plan 은 사용자 요청 「수정 가능한가」에만 응답. 위 버그의 진단·수정은 별도 plan 으로 진행 예정(사용자가 콘솔 메시지·작업 표시줄 동작·로그 확인 정보 제공 후).
+```rust
+pub fn push_dedup_by_item(
+    &mut self,
+    item: Arc<dyn WeakItemHandle + Send + Sync>,
+    cx: &mut App,
+) {
+    let state = &mut *self.0.lock();
+    if !matches!(state.mode, NavigationMode::Normal) {
+        return; // GoingBack/GoingForward/Disabled/ClosingItem/ReopeningClosedItem 시 skip
+    }
+    let new_item_id = item.id();
+    if state.backward_stack.back().is_some_and(|e| e.item.id() == new_item_id) {
+        return; // 마지막 entry 와 같은 item — 직전 deactivated push 와의 중복 방지
+    }
+    if state.backward_stack.len() >= MAX_NAVIGATION_HISTORY_LEN {
+        state.backward_stack.pop_front();
+    }
+    state.backward_stack.push_back(NavigationEntry {
+        item,
+        data: None,
+        timestamp: state.next_timestamp.fetch_add(1, Ordering::SeqCst),
+        is_preview: false,
+        row: None,
+    });
+    state.forward_stack.clear();
+    state.did_update(cx);
+}
+```
 
-## 작업 단계
-1. **[x] 코드 수정 2곳**
-   - `crates/gpui_windows/src/window.rs:1247` 문자열 교체
-   - `crates/gpui_windows/src/platform.rs:1322` 문자열 교체
-2. **[x] 검증**
-   - `cargo check -p gpui_windows` 통과 — 신규 warning 0
-   - `cargo check -p Dokkaebi` 통과 — 8 기존 warning 동일(`TryFutureExt` unused 등)
-   - `cargo check -p Dokkaebi --tests` 통과 — 9 기존 warning 동일
-   - 잔재 grep `Zed::Window`/`Zed::PlatformWindow` → 0건
-3. **[x] 문서 갱신**
-   - `CLAUDE.md` 「이미 리네이밍된 식별자」 섹션에 항목 추가
-   - `notes.md` 「## 최근 변경」 섹션 맨 위에 항목 추가
-   - `assets/release_notes.md` **갱신 제외** — 사용자 체감 동작 변화 없음
-   - 버전 bump 없음 (v0.5.0 유지)
+### 2. `Pane::activate_item()` 에서 prev_item push
+`prev_item.deactivated(window, cx)` 호출 직후에 `self.nav_history.push_dedup_by_item(prev_item.downgrade_item().to_weak_arc(), cx)` 추가.
+
+**주의**: `Box<dyn WeakItemHandle>` → `Arc<dyn WeakItemHandle + Send + Sync>` 변환이 필요할 수 있음. Editor 의 `push_to_nav_history` 에서 `nav_history.push(...)` 시 어떻게 하는지 참고. 필요시 NavHistory helper 시그너처를 `Box<dyn WeakItemHandle>` 받도록 변경.
+
+## 작업 단계 (순서 준수)
+
+1. **[x]** `Pane::activate_item` 에서 `prev_item.downgrade_item()` 의 반환 타입과 NavHistory.push 시그너처 호환성 확인
+2. **[x]** `NavHistory::push_dedup_by_item` 메서드 추가 (위 코드)
+3. **[x]** `Pane::activate_item` 의 `prev_item.deactivated()` 호출 직후 push_dedup_by_item 호출 추가
+4. **[x]** `cargo check -p Dokkaebi --tests` 통과 확인 — 신규 warning/error 0건
+5. **[x]** `notes.md` 갱신 — 변경 위치 + 동작 변화 기록
+6. **[x]** `assets/release_notes.md` v0.5.0 `### 버그 수정` 또는 `### UI/UX 개선` 에 1항목 추가
+7. **[x]** 완료 보고 + 사용자 환경 검증 권장
 
 ## 검증 방법
-- `cargo check -p gpui_windows` 통과 (신규 warning 0)
-- `cargo check -p Dokkaebi` 통과 (신규 warning 0)
-- `cargo check -p Dokkaebi --tests` 통과 (memory `feedback_tests_check_on_api_removal` 규칙)
-- 잔재 grep: `"Zed::Window"`, `"Zed::PlatformWindow"`, `Zed::Window`, `Zed::PlatformWindow` 매치 0건 확인
+- `cargo check -p Dokkaebi --tests` — 신규 warning/error 0건
+- 사용자 환경 수동 검증 (자동 테스트 불가):
+  - (a) 서브에이전트 뷰 탭 여러 개 → 다른 탭 클릭 → ← 활성화 + 클릭 시 이전 탭으로 이동
+  - (b) Editor 탭 → cursor 이동(예: 100줄 아래) → 다른 탭 클릭 → ← → Editor 의 100줄 아래 위치로 (기존 cursor history 동작 유지)
+  - (c) Terminal 탭 → 다른 탭 → ← → 터미널 탭으로
+  - (d) ← 한 번 → → 한 번 → 원래 탭으로 (forward stack 동작)
 
 ## 승인 필요 항목
-- ✅ **plan 자체** — 본 plan 검토·승인
-- 본 변경은 작업 분류상 「공개 API 변경 아님」「DB 스키마 변경 아님」「의존성 추가 아님」「대량 수정 아님」 → CLAUDE.md 1단계 승인 필수 조건 비해당. 다만 memory `feedback_plan_approval.md` 규칙상 모든 코드 작업 전 plan 승인 필수 → 본 plan 자체 승인이 곧 작업 승인.
+1. **본 plan 자체 승인** — `feedback_plan_approval.md` 룰
+2. **`Pane::activate_item` 동작 변경 동의** — 모든 Item 타입의 탭 활성화 변경이 nav_history 에 기록됨. 기존 동작과 차이: Editor 외 Item 도 back/forward 추적 대상
+3. **NavigationEntry 의 의미 확장 동의** — 원래는 "에디터 내 cursor 위치" 추적이 주 용도. 이제 "탭 활성화 변경" 도 같은 stack 에 섞임. 두 종류가 dedup 으로 자연스럽게 섞임 (마지막 entry 가 같은 item 이면 skip)
 
-## 결정 필요 사항 (사용자 답변 요청)
-1. **CLAUDE.md 갱신 여부**: 본 변경을 「이미 리네이밍된 식별자」 섹션에 추가할까요? (기본 제안: **추가** — 향후 상류 동기화 시 윈도우 클래스 관련 PR 이 들어오면 충돌 인식·자동 치환 가이드)
-2. **release_notes.md 갱신 여부**: 일반 사용자 가시 변경이 없어 기본 제외. 다만 「외부 자동화 스크립트 호환성 변경」 으로 보고 ` ### 외부 호환성` 카테고리에 1줄 기재할 수도 있음. (기본 제안: **제외**)
-3. **버전 bump 여부**: 사용자 가시 동작 0 → 기본 제안 **bump 없음**.
+## 리스크 및 대응
+- **리스크 1**: Editor 탭 cursor 이동 후 다른 탭 클릭 → Editor.deactivated() push (row=Some(N)) → Pane push_dedup (row=None, 같은 item) skip 됨 → backward_stack 에 (Editor, row=N) 한 번만 있음. 사용자 ← → Editor 의 row=N 위치로. **기존 동작 유지 ✓**
+- **리스크 2**: 두 Editor 탭 사이 이동: A.deactivated push (A, row=10) → B 활성. Pane push_dedup → 마지막이 A 라 dedup 가 (A, row=10) 와 (A, row=None) 비교. row 가 다르므로 NavigationEntry 의 `is_same_location` 기준 다른 entry. **하지만 우리는 item_id 만 비교하므로 같으니 skip**. 결과: backward_stack 에 (A, row=10) 만. ← → A 의 row=10 으로. **자연스러움 ✓**
+- **리스크 3**: 서브에이전트 뷰 A → B → A (왔다갔다): A push_dedup (A) → B 활성 → B.deactivated 는 push 안 함 (Item default) → Pane push_dedup (B). A→B 이동 시 stack: [A]. B→A 이동 시 stack: [A, B]. ← 누르면 B 로. ← 한 번 더 누르면 A 로. **VSCode 와 동일 ✓**
+- **리스크 4**: forward_stack clear 가 새 push 마다 발생 → ← 한 번 누르고 다른 탭 클릭하면 forward 사라짐. 브라우저/VSCode 표준 동작이라 의도된 결과
+- **리스크 5**: NavigationMode 가 GoingBack/GoingForward/ClosingItem 일 때는 push_dedup 가 skip 되므로 nav 동작 중 의도치 않은 push 없음 ✓
+- **리스크 6**: 새 push 시 `MAX_NAVIGATION_HISTORY_LEN` 초과 시 가장 오래된 entry pop_front. 기존 동작과 동일 ✓
+- **리스크 7**: 같은 탭 안에서 pane.activate_item 이 여러 번 호출될 수 있음 (예: 같은 탭 다시 클릭). 이 경우 prev_active_item_ix == self.active_item_index 라 deactivated 호출 안 됨 → push_dedup 도 호출 안 됨. **부작용 없음 ✓**
+- **롤백**: 단일 파일 변경 (pane.rs) 이라 git checkout 으로 즉시 복구
+
+## 비범위 (다음 plan 후보)
+- Item::deactivated 마이그레이션 (각 Item 이 자체 push 하도록) — 본 plan 의 광범위 fix 가 모든 케이스 커버하므로 불필요
+- `Ctrl+-`/`Ctrl+Shift+-` 같은 추가 키바인딩 — 기존 GoBack/GoForward 키바인딩이 이미 활성 (Alt-Left 등)

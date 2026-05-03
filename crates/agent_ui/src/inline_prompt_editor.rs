@@ -168,6 +168,7 @@ impl<T: 'static> Render for PromptEditor<T> {
             .child(
                 h_flex()
                     .on_action(cx.listener(Self::confirm))
+                    .on_action(cx.listener(Self::secondary_confirm))
                     .on_action(cx.listener(Self::cancel))
                     .on_action(cx.listener(Self::move_up))
                     .on_action(cx.listener(Self::move_down))
@@ -533,6 +534,21 @@ impl<T: 'static> PromptEditor<T> {
     }
 
     fn confirm(&mut self, _: &menu::Confirm, _window: &mut Window, cx: &mut Context<Self>) {
+        self.handle_confirm(false, cx);
+    }
+
+    fn secondary_confirm(
+        &mut self,
+        _: &menu::SecondaryConfirm,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        // 터미널 인라인 어시스턴트의 SecondaryConfirm(예: cmd-enter) 은 즉시 실행 의미로 처리
+        let execute = matches!(self.mode, PromptEditorMode::Terminal { .. });
+        self.handle_confirm(execute, cx);
+    }
+
+    fn handle_confirm(&mut self, execute: bool, cx: &mut Context<Self>) {
         match self.codegen_status(cx) {
             CodegenStatus::Idle => {
                 self.fire_started_telemetry(cx);
@@ -544,7 +560,7 @@ impl<T: 'static> PromptEditor<T> {
                     self.fire_started_telemetry(cx);
                     cx.emit(PromptEditorEvent::StartRequested);
                 } else {
-                    cx.emit(PromptEditorEvent::ConfirmRequested { execute: false });
+                    cx.emit(PromptEditorEvent::ConfirmRequested { execute });
                 }
             }
             CodegenStatus::Error(_) => {

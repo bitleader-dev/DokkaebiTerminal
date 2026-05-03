@@ -533,8 +533,6 @@ pub enum SoftWrap {
     None,
     /// Soft wrap lines that exceed the editor width.
     EditorWidth,
-    /// Soft wrap lines at the preferred line length.
-    Column(u32),
     /// Soft wrap line at the preferred line length or the editor width (whichever is smaller).
     Bounded(u32),
 }
@@ -5150,8 +5148,9 @@ impl Editor {
                         let start_point = selection.start.to_point(&buffer);
                         let mut existing_indent =
                             buffer.indent_size_for_line(MultiBufferRow(start_point.row));
+                        let full_indent_len = existing_indent.len;
                         existing_indent.len = cmp::min(existing_indent.len, start_point.column);
-                        let start = selection.start;
+                        let mut start = selection.start;
                         let end = selection.end;
                         let selection_is_empty = start == end;
                         let language_scope = buffer.language_scope_at(start);
@@ -5301,6 +5300,16 @@ impl Editor {
                                     }
                                     new_text.extend(extra_indent.chars());
                                 }
+                                // 빈 줄/들여쓰기만 있는 줄에서 newline 시 기존 자동 들여쓰기 공백을
+                                // trailing whitespace 로 남기지 않도록 줄 시작까지 edit 범위 확장
+                                if selection_is_empty
+                                    && preserve_indent
+                                    && full_indent_len > 0
+                                    && start_point.column == full_indent_len
+                                {
+                                    start = buffer.point_to_offset(Point::new(start_point.row, 0));
+                                }
+
                                 (
                                     start,
                                     new_text,
@@ -5666,7 +5675,7 @@ impl Editor {
             _ => self.open_or_update_completions_menu(
                 None,
                 Some(text.to_owned()).filter(|x| !x.is_empty()),
-                true,
+                trigger_in_words,
                 window,
                 cx,
             ),
@@ -6157,8 +6166,15 @@ impl Editor {
         let provider_responses = if let Some(provider) = &provider
             && load_provider_completions
         {
-            let trigger_character =
-                trigger.filter(|trigger| buffer.read(cx).completion_triggers().contains(trigger));
+            let trigger_character = trigger
+                .as_ref()
+                .filter(|trigger| {
+                    buffer
+                        .read(cx)
+                        .completion_triggers()
+                        .contains(trigger.as_str())
+                })
+                .cloned();
             let completion_context = CompletionContext {
                 trigger_kind: match &trigger_character {
                     Some(_) => CompletionTriggerKind::TRIGGER_CHARACTER,
@@ -6213,16 +6229,53 @@ impl Editor {
             Task::ready(BTreeMap::default())
         };
 
+        let snippet_char_classifier = buffer_snapshot
+            .char_classifier_at(buffer_position)
+            .scope_context(Some(CharScopeContext::Completion));
+
         let snippets = if let Some(provider) = &provider
             && provider.show_snippets()
             && let Some(project) = self.project()
         {
-            let char_classifier = buffer_snapshot
-                .char_classifier_at(buffer_position)
-                .scope_context(Some(CharScopeContext::Completion));
-            project.update(cx, |project, cx| {
-                snippet_completions(project, &buffer, buffer_position, char_classifier, cx)
-            })
+            // 비활성 메뉴 + edit prediction 비-단어 트리거 + 단어 트리거인 경우에만 prefix 매치 강제.
+            // 약한 매치(snippet 전체 이름의 일부 포함만)면 메뉴 오염 차단.
+            let word_trigger = trigger.as_ref().is_some_and(|trigger| {
+                !trigger.is_empty()
+                    && trigger
+                        .chars()
+                        .all(|character| snippet_char_classifier.is_word(character))
+            });
+            let requires_strong_snippet_match = !menu_is_open && !trigger_in_words && word_trigger;
+            let load_snippet_completions = !requires_strong_snippet_match
+                || query.as_ref().is_some_and(|query| {
+                    let project = project.read(cx);
+                    has_strong_snippet_prefix_match(
+                        &project,
+                        &buffer,
+                        buffer_position,
+                        &snippet_char_classifier,
+                        query,
+                        cx,
+                    )
+                });
+
+            if load_snippet_completions {
+                project.update(cx, |project, cx| {
+                    snippet_completions(
+                        project,
+                        &buffer,
+                        buffer_position,
+                        snippet_char_classifier,
+                        cx,
+                    )
+                })
+            } else {
+                Task::ready(Ok(CompletionResponse {
+                    completions: Vec::new(),
+                    display_options: Default::default(),
+                    is_incomplete: false,
+                }))
+            }
         } else {
             Task::ready(Ok(CompletionResponse {
                 completions: Vec::new(),
@@ -20781,9 +20834,6 @@ impl Editor {
         let settings = self.buffer.read(cx).language_settings(cx);
         if settings.show_wrap_guides {
             match self.soft_wrap_mode(cx) {
-                SoftWrap::Column(soft_wrap) => {
-                    wrap_guides.push((soft_wrap as usize, true));
-                }
                 SoftWrap::Bounded(soft_wrap) => {
                     wrap_guides.push((soft_wrap as usize, true));
                 }
@@ -20803,9 +20853,6 @@ impl Editor {
                 SoftWrap::None
             }
             language_settings::SoftWrap::EditorWidth => SoftWrap::EditorWidth,
-            language_settings::SoftWrap::PreferredLineLength => {
-                SoftWrap::Column(settings.preferred_line_length)
-            }
             language_settings::SoftWrap::Bounded => {
                 SoftWrap::Bounded(settings.preferred_line_length)
             }
@@ -20882,9 +20929,7 @@ impl Editor {
             let soft_wrap = match self.soft_wrap_mode(cx) {
                 SoftWrap::GitDiff => return,
                 SoftWrap::None => language_settings::SoftWrap::EditorWidth,
-                SoftWrap::EditorWidth | SoftWrap::Column(_) | SoftWrap::Bounded(_) => {
-                    language_settings::SoftWrap::None
-                }
+                SoftWrap::EditorWidth | SoftWrap::Bounded(_) => language_settings::SoftWrap::None,
             };
             self.soft_wrap_mode_override = Some(soft_wrap);
         }
@@ -26473,6 +26518,34 @@ impl CodeActionProvider for Entity<Project> {
             project.apply_code_action(buffer_handle, action, push_to_history, cx)
         })
     }
+}
+
+fn has_strong_snippet_prefix_match(
+    project: &Project,
+    buffer: &Entity<Buffer>,
+    buffer_anchor: text::Anchor,
+    classifier: &CharClassifier,
+    query: &str,
+    cx: &App,
+) -> bool {
+    // 입력이 1글자면 false (snippet prefix 인식 노이즈 방지)
+    if query.chars().take(2).count() < 2 {
+        return false;
+    }
+
+    let query = query.to_lowercase();
+    let is_word_char = |character| classifier.is_word(character);
+    let languages = buffer.read(cx).languages_at(buffer_anchor);
+    let snippet_store = project.snippets().read(cx);
+
+    languages.iter().any(|language| {
+        snippet_store
+            .snippets_for(Some(language.lsp_id()), cx)
+            .iter()
+            .flat_map(|snippet| snippet.prefix.iter())
+            .flat_map(|prefix| snippet_candidate_suffixes(prefix, &is_word_char))
+            .any(|candidate| candidate.to_lowercase().starts_with(&query))
+    })
 }
 
 fn snippet_completions(

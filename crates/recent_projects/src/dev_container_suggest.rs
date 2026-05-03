@@ -3,6 +3,7 @@ use dev_container::find_configs_in_snapshot;
 use gpui::{SharedString, Window};
 use project::{Project, WorktreeId};
 use std::sync::LazyLock;
+use ui::Tooltip;
 use ui::prelude::*;
 use util::ResultExt;
 use util::rel_path::RelPath;
@@ -60,6 +61,7 @@ pub fn suggest_on_worktree_updated(
 
     let abs_path = worktree.abs_path();
     let project_path = abs_path.to_string_lossy().to_string();
+    let worktree_name = worktree.root_name_str().to_string();
     let key_for_dismiss = project_devcontainer_key(&project_path);
 
     let already_dismissed = KeyValueStore::global(cx)
@@ -81,10 +83,20 @@ pub fn suggest_on_worktree_updated(
 
         workspace.show_notification(notification_id, cx, |cx| {
             cx.new(move |cx| {
-                let prompt = i18n::t("dev_container_suggest.prompt", cx);
+                // 알림에 워크트리 이름 + 전체 경로 툴팁 노출
+                let prompt_template = i18n::t("dev_container_suggest.prompt_with_name", cx);
+                let prompt: SharedString =
+                    prompt_template.replace("{name}", &worktree_name).into();
+                let tooltip_text: SharedString = project_path.clone().into();
                 let accept = i18n::t("dev_container_suggest.accept", cx);
                 let dismiss = i18n::t("dev_container_suggest.dismiss", cx);
-                MessageNotification::new(prompt, cx)
+                MessageNotification::new_from_builder(cx, move |_window, _cx| {
+                    div()
+                        .id("dev-container-suggest-message")
+                        .child(Label::new(prompt.clone()))
+                        .tooltip(Tooltip::text(tooltip_text.clone()))
+                        .into_any_element()
+                })
                 .primary_message(accept)
                 .primary_icon(IconName::Check)
                 .primary_icon_color(Color::Success)

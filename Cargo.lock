@@ -32,7 +32,6 @@ dependencies = [
  "collections",
  "command_palette",
  "component",
- "component_preview",
  "copilot",
  "copilot_chat",
  "copilot_ui",
@@ -65,7 +64,6 @@ dependencies = [
  "i18n",
  "image",
  "image_viewer",
- "inspector_ui",
  "install_cli",
  "itertools 0.14.0",
  "json_schema_store",
@@ -74,7 +72,6 @@ dependencies = [
  "language_extension",
  "language_model",
  "language_models",
- "language_onboarding",
  "language_selector",
  "language_tools",
  "languages",
@@ -85,7 +82,6 @@ dependencies = [
  "menu",
  "migrator",
  "mimalloc",
- "miniprofiler_ui",
  "nc",
  "node_runtime",
  "notepad_panel",
@@ -125,7 +121,6 @@ dependencies = [
  "svg_preview",
  "sysinfo 0.37.2",
  "system_monitor",
- "system_specs",
  "tab_switcher",
  "task",
  "tasks_ui",
@@ -2661,8 +2656,10 @@ dependencies = [
  "log",
  "serde",
  "settings",
+ "terminal_view",
  "ui",
  "util",
+ "windows 0.61.3",
  "workspace",
 ]
 
@@ -3009,35 +3006,6 @@ dependencies = [
  "parking_lot",
  "strum 0.27.2",
  "theme",
-]
-
-[[package]]
-name = "component_preview"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "client",
- "collections",
- "component",
- "db",
- "fs",
- "gpui",
- "gpui_platform",
- "language",
- "log",
- "node_runtime",
- "notifications",
- "project",
- "release_channel",
- "reqwest_client",
- "session",
- "settings",
- "theme",
- "theme_settings",
- "ui",
- "ui_input",
- "uuid",
- "workspace",
 ]
 
 [[package]]
@@ -3673,6 +3641,7 @@ dependencies = [
  "cfg-if",
  "crash-handler",
  "futures 0.3.32",
+ "gpui",
  "log",
  "mach2 0.5.0",
  "minidumper",
@@ -3682,7 +3651,6 @@ dependencies = [
  "serde",
  "serde_json",
  "smol",
- "system_specs",
  "windows 0.61.3",
  "zstd",
 ]
@@ -7133,12 +7101,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
-name = "human_bytes"
-version = "0.4.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91f255a4535024abf7640cb288260811fc14794f62b063652ed349f9a6c2348e"
-
-[[package]]
 name = "humantime"
 version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7533,27 +7495,6 @@ checksum = "879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01"
 dependencies = [
  "block-padding",
  "generic-array",
-]
-
-[[package]]
-name = "inspector_ui"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "command_palette_hooks",
- "editor",
- "fuzzy",
- "gpui",
- "language",
- "project",
- "serde_json",
- "serde_json_lenient",
- "theme_settings",
- "ui",
- "util",
- "util_macros",
- "workspace",
- "zed_actions",
 ]
 
 [[package]]
@@ -8181,18 +8122,6 @@ dependencies = [
  "util",
  "vercel",
  "x_ai",
-]
-
-[[package]]
-name = "language_onboarding"
-version = "0.1.0"
-dependencies = [
- "db",
- "editor",
- "gpui",
- "project",
- "ui",
- "workspace",
 ]
 
 [[package]]
@@ -9035,20 +8964,6 @@ name = "minimal-lexical"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
-
-[[package]]
-name = "miniprofiler_ui"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "rpc",
- "serde_json",
- "smol",
- "theme_settings",
- "util",
- "workspace",
- "zed_actions",
-]
 
 [[package]]
 name = "miniz_oxide"
@@ -10316,12 +10231,6 @@ dependencies = [
  "digest 0.10.7",
  "hmac 0.12.1",
 ]
-
-[[package]]
-name = "pciid-parser"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0008e816fcdaf229cdd540e9b6ca2dc4a10d65c31624abb546c6420a02846e61"
 
 [[package]]
 name = "peg"
@@ -13956,15 +13865,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
-name = "story"
-version = "0.1.0"
-dependencies = [
- "gpui",
- "itertools 0.14.0",
- "smallvec",
-]
-
-[[package]]
 name = "streaming-iterator"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -14531,21 +14431,6 @@ dependencies = [
  "ui",
  "windows 0.61.3",
  "workspace",
-]
-
-[[package]]
-name = "system_specs"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "client",
- "gpui",
- "human_bytes",
- "pciid-parser",
- "release_channel",
- "semver",
- "serde",
- "sysinfo 0.37.2",
 ]
 
 [[package]]
@@ -15146,7 +15031,6 @@ dependencies = [
  "serde",
  "settings",
  "smallvec",
- "story",
  "telemetry",
  "theme",
  "ui",
@@ -15873,7 +15757,6 @@ dependencies = [
  "serde",
  "settings",
  "smallvec",
- "story",
  "strum 0.27.2",
  "theme",
  "ui_macros",

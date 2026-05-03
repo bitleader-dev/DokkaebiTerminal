@@ -158,6 +158,22 @@ impl Vim {
                     }
 
                     let (new_head, goal) = match motion {
+                        // EndOfLine 은 마지막 문자 다음 위치로 이동하지만,
+                        // helix visual 모드에서는 마지막 문자 위에 selection 을 끝내야 한다.
+                        // 여기서 한 칸 왼쪽으로 보정해 이후 right-expansion 이 마지막 문자까지만 포함하고
+                        // 줄바꿈은 포함하지 않도록 한다 (vgl 에서 newline 미포함 보장).
+                        Motion::EndOfLine { .. } => {
+                            let (point, goal) = motion
+                                .move_point(
+                                    map,
+                                    current_head,
+                                    selection.goal,
+                                    times,
+                                    &text_layout_details,
+                                )
+                                .unwrap_or((current_head, selection.goal));
+                            (movement::saturating_left(map, point), goal)
+                        }
                         // Going to next word start is special cased
                         // since Vim differs from Helix in that motion
                         // Vim: `w` goes to the first character of a word

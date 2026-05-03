@@ -444,6 +444,7 @@ impl LanguageModel for VercelAiGatewayLanguageModel {
             self.model.capabilities.prompt_cache_key,
             self.max_output_tokens(),
             None,
+            false,
         );
         let completions = self.stream_open_ai(request, cx);
         async move {
@@ -574,6 +575,7 @@ async fn list_models(
                 parallel_tool_calls,
                 prompt_cache_key,
                 chat_completions: true,
+                interleaved_reasoning: false,
             },
         });
     }

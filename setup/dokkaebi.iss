@@ -3,7 +3,7 @@
 #define AppGuid "{B8F4E2A1-7C3D-4E5F-9A1B-6D8E0F2C3A4B}"
 #define AppId "{" + AppGuid
 #define AppName "Dokkaebi"
-#define Version "0.4.1"
+#define Version "0.5.0"
 #define AppSetupName "Dokkaebi-Setup-v" + Version
 #define AppMutex "Dokkaebi-Instance-Mutex"
 #define AppIconName "app-icon-dokkaebi"

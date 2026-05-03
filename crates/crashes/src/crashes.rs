@@ -9,7 +9,7 @@ use std::mem;
 
 #[cfg(not(target_os = "windows"))]
 use smol::process::Command;
-use system_specs::GpuSpecs;
+use gpui::GpuSpecs;
 
 #[cfg(target_os = "macos")]
 use std::sync::atomic::AtomicU32;
@@ -184,7 +184,7 @@ unsafe fn suspend_all_other_threads() {
 pub struct CrashServer {
     initialization_params: Mutex<Option<InitCrashHandler>>,
     panic_info: Mutex<Option<CrashPanic>>,
-    active_gpu: Mutex<Option<system_specs::GpuSpecs>>,
+    active_gpu: Mutex<Option<GpuSpecs>>,
     user_info: Mutex<Option<UserInfo>>,
     has_connection: Arc<AtomicBool>,
 }
@@ -194,8 +194,7 @@ pub struct CrashInfo {
     pub init: InitCrashHandler,
     pub panic: Option<CrashPanic>,
     pub minidump_error: Option<String>,
-    pub gpus: Vec<system_specs::GpuInfo>,
-    pub active_gpu: Option<system_specs::GpuSpecs>,
+    pub active_gpu: Option<GpuSpecs>,
     pub user_info: Option<UserInfo>,
 }
 
@@ -287,18 +286,6 @@ impl minidumper::ServerHandler for CrashServer {
             Err(e) => Some(format!("{e:?}")),
         };
 
-        #[cfg(not(any(target_os = "linux", target_os = "freebsd")))]
-        let gpus = vec![];
-
-        #[cfg(any(target_os = "linux", target_os = "freebsd"))]
-        let gpus = match system_specs::read_gpu_info_from_sys_class_drm() {
-            Ok(gpus) => gpus,
-            Err(err) => {
-                log::warn!("Failed to collect GPU information for crash report: {err}");
-                vec![]
-            }
-        };
-
         let crash_info = CrashInfo {
             init: self
                 .initialization_params
@@ -308,7 +295,6 @@ impl minidumper::ServerHandler for CrashServer {
             panic: self.panic_info.lock().clone(),
             minidump_error,
             active_gpu: self.active_gpu.lock().clone(),
-            gpus,
             user_info: self.user_info.lock().clone(),
         };
 

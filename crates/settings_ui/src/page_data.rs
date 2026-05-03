@@ -13,8 +13,8 @@ use crate::{
     SettingsFieldMetadata, SettingsPage, SettingsPageItem, SubPageLink, USER, active_language,
     all_language_names,
     pages::{
-        install_plugin, is_plugin_installed, render_edit_prediction_setup_page,
-        render_tool_permissions_setup_page, uninstall_plugin,
+        install_plugin, is_plugin_installed, plugin_needs_reinstall,
+        render_edit_prediction_setup_page, render_tool_permissions_setup_page, uninstall_plugin,
     },
 };
 
@@ -6925,10 +6925,13 @@ fn notification_page() -> SettingsPage {
                 title: "settings_page.item.claude_code_plugin_install".into(),
                 description: Some("settings_page.desc.claude_code_plugin_install".into()),
                 is_installed: is_plugin_installed,
+                needs_reinstall: Some(plugin_needs_reinstall),
                 not_installed_label: "settings_page.label.not_installed".into(),
                 installed_label: "settings_page.label.installed".into(),
                 install_button_text: "settings_page.action.install".into(),
                 uninstall_button_text: "settings_page.action.uninstall".into(),
+                reinstall_warning_label:
+                    "settings_page.warning.claude_code_plugin_reinstall_needed".into(),
                 on_install: Arc::new(|_settings_window, window, _cx| {
                     if let Err(e) = install_plugin() {
                         log::warn!("dokkaebi-notify-bridge 플러그인 설치 실패: {}", e);

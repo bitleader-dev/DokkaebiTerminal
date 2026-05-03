@@ -1,6 +1,6 @@
 # Dokkaebi 릴리즈 노트
 
-## v0.5.0 (2026-04-30)
+## v0.5.0 (2026-05-03)
 
 ### 새로운 기능
 - **`git: view commit` 액션**: 커맨드 팔레트에서 SHA·태그·브랜치 등 git ref 를 입력하면 해당 커밋의 details/diff 를 패널로 즉시 열기 가능
@@ -8,6 +8,14 @@
 - **DeepSeek V4 Pro/Flash 모델 추가**: 1M 토큰 컨텍스트 + thinking/reasoning_effort 지원으로 대형 리팩터링·복잡 추론 작업에서 활용 가능
 - **DeepSeek V3 Chat/Reasoner 모델 단종 + 기본값 V4 Pro 로 변경**: 모델 ID 가 `deepseek-chat`/`deepseek-reasoner` → `deepseek-v4-flash`/`deepseek-v4-pro` 로 교체
 - **`zed --wait --diff <left> <right>` 단일 diff 종료 동작**: diff 탭만 닫아도 cli 가 종료. 디렉터리·파일 동시에 안 받았을 때 워크스페이스 종료까지 기다리지 않음
+- **윈도우 컨텍스트 메뉴 + 탭 바에 "새 중앙 터미널"**: 우클릭 메뉴와 + 메뉴에서 중앙 패널로 직접 터미널을 열 수 있음
+- **마크다운 우클릭 메뉴 "링크 복사"**: 마크다운 미리보기·Agent 응답의 링크 위에서 우클릭 시 URL 복사 항목 노출
+- **OpenAI compatible 모델 `interleaved_reasoning` 옵션**: thinking 토큰을 본문이 아닌 `reasoning_content` 필드로 분리해 송신, 해당 형식을 요구하는 모델 호환
+- **command_aliases 자동완성**: 사용자 settings.json 의 `command_aliases` 값으로 액션 이름을 입력할 때 자동완성·문서·deprecation 메타 노출
+- **Welcome 탭 `Ctrl-N` 키바인딩**: 시작 화면에서 새 파일을 즉시 만들 수 있음
+- **Copilot/Codestral 메뉴에 "Configure Providers"**: 다른 edit prediction provider 와 일관된 설정 진입점 제공
+- **Claude Code 서브에이전트 뷰 → 터미널 점프 버튼**: 서브에이전트 탭 헤더 우측 아이콘 클릭으로 호출 터미널 탭을 즉시 활성화
+- **Claude Code MCP 입력 폼 알림**: MCP 서버가 사용자 입력을 요구하는 시점에도 워크스페이스 알림이 발화되어 작업 정체 방지
 
 ### UI/UX 개선
 - **git panel 섹션 헤더 체크박스**: 그룹 단위로 한 번에 stage/unstage 가능. 호버로 표시되며 부분 체크 상태도 시각적으로 구분
@@ -34,10 +42,34 @@
 - **sticky header 가 현재 row 가리지 않음**: jump-to-definition·위 화살표 등에서 자동 스크롤이 sticky 헤더 영역을 고려해 보고 있던 줄을 가리지 않게 정렬
 - **Agent/MCP/cli 가 OS 기본 셸 사용**: `terminal.shell` 설정 대신 시스템 셸을 직접 호출해 tmux session 안에서도 hang 없이 동작
 - **메모장 우클릭 메뉴에서 선택 없이도 터미널 전송 가능**: 선택 텍스트가 없을 때도 터미널 항목이 노출되며 클릭 시 메모장 전체 내용을 앞·뒤 공백 제거 후 해당 터미널에 입력
+- **마크다운 미리보기 헤딩 크기 계층 정상화**: H1~H6 가 사이즈 차이로 명확히 구분되고 헤딩 사이 상단 여백이 추가되어 가독성 개선
+- **One Dark `link_text` 이탤릭 표시**: 마크다운/주석 등의 링크 텍스트가 본문과 시각적으로 구분되어 식별 용이
+- **Claude Code 플러그인 재설치 필요 안내**: 본체 업데이트로 플러그인 hook 정의가 바뀌었을 때 설정 페이지에서 안내 문구가 자동 노출되어 새 hook 적용 시점을 놓치지 않음
+
+### 정리
+- **`soft_wrap` 설정 단순화**: `preferred_line_length` 값을 사용하던 사용자 설정은 자동으로 `bounded` 로 인식 (호환 유지)
+- **미사용 개발자 도구 제거**: UI 인스펙터·컴포넌트 갤러리·스토리북·시작 시간 프로파일러·BasedPyright 배너 정리로 빌드 면적 축소
+- **`--system-specs` CLI 플래그 제거**: 사용 빈도가 없던 시스템 사양 출력 옵션 정리. 기존 출력 동작은 동일 정보를 외부 도구로 확인 가능
+- **Claude Code 알림 플러그인 hook 발화 빈도 감소**: 모든 도구 호출 대신 서브에이전트(Agent) 호출 시점에만 발화하도록 matcher 명시. 기존 사용자는 플러그인 재설치 권장
 
 ### 버그 수정
 - **split diff 패닉 회피**: diff 가 동시 편집으로 사라지는 race condition 에서도 panic 대신 빈 결과로 안전 종료
 - **extension `download_file` GzipTar 다운로드 실패 회피**: 큰 tar.gz 익스텐션 업데이트 시 `archive header` 오류 없이 받기 가능
+- **`Cmd/Ctrl-E` 로 선택한 텍스트로 검색**: 검색바를 열거나 검색을 실행하지 않고 선택만 검색 쿼리로 설정 (편집기·터미널·로그 뷰 등 모든 검색 가능 패널)
+- **vim 검색이 커서 단어 폴백 일관성**: `editor_cursor_word` 보조 경로가 SearchableItem 단일 진입점으로 통합되어 동작 차이 해소
+- **터미널 종료 시 자식 프로세스 정리 (Unix)**: 셸 종료 후에도 살아남던 자식 프로세스가 SIGTERM 동기 송신으로 즉시 정리 (Windows 영향 없음)
+- **Agent 메뉴 토글 후 Alt-Shift-L Rules 단축키 일관 동작**: 옵션 메뉴를 토글한 뒤에도 Rules 단축키가 매번 동일하게 인식
+- **outline 패널 pin/unpin 툴팁 즉시 갱신**: 핀 버튼 토글 후 툴팁이 stale 텍스트를 표시하지 않고 현재 상태에 맞게 즉시 업데이트
+- **Helix `vgl` 가 줄바꿈 미포함**: 비주얼 모드에서 `vgl` 로 줄 끝까지 선택해도 newline 까지 삼키지 않아 다음 줄까지 의도치 않게 영향 미치지 않음
+- **터미널 인라인 어시스턴트 `Cmd/Ctrl-Enter` 즉시 실행**: SecondaryConfirm 이 인식되어 생성된 명령을 바로 실행 모드로 전송
+- **Windows 에서 extension manifest 경로 정규화**: extension.toml 의 themes/languages/icon_themes 경로에 `\` 가 포함돼도 WSL 등 원격 환경 업로드 시 인식 가능
+- **vim visual paste 시 시스템 클립보드 보존**: 비주얼 선택 위에 `Ctrl-V` 로 paste 해도 선택 텍스트가 시스템 클립보드를 덮어쓰지 않음
+- **edit prediction 이 자동완성 메뉴 오염하지 않음**: 한 글자 입력만으로 무관한 유니코드 스니펫이 메뉴에 떠오르던 현상 차단(strong-prefix 매치 도입)
+- **새 줄 입력 시 자동 들여쓰기 trailing whitespace 미잔존**: 들여쓰기만 있는 줄에서 Enter 를 연달아 눌러도 빈 줄에 공백이 남지 않음
+- **마크다운 미리보기 포커스 시 outline panel 유지**: 미리보기 창으로 포커스 이동 후에도 outline 패널이 활성 에디터 헤딩 트리를 계속 표시
+- **Dev Container suggestion 알림에 프로젝트명 + 경로 툴팁**: 알림에 워크트리 이름이 표시되고 마우스 hover 시 전체 경로가 툴팁으로 노출되어 어떤 프로젝트인지 즉시 식별
+- **outline 패널 footer 의 토글 단축키 라벨 케이싱 통일**: 다른 키바인딩 표시와 동일한 KeyBinding 컴포넌트로 일관된 스타일·간격 적용
+- **탭 바 ←/→ 버튼이 모든 탭에서 동작**: 서브에이전트 뷰·터미널 등 에디터가 아닌 탭 사이 이동도 추적되어 이전/다음 탭으로 즉시 복귀 가능
 
 ---
 

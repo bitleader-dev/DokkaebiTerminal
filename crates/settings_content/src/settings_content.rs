@@ -1,3 +1,4 @@
+mod action;
 mod agent;
 mod editor;
 mod extension;
@@ -13,6 +14,7 @@ mod theme;
 mod title_bar;
 mod workspace;
 
+pub use action::{ActionName, ActionWithArguments};
 pub use agent::*;
 pub use locale::*;
 pub use editor::*;
@@ -556,14 +558,6 @@ pub struct ScrollbarSettings {
 #[with_fallible_options]
 #[derive(Clone, Default, Serialize, Deserialize, JsonSchema, MergeFrom, Debug, PartialEq)]
 pub struct ClaudeCodeSettingsContent {
-    /// Claude Code 작업 완료 시 터미널에 벨 알림을 보낸다.
-    /// ~/.claude/settings.json의 Stop 훅에 벨 명령을 추가/제거한다.
-    ///
-    /// Default: false
-    ///
-    /// Deprecated: 다음 메이저 버전에서 제거 예정. `task_alert` 사용을 권장한다.
-    pub claude_code_bell: Option<bool>,
-
     /// Claude Code 플러그인이 보낸 작업 알림(Stop/Notification/PermissionRequest)을
     /// Dokkaebi 워크스페이스에 표시할지 여부. false이면 IPC 알림이 도착해도
     /// 토스트/dot/그룹 배지 모두 표시하지 않는다(완전 차단).

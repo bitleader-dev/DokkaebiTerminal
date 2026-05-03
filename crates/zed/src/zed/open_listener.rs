@@ -704,7 +704,7 @@ async fn handle_subagent_request(
     cx: &mut AsyncApp,
 ) {
     use claude_subagent_view::{
-        SubagentPanelPosition, contains as store_contains, mark_stopped, open_subagent_view,
+        SubagentPanelPosition, mark_stopped, open_subagent_view, try_mark_tail_spawned,
         upsert_start,
     };
 
@@ -770,15 +770,11 @@ async fn handle_subagent_request(
             let cwd = args.cwd.clone();
             let pid = args.pid;
 
-            // 재진입(동일 subagent Start IPC 재수신) 시 tail task 를 중복 spawn 하지 않도록
-            // upsert 전에 기존 엔트리 존재 여부를 확인한다. 기존 엔트리가 있으면 이전 Start 때
-            // 이미 tail 이 돌고 있으므로 두 번째 spawn 을 건너뛴다.
-            let is_reentry = cx.update(|cx| store_contains(cx, &subagent_id));
-            let tail_path = transcript_path_opt
-                .clone()
-                .filter(|p| !is_reentry && !p.is_empty());
-            // id 는 이후 tail/open 호출에서 필요한 만큼만 clone. upsert_start 로 원본을 소비.
-            let id_for_tail = tail_path.as_ref().map(|_| subagent_id.clone());
+            // tail task 의 spawn 권한 획득은 `try_mark_tail_spawned` 가 store update
+            // 안에서 atomic 하게 수행한다. upsert_start 로 엔트리를 보장한 뒤 호출하면
+            // 거의 동시에 두 번 들어온 Start IPC 도 spawn 권한을 한 호출자만 가져간다.
+            let tail_path_str = transcript_path_opt.clone().filter(|p| !p.is_empty());
+            let id_for_tail = tail_path_str.as_ref().map(|_| subagent_id.clone());
             let id_for_open = auto_open.then(|| subagent_id.clone());
             let _ = cx.update(|cx| {
                 upsert_start(
@@ -795,12 +791,17 @@ async fn handle_subagent_request(
             });
 
             // transcript tail 백그라운드 task 시작 — 서브에이전트 완료 + grace 후 자동 종료.
-            // 재진입이면 동일 id 의 tail 이 이미 동작 중이므로 spawn 생략.
+            // try_mark_tail_spawned 가 false 면 다른 호출자가 이미 spawn 권한을 가져갔거나
+            // 엔트리가 없는 경우이므로 조용히 skip.
             if let Some(id) = id_for_tail
-                && let Some(path_str) = tail_path
+                && let Some(path_str) = tail_path_str
             {
-                let path = std::path::PathBuf::from(path_str);
-                crate::zed::claude_subagent_tail::spawn_transcript_tail(id, path, cx);
+                let id_for_check = id.clone();
+                let acquired = cx.update(|cx| try_mark_tail_spawned(cx, &id_for_check));
+                if acquired {
+                    let path = std::path::PathBuf::from(path_str);
+                    crate::zed::claude_subagent_tail::spawn_transcript_tail(id, path, cx);
+                }
             }
 
             if let Some(id_for_open) = id_for_open {

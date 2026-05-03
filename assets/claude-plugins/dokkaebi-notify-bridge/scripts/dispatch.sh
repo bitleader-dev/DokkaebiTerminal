@@ -65,6 +65,8 @@ truncate() {
 
 # cli 실행 파일 탐색 — 본체(dokkaebi.exe)가 아닌 별도 cli 바이너리를 사용해야 한다.
 # 본체는 paths_or_urls 위주 인자만 파싱하므로 --notify-kind 전달 시 clap 에러 발생.
+# 탐색 순서: DOKKAEBI_CLI 환경변수 → PATH 의 dokkaebi-cli.exe → PATH 의 dokkaebi-cli
+# (Git Bash 등에서 PATHEXT 자동 보강 없이 등록된 경우 대비) → 기본 설치 경로.
 find_cli() {
   if [ -n "${DOKKAEBI_CLI:-}" ] && [ -x "$DOKKAEBI_CLI" ]; then
     echo "$DOKKAEBI_CLI"
@@ -72,6 +74,10 @@ find_cli() {
   fi
   if command -v dokkaebi-cli.exe >/dev/null 2>&1; then
     command -v dokkaebi-cli.exe
+    return 0
+  fi
+  if command -v dokkaebi-cli >/dev/null 2>&1; then
+    command -v dokkaebi-cli
     return 0
   fi
   # Windows 기본 설치 경로 (LOCALAPPDATA) — 인스톨러가 본체와 같은 디렉터리에 배포

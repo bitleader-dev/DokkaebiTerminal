@@ -20,6 +20,15 @@
             "command": "${CLAUDE_PLUGIN_ROOT}/scripts/dispatch.sh idle"
           }
         ]
+      },
+      {
+        "matcher": "elicitation_dialog",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/dispatch.sh idle"
+          }
+        ]
       }
     ],
     "PermissionRequest": [
@@ -34,6 +43,7 @@
     ],
     "PreToolUse": [
       {
+        "matcher": "Agent",
         "hooks": [
           {
             "type": "command",
@@ -44,6 +54,7 @@
     ],
     "PostToolUse": [
       {
+        "matcher": "Agent",
         "hooks": [
           {
             "type": "command",

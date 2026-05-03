@@ -12,13 +12,17 @@ use gpui::{
 };
 use language::language_settings::SoftWrap;
 use settings::SettingsStore;
-use ui::{Color, Divider, Icon, IconName, Label, LabelCommon, h_flex, v_flex};
+use ui::{
+    ButtonCommon, Clickable, Color, Divider, FluentBuilder, Icon, IconButton, IconName, IconSize,
+    Label, LabelCommon, Tooltip, h_flex, v_flex,
+};
 use util::{time::duration_alt_display, truncate_and_trailoff};
 use workspace::{
-    Pane, SplitDirection, Workspace,
+    MultiWorkspace, Pane, SplitDirection, Workspace,
     item::{Item, ItemEvent},
 };
 
+use crate::process_snapshot::ProcessSnapshot;
 use crate::state::{
     ClaudeSubagentStore, SubagentId, SubagentPanelPosition, SubagentState, SubagentStatus,
     SubagentStoreEvent, claude_code_settings, snapshot,
@@ -180,9 +184,10 @@ impl Render for ClaudeSubagentView {
 
         let editor_view = self.content_editor.as_ref().expect("editor just created").clone();
 
-        // 헤더(유형/설명/상태/경과) + Divider + 에디터. 헤더는 고정, 본문은 에디터 자체 스크롤.
+        // 헤더(유형/설명/상태/경과 + 점프 버튼) + Divider + 에디터.
+        // 헤더는 고정, 본문은 에디터 자체 스크롤.
         let header = match &state_opt {
-            Some(state) => render_header(state, cx).into_any_element(),
+            Some(state) => self.render_header(state, cx).into_any_element(),
             None => div().p_4().into_any_element(),
         };
 
@@ -208,39 +213,68 @@ fn status_label_key(status: SubagentStatus) -> &'static str {
     }
 }
 
-/// 유형/설명/상태/경과 헤더 블록. 짧은 메타데이터이므로 Label 로 유지.
-/// 드래그 선택이 필요한 본문(로그·결과)은 Editor 로 렌더된다.
-fn render_header(state: &SubagentState, cx: &App) -> gpui::Div {
-    let status_text = i18n::t(status_label_key(state.status), cx).to_string();
-    let elapsed_text = duration_alt_display(state.elapsed());
-    let header_type = i18n::t("claude_subagent.header.type", cx).to_string();
-    let header_desc = i18n::t("claude_subagent.header.description", cx).to_string();
-    let header_status = i18n::t("claude_subagent.header.status", cx).to_string();
-    let header_elapsed = i18n::t("claude_subagent.header.elapsed", cx).to_string();
+impl ClaudeSubagentView {
+    /// 유형/설명/상태/경과 헤더 + 우측 "터미널로 점프" 아이콘 버튼.
+    /// 짧은 메타데이터는 Label, 드래그 선택이 필요한 본문(로그·결과)은 Editor 로 렌더.
+    /// `parent_pid` 가 Some 이고 발신 터미널이 존재할 때만 점프 버튼이 표시되며,
+    /// 매칭 실패 시 클릭은 log warn 만 남기고 조용히 종료한다.
+    fn render_header(&self, state: &SubagentState, cx: &mut Context<Self>) -> impl IntoElement {
+        let status_text = i18n::t(status_label_key(state.status), cx).to_string();
+        let elapsed_text = duration_alt_display(state.elapsed());
+        let header_type = i18n::t("claude_subagent.header.type", cx).to_string();
+        let header_desc = i18n::t("claude_subagent.header.description", cx).to_string();
+        let header_status = i18n::t("claude_subagent.header.status", cx).to_string();
+        let header_elapsed = i18n::t("claude_subagent.header.elapsed", cx).to_string();
 
-    v_flex()
-        .gap_1()
-        .p_4()
-        .child(
-            h_flex()
-                .gap_2()
-                .child(Label::new(header_type).color(Color::Muted))
-                .child(Label::new(state.subagent_type.clone())),
-        )
-        .child(
-            h_flex()
-                .gap_2()
-                .child(Label::new(header_desc).color(Color::Muted))
-                .child(Label::new(state.description.clone())),
-        )
-        .child(
-            h_flex()
-                .gap_2()
-                .child(Label::new(header_status).color(Color::Muted))
-                .child(Label::new(status_text))
-                .child(Label::new(header_elapsed).color(Color::Muted))
-                .child(Label::new(elapsed_text)),
-        )
+        let parent_pid_opt = state.parent_pid;
+
+        // 좌측 메타 라벨 묶음.
+        let meta_block = v_flex()
+            .gap_1()
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(Label::new(header_type).color(Color::Muted))
+                    .child(Label::new(state.subagent_type.clone())),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(Label::new(header_desc).color(Color::Muted))
+                    .child(Label::new(state.description.clone())),
+            )
+            .child(
+                h_flex()
+                    .gap_2()
+                    .child(Label::new(header_status).color(Color::Muted))
+                    .child(Label::new(status_text))
+                    .child(Label::new(header_elapsed).color(Color::Muted))
+                    .child(Label::new(elapsed_text)),
+            );
+
+        // 우측 "터미널로 점프" 버튼. parent_pid 가 없으면 자리만 비우고 버튼 미표시.
+        let jump_button = parent_pid_opt.map(|parent_pid| {
+            let tooltip_text = i18n::t(
+                "claude_subagent.action.jump_to_terminal.tooltip",
+                cx,
+            )
+            .to_string();
+            IconButton::new("claude-subagent-jump-to-terminal", IconName::ArrowUpRight)
+                .icon_size(IconSize::Small)
+                .tooltip(Tooltip::text(tooltip_text))
+                .on_click(cx.listener(move |_this, _ev, window, cx| {
+                    jump_to_terminal_for(parent_pid, window, cx);
+                }))
+        });
+
+        h_flex()
+            .p_4()
+            .w_full()
+            .justify_between()
+            .gap_2()
+            .child(meta_block)
+            .when_some(jump_button, |this, btn| this.child(btn))
+    }
 }
 
 /// 로그 + 결과를 단일 문자열로 결합해 read-only Editor 에 표시할 본문을 만든다.
@@ -279,6 +313,95 @@ fn build_body_text(state: &SubagentState, cx: &App) -> String {
     buf.push_str(&result_text);
 
     buf
+}
+
+/// "터미널로 점프" 버튼 클릭 시 호출.
+///
+/// 현재 윈도우의 MultiWorkspace 안 모든 워크스페이스 그룹/팬을 순회해
+/// `parent_pid` 와 ancestor/descendant 매칭되는 첫 TerminalView 를 찾아 activate.
+///
+/// 매칭 규약 (`open_listener::mark_bell_for_notification` 와 동일):
+///   1) 터미널 shell_pid 가 parent_pid 의 ancestor chain 에 포함, 또는
+///   2) 터미널 shell 의 descendants 트리에 parent_pid 가 포함
+///
+/// 둘 중 하나라도 일치하면 그 탭을 활성화한다. 매칭 실패 시 log warn 만 남기고
+/// 조용히 종료(토스트는 view 가 workspace 핸들에 직접 접근하기 어려워 생략).
+/// 멀티 윈도우 환경에서 다른 윈도우의 터미널은 검사하지 않는다(plan 비범위).
+fn jump_to_terminal_for(
+    parent_pid: u32,
+    window: &mut Window,
+    cx: &mut Context<ClaudeSubagentView>,
+) {
+    use std::collections::HashSet;
+    use terminal_view::TerminalView;
+
+    let snapshot = ProcessSnapshot::capture();
+
+    let Some(multi_handle) = window.window_handle().downcast::<MultiWorkspace>() else {
+        log::warn!(
+            "[claude-subagent-view] window 가 MultiWorkspace 가 아님 — 점프 불가 (parent_pid={})",
+            parent_pid
+        );
+        return;
+    };
+
+    let _ = multi_handle.update(cx, |multi_ws, window, cx| {
+        for workspace_entity in multi_ws.workspaces().to_vec() {
+            let mut found: Option<(Entity<Pane>, usize)> = None;
+            workspace_entity.update(cx, |workspace, cx| {
+                let active_index = workspace.active_group_index();
+                // (TerminalView, group_idx) 수집 — active group + 비활성 group 모두.
+                let mut all_terminals: Vec<gpui::Entity<TerminalView>> = workspace
+                    .items_of_type::<TerminalView>(cx)
+                    .map(|tv| tv)
+                    .collect();
+                {
+                    let groups = workspace.workspace_groups();
+                    for (i, group) in groups.iter().enumerate() {
+                        if i == active_index {
+                            continue;
+                        }
+                        for pane in &group.panes {
+                            for tv in pane.read(cx).items_of_type::<TerminalView>() {
+                                all_terminals.push(tv);
+                            }
+                        }
+                    }
+                }
+
+                for tv in all_terminals {
+                    let Some(shell_pid) = tv.read(cx).entity().read(cx).shell_pid() else {
+                        continue;
+                    };
+                    let ancestors: HashSet<u32> =
+                        snapshot.ancestors_of(shell_pid).into_iter().collect();
+                    let descendants = snapshot.descendants_of(shell_pid);
+                    if !(ancestors.contains(&parent_pid) || descendants.contains(&parent_pid)) {
+                        continue;
+                    }
+                    let Some(pane) = workspace.pane_for(&tv) else {
+                        continue;
+                    };
+                    let Some(idx) = pane.read(cx).index_for_item(&tv) else {
+                        continue;
+                    };
+                    found = Some((pane, idx));
+                    break;
+                }
+            });
+
+            if let Some((pane, idx)) = found {
+                pane.update(cx, |pane, cx| {
+                    pane.activate_item(idx, true, true, window, cx);
+                });
+                return;
+            }
+        }
+        log::warn!(
+            "[claude-subagent-view] 발신 터미널 매칭 실패: parent_pid={}",
+            parent_pid
+        );
+    });
 }
 
 impl Item for ClaudeSubagentView {

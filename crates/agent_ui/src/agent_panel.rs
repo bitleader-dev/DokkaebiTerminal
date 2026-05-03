@@ -1517,6 +1517,8 @@ impl AgentPanel {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        // 메뉴 토글 전 focus를 자체 handle로 옮겨 Alt-Shift-L 같은 단축키 컨텍스트를 일관되게 유지
+        window.focus(&self.focus_handle, cx);
         self.agent_panel_menu_handle.toggle(window, cx);
     }
 

@@ -90,6 +90,10 @@ pub struct SubagentState {
     pub finished_at: Option<SystemTime>,
     pub result: Option<String>,
     pub log: Vec<SubagentLogEntry>,
+    /// transcript tail task 가 spawn 되었는지 표지. 동일 id 의 Start IPC 가 거의
+    /// 동시에 두 번 들어와도 tail 이 한 번만 spawn 되도록 `try_mark_tail_spawned` 가
+    /// store update 안에서 atomic 하게 검사·설정한다.
+    pub tail_spawned: bool,
 }
 
 impl SubagentState {
@@ -195,6 +199,7 @@ pub fn upsert_start(
                 finished_at: None,
                 result: None,
                 log: Vec::new(),
+                tail_spawned: false,
             };
             inner.entries.insert(id.clone(), state);
             inner.order.push(id.clone());
@@ -260,5 +265,26 @@ pub fn contains(cx: &App, id: &str) -> bool {
 pub fn status_only(cx: &App, id: &str) -> Option<SubagentStatus> {
     let store = ClaudeSubagentStore::get(cx)?;
     store.inner.read(cx).entries.get(id).map(|s| s.status)
+}
+
+/// transcript tail task 의 spawn 표지를 atomic 하게 검사·설정한다.
+/// 거의 동시에 두 번 들어온 Start IPC 가 모두 spawn 분기를 통과하던 race 를 차단.
+/// 반환값:
+/// - `true`  — 호출자가 spawn 권한을 획득. 즉시 tail 을 시작해야 한다.
+/// - `false` — 엔트리가 없거나 이미 다른 호출자가 spawn 권한을 가져갔다. spawn 금지.
+pub fn try_mark_tail_spawned(cx: &mut App, id: &str) -> bool {
+    let Some(entity) = ClaudeSubagentStore::get(cx).map(|s| s.entity()) else {
+        return false;
+    };
+    entity.update(cx, |inner, _cx| {
+        let Some(state) = inner.entries.get_mut(id) else {
+            return false;
+        };
+        if state.tail_spawned {
+            return false;
+        }
+        state.tail_spawned = true;
+        true
+    })
 }
 

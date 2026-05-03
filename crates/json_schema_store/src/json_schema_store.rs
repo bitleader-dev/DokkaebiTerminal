@@ -341,12 +341,21 @@ async fn resolve_dynamic_schema(
                 let icon_theme_names = icon_theme_names.as_slice();
                 let theme_names = theme_names.as_slice();
 
+                let action_names = cx.all_action_names();
+                let action_documentation = cx.action_documentation();
+                let deprecations = cx.deprecated_actions_to_preferred_actions();
+                let deprecation_messages = cx.action_deprecation_messages();
+
                 settings::SettingsStore::json_schema(&settings::SettingsJsonSchemaParams {
                     language_names,
                     font_names,
                     theme_names,
                     icon_theme_names,
                     lsp_adapter_names: &lsp_adapter_names,
+                    action_names,
+                    action_documentation,
+                    deprecations,
+                    deprecation_messages,
                 })
             })
         }
@@ -372,6 +381,10 @@ async fn resolve_dynamic_schema(
                 font_names: &[],
                 theme_names: &[],
                 icon_theme_names: &[],
+                action_names: &[],
+                action_documentation: &HashMap::default(),
+                deprecations: &HashMap::default(),
+                deprecation_messages: &HashMap::default(),
             })
         }
         "keymap" => cx.update(settings::KeymapFile::generate_json_schema_for_registered_actions),

@@ -1,6 +1,6 @@
 use crate::{
-    CloseWindow, NewFile, NewTerminal, OpenInTerminal, OpenOptions, OpenTerminal, OpenVisible,
-    Save as WorkspaceSave, SaveAs,
+    CloseWindow, NewCenterTerminal, NewFile, NewTerminal, OpenInTerminal, OpenOptions,
+    OpenTerminal, OpenVisible, Save as WorkspaceSave, SaveAs,
     SplitDirection, ToggleFileFinder, ToggleProjectSymbols, ToggleZoom, Workspace,
     WorkspaceItemBuilder, ZoomIn, ZoomOut,
     invalid_item_view::InvalidItemView,
@@ -320,6 +320,14 @@ impl DeploySearch {
 }
 
 const MAX_NAVIGATION_HISTORY_LEN: usize = 1024;
+
+/// MAX_NAVIGATION_HISTORY_LEN 초과 시 가장 오래된 entry 를 버리고 push_back.
+fn push_capped(stack: &mut VecDeque<NavigationEntry>, entry: NavigationEntry) {
+    if stack.len() >= MAX_NAVIGATION_HISTORY_LEN {
+        stack.pop_front();
+    }
+    stack.push_back(entry);
+}
 
 pub enum Event {
     AddItem {
@@ -1469,6 +1477,8 @@ impl Pane {
                 && let Some(prev_item) = self.items.get(prev_active_item_ix)
             {
                 prev_item.deactivated(window, cx);
+                self.nav_history
+                    .push_dedup_by_item(prev_item.as_ref(), cx);
             }
             self.update_history(index);
             self.update_toolbar(window, cx);
@@ -4330,12 +4340,17 @@ fn default_render_tab_bar_buttons(
                     let label_open_file = t("pane.action.open_file", cx);
                     let label_search_symbols = t("pane.action.search_symbols", cx);
                     let label_new_terminal = t("pane.action.new_terminal", cx);
+                    let label_new_center_terminal = t("pane.action.new_center_terminal", cx);
                     Some(ContextMenu::build(window, cx, |menu, _, _| {
                         menu.action(label_new_file, NewFile.boxed_clone())
                             .action(label_open_file, ToggleFileFinder::default().boxed_clone())
                             .action(label_search_symbols, ToggleProjectSymbols.boxed_clone())
                             .separator()
                             .action(label_new_terminal, NewTerminal::default().boxed_clone())
+                            .action(
+                                label_new_center_terminal,
+                                NewCenterTerminal::default().boxed_clone(),
+                            )
                     }))
                 }),
         )
@@ -4828,6 +4843,39 @@ impl NavHistory {
         entry
     }
 
+    /// 탭 활성화 변경을 backward_stack 에 push 하되 마지막 entry 와 같은 item_id 면 skip.
+    /// dedup 정책이 `push` 의 (item_id, row) 쌍 retain 과 달라 별도 helper 로 둠.
+    pub fn push_dedup_by_item(&mut self, item: &dyn ItemHandle, cx: &mut App) {
+        if !item.include_in_nav_history() {
+            return;
+        }
+        let state = &mut *self.0.lock();
+        if !matches!(state.mode, NavigationMode::Normal) {
+            return;
+        }
+        let new_item_id = item.item_id();
+        if state
+            .backward_stack
+            .back()
+            .is_some_and(|e| e.item.id() == new_item_id)
+        {
+            return;
+        }
+        let timestamp = state.next_timestamp.fetch_add(1, Ordering::SeqCst);
+        push_capped(
+            &mut state.backward_stack,
+            NavigationEntry {
+                item: item.weak_item_arc(),
+                data: None,
+                timestamp,
+                is_preview: false,
+                row: None,
+            },
+        );
+        state.forward_stack.clear();
+        state.did_update(cx);
+    }
+
     pub fn push<D: 'static + Any + Send + Sync>(
         &mut self,
         data: Option<D>,
@@ -4848,61 +4896,50 @@ impl NavHistory {
                 state
                     .backward_stack
                     .retain(|entry| !is_same_location(entry));
-
-                if state.backward_stack.len() >= MAX_NAVIGATION_HISTORY_LEN {
-                    state.backward_stack.pop_front();
-                }
-                state.backward_stack.push_back(NavigationEntry {
+                let entry = NavigationEntry {
                     item,
                     data: data.map(|data| Arc::new(data) as Arc<dyn Any + Send + Sync>),
                     timestamp: state.next_timestamp.fetch_add(1, Ordering::SeqCst),
                     is_preview,
                     row,
-                });
+                };
+                push_capped(&mut state.backward_stack, entry);
                 state.forward_stack.clear();
             }
             NavigationMode::GoingBack => {
                 state.forward_stack.retain(|entry| !is_same_location(entry));
-
-                if state.forward_stack.len() >= MAX_NAVIGATION_HISTORY_LEN {
-                    state.forward_stack.pop_front();
-                }
-                state.forward_stack.push_back(NavigationEntry {
+                let entry = NavigationEntry {
                     item,
                     data: data.map(|data| Arc::new(data) as Arc<dyn Any + Send + Sync>),
                     timestamp: state.next_timestamp.fetch_add(1, Ordering::SeqCst),
                     is_preview,
                     row,
-                });
+                };
+                push_capped(&mut state.forward_stack, entry);
             }
             NavigationMode::GoingForward => {
                 state
                     .backward_stack
                     .retain(|entry| !is_same_location(entry));
-
-                if state.backward_stack.len() >= MAX_NAVIGATION_HISTORY_LEN {
-                    state.backward_stack.pop_front();
-                }
-                state.backward_stack.push_back(NavigationEntry {
+                let entry = NavigationEntry {
                     item,
                     data: data.map(|data| Arc::new(data) as Arc<dyn Any + Send + Sync>),
                     timestamp: state.next_timestamp.fetch_add(1, Ordering::SeqCst),
                     is_preview,
                     row,
-                });
+                };
+                push_capped(&mut state.backward_stack, entry);
             }
             NavigationMode::ClosingItem if is_preview => return,
             NavigationMode::ClosingItem => {
-                if state.closed_stack.len() >= MAX_NAVIGATION_HISTORY_LEN {
-                    state.closed_stack.pop_front();
-                }
-                state.closed_stack.push_back(NavigationEntry {
+                let entry = NavigationEntry {
                     item,
                     data: data.map(|data| Arc::new(data) as Arc<dyn Any + Send + Sync>),
                     timestamp: state.next_timestamp.fetch_add(1, Ordering::SeqCst),
                     is_preview,
                     row,
-                });
+                };
+                push_capped(&mut state.closed_stack, entry);
             }
         }
         state.did_update(cx);

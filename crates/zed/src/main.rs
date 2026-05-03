@@ -296,16 +296,6 @@ fn main() {
         option_env!("ZED_COMMIT_SHA").map(|commit_sha| AppCommitSha::new(commit_sha.to_string()));
     let app_version = AppVersion::load(env!("CARGO_PKG_VERSION"), version, app_commit_sha.clone());
 
-    if args.system_specs {
-        let system_specs = system_specs::SystemSpecs::new_stateless(
-            app_version,
-            app_commit_sha,
-            *release_channel::RELEASE_CHANNEL,
-        );
-        println!("Dokkaebi System Specs (from CLI):\n{}", system_specs);
-        return;
-    }
-
     rayon::ThreadPoolBuilder::new()
         .num_threads(std::thread::available_parallelism().map_or(1, |n| n.get().div_ceil(2)))
         .stack_size(10 * 1024 * 1024)
@@ -798,15 +788,13 @@ fn main() {
         notepad_panel::init(cx);
         title_bar::init(cx);
         git_ui::init(cx);
-        miniprofiler_ui::init(*STARTUP_TIME.get().unwrap(), cx);
         log::info!("[startup] 에디터/패널/핵심 컴포넌트 초기화: {:?}", t_phase.elapsed());
 
         #[cfg(target_os = "windows")]
         etw_tracing::init(cx);
 
-        // ���핵심 모듈은 이벤트 루프 시작 후 지연 초기화 — 창이 더 빨리 ��림
+        // 비핵심 모듈은 이벤트 루프 시작 후 지연 초기화 — 창이 더 빨리 뜸
         {
-            let app_state = app_state.clone();
             cx.spawn(async move |cx| {
                 cx.update(|cx| {
                     // 기존 지연 초기화 항목
@@ -815,7 +803,6 @@ fn main() {
                     csv_preview::init(cx);
                     svg_preview::init(cx);
                     extensions_ui::init(cx);
-                    inspector_ui::init(app_state, cx);
                     which_key::init(cx);
 
                     // 추가 지연: 상태바 셀렉터/설정 UI 등 사용자 요청 시에만 필요
@@ -1009,8 +996,6 @@ fn main() {
         .detach_and_log_err(cx);
 
         let app_state = app_state.clone();
-
-        component_preview::init(app_state.clone(), cx);
 
         cx.spawn(async move |cx| {
             while let Some(urls) = open_rx.next().await {
@@ -1763,14 +1748,6 @@ struct Args {
     /// Instructs zed to run as a dev server on this machine. (not implemented)
     #[arg(long)]
     dev_server_token: Option<String>,
-
-    /// Prints system specs.
-    ///
-    /// Useful for submitting issues on GitHub when encountering a bug that
-    /// prevents Zed from starting, so you can't run `zed: copy system specs to
-    /// clipboard`
-    #[arg(long)]
-    system_specs: bool,
 
     /// 자동 업데이트 설치 후 installer가 앱을 재실행하면서 전달하는 내부 플래그.
     /// 설정된 경우 앱이 "이번 실행은 업데이트 직후 첫 실행"이라고 판단해 릴리즈 노트를 1회 표시한다.

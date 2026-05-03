@@ -953,7 +953,10 @@ impl Vim {
                     Mode::Replace => vim.paste_replace(window, cx),
                     Mode::Visual | Mode::VisualLine | Mode::VisualBlock => {
                         vim.selected_register.replace('+');
-                        vim.paste(&VimPaste::default(), window, cx);
+                        // 비주얼 선택 위에 paste 시 시스템 클립보드 보존
+                        let mut action = VimPaste::default();
+                        action.preserve_clipboard = true;
+                        vim.paste(&action, window, cx);
                     }
                     _ => {
                         vim.update_editor(cx, |_, editor, cx| editor.paste(&Paste, window, cx));
@@ -1577,32 +1580,6 @@ impl Vim {
                 .iter()
                 .map(|selection| selection.tail()..selection.head())
                 .collect()
-        })
-        .unwrap_or_default()
-    }
-
-    fn editor_cursor_word(
-        &mut self,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> Option<String> {
-        self.update_editor(cx, |_, editor, cx| {
-            let snapshot = &editor.snapshot(window, cx);
-            let selection = editor
-                .selections
-                .newest::<MultiBufferOffset>(&snapshot.display_snapshot);
-
-            let snapshot = snapshot.buffer_snapshot();
-            let (range, kind) =
-                snapshot.surrounding_word(selection.start, Some(CharScopeContext::Completion));
-            if kind == Some(CharKind::Word) {
-                let text: String = snapshot.text_for_range(range).collect();
-                if !text.trim().is_empty() {
-                    return Some(text);
-                }
-            }
-
-            None
         })
         .unwrap_or_default()
     }

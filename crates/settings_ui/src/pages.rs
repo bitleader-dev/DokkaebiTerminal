@@ -4,7 +4,7 @@ mod tool_permissions_setup;
 
 pub(crate) use edit_prediction_provider_setup::render_edit_prediction_setup_page;
 pub(crate) use notification_setup::{
-    cleanup_legacy_marker_hook, install_plugin, is_plugin_installed, uninstall_plugin,
+    install_plugin, is_plugin_installed, plugin_needs_reinstall, uninstall_plugin,
 };
 pub(crate) use tool_permissions_setup::render_tool_permissions_setup_page;
 

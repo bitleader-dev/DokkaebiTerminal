@@ -155,32 +155,6 @@ impl MarkdownStyle {
             syntax: cx.theme().syntax().clone(),
             selection_background_color: colors.element_selection_background,
             code_block_overflow_x_scroll: true,
-            heading_level_styles: Some(HeadingLevelStyles {
-                h1: Some(TextStyleRefinement {
-                    font_size: Some(rems(1.15).into()),
-                    ..Default::default()
-                }),
-                h2: Some(TextStyleRefinement {
-                    font_size: Some(rems(1.1).into()),
-                    ..Default::default()
-                }),
-                h3: Some(TextStyleRefinement {
-                    font_size: Some(rems(1.05).into()),
-                    ..Default::default()
-                }),
-                h4: Some(TextStyleRefinement {
-                    font_size: Some(rems(1.).into()),
-                    ..Default::default()
-                }),
-                h5: Some(TextStyleRefinement {
-                    font_size: Some(rems(0.95).into()),
-                    ..Default::default()
-                }),
-                h6: Some(TextStyleRefinement {
-                    font_size: Some(rems(0.875).into()),
-                    ..Default::default()
-                }),
-            }),
             code_block: StyleRefinement {
                 padding: EdgesRefinement {
                     top: Some(DefiniteLength::Absolute(AbsoluteLength::Pixels(px(8.)))),
@@ -261,6 +235,7 @@ pub struct Markdown {
     mermaid_state: MermaidState,
     copied_code_blocks: HashSet<ElementId>,
     code_block_scroll_handles: BTreeMap<usize, ScrollHandle>,
+    context_menu_link: Option<SharedString>,
     context_menu_selected_text: Option<String>,
 }
 
@@ -424,6 +399,7 @@ impl Markdown {
             mermaid_state: MermaidState::default(),
             copied_code_blocks: HashSet::default(),
             code_block_scroll_handles: BTreeMap::default(),
+            context_menu_link: None,
             context_menu_selected_text: None,
         };
         this.parse(cx);
@@ -610,8 +586,16 @@ impl Markdown {
         cx.write_to_clipboard(ClipboardItem::new_string(text));
     }
 
-    fn capture_selection_for_context_menu(&mut self) {
+    fn capture_for_context_menu(&mut self, link: Option<SharedString>) {
         self.context_menu_selected_text = self.selected_text();
+        self.context_menu_link = link;
+    }
+
+    /// 가장 최근 우클릭한 위치의 링크 URL 을 반환.
+    /// 우클릭 mouse-down 이벤트에서 설정되며, 부모 뷰가 컨텍스트 메뉴에
+    /// "링크 복사" 항목을 포함시킬 때 사용한다.
+    pub fn context_menu_link(&self) -> Option<&SharedString> {
+        self.context_menu_link.as_ref()
     }
 
     fn parse(&mut self, cx: &mut Context<Self>) {
@@ -1062,7 +1046,7 @@ impl MarkdownElement {
         text_align_override: Option<TextAlign>,
     ) {
         let align = text_align_override.unwrap_or(self.style.base_text_style.text_align);
-        let mut heading = div().mb_2();
+        let mut heading = div().mt_4().mb_2();
         heading = apply_heading_style(heading, level, self.style.heading_level_styles.as_ref());
 
         heading = match align {
@@ -1238,13 +1222,19 @@ impl MarkdownElement {
 
         self.on_mouse_event(window, cx, {
             let hitbox = hitbox.clone();
-            move |markdown, event: &MouseDownEvent, phase, window, _| {
+            let rendered_text = rendered_text.clone();
+            move |markdown, event: &MouseDownEvent, phase, window, _cx| {
                 if phase.capture()
                     && event.button == MouseButton::Right
                     && hitbox.is_hovered(window)
                 {
-                    // Capture selected text so it survives until menu item is clicked
-                    markdown.capture_selection_for_context_menu();
+                    // 우클릭한 위치의 링크와 선택 텍스트를 캡처해 컨텍스트 메뉴 항목 클릭 시점까지 유지
+                    let link = rendered_text
+                        .source_index_for_position(event.position)
+                        .ok()
+                        .and_then(|ix| rendered_text.link_for_source_index(ix))
+                        .map(|link| link.destination_url.clone());
+                    markdown.capture_for_context_menu(link);
                 }
             }
         });
@@ -1254,7 +1244,7 @@ impl MarkdownElement {
             let hitbox = hitbox.clone();
             move |markdown, event: &MouseDownEvent, phase, window, cx| {
                 if hitbox.is_hovered(window) {
-                    if phase.bubble() {
+                    if phase.bubble() && event.button != MouseButton::Right {
                         let position_result =
                             rendered_text.source_index_for_position(event.position);
 

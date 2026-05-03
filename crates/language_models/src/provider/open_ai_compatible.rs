@@ -383,6 +383,7 @@ impl LanguageModel for OpenAiCompatibleLanguageModel {
                 self.max_output_tokens(),
                 // 사용자 설정 reasoning_effort 전달
                 self.model.reasoning_effort.clone(),
+                self.model.capabilities.interleaved_reasoning,
             );
             let completions = self.stream_completion(request, cx);
             async move {

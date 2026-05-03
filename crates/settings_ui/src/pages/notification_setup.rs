@@ -8,65 +8,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-/// 과거 Dokkaebi가 주입했던 마커 파일 hook 항목인지 판별 (마이그레이션 정리용).
-fn is_dokkaebi_marker_hook_entry(entry: &Value) -> bool {
-    entry
-        .get("hooks")
-        .and_then(|h| h.as_array())
-        .is_some_and(|hooks| {
-            hooks.iter().any(|hook| {
-                hook.get("command")
-                    .and_then(|c| c.as_str())
-                    .is_some_and(|cmd| {
-                        cmd.contains("dokkaebi_bell")
-                            || (cmd.contains("printf") && cmd.contains("\\a"))
-                    })
-            })
-        })
-}
-
-/// 과거 `notification.claude_code_bell` 토글이 `~/.claude/settings.json`에 주입했던
-/// 마커 파일 hook을 1회 자동 정리한다. 새 IPC 알림 시스템(dokkaebi-notify-bridge 플러그인)
-/// 도입에 따른 마이그레이션 단계.
-///
-/// 다음 메이저 버전에서 본 함수와 호출 지점을 함께 제거 예정.
-pub(crate) fn cleanup_legacy_marker_hook(_cx: &App) {
-    let Some(mut settings) = read_settings() else {
-        return;
-    };
-    let Some(root) = settings.as_object_mut() else {
-        return;
-    };
-    let Some(stop_array) = root
-        .get_mut("hooks")
-        .and_then(|h| h.get_mut("Stop"))
-        .and_then(|s| s.as_array_mut())
-    else {
-        return;
-    };
-    let original_len = stop_array.len();
-    stop_array.retain(|entry| !is_dokkaebi_marker_hook_entry(entry));
-    if stop_array.len() == original_len {
-        return; // 변경 사항 없음 → 디스크 쓰기 skip
-    }
-
-    // 빈 배열/객체 정리
-    if let Some(hooks_obj) = root.get_mut("hooks").and_then(|h| h.as_object_mut()) {
-        if hooks_obj
-            .get("Stop")
-            .and_then(|s| s.as_array())
-            .is_some_and(|arr| arr.is_empty())
-        {
-            hooks_obj.remove("Stop");
-        }
-        if hooks_obj.is_empty() {
-            root.remove("hooks");
-        }
-    }
-
-    write_settings(&settings);
-}
-
 // ----------------------------------------------------------------------------
 // dokkaebi-notify-bridge 플러그인 설치/제거
 // ----------------------------------------------------------------------------
@@ -121,11 +62,18 @@ fn marketplace_root_dir() -> Option<PathBuf> {
 static PLUGIN_INSTALLED_CACHE: Mutex<Option<(Instant, bool)>> = Mutex::new(None);
 const PLUGIN_INSTALLED_TTL: Duration = Duration::from_millis(500);
 
+/// `plugin_needs_reinstall` 결과 캐시. 본체 임베드 hooks.json 과 사용자 디스크
+/// hooks.json 비교는 install_dir 의 파일 I/O + JSON 파싱이라 동일 TTL 로 가드.
+static PLUGIN_REINSTALL_CACHE: Mutex<Option<(Instant, bool)>> = Mutex::new(None);
+
 /// install_plugin / uninstall_plugin 성공 시 호출되어 캐시를 즉시 무효화한다.
 /// 호출 누락 시에도 TTL 만료로 수백 ms 내에 자동 반영되지만, 토글 즉시 반영을
 /// 위해 변경 경로에서 명시적으로 호출한다.
 fn invalidate_plugin_installed_cache() {
     if let Ok(mut cache) = PLUGIN_INSTALLED_CACHE.lock() {
+        *cache = None;
+    }
+    if let Ok(mut cache) = PLUGIN_REINSTALL_CACHE.lock() {
         *cache = None;
     }
 }
@@ -146,6 +94,26 @@ pub fn is_plugin_installed(_cx: &App) -> bool {
     }
     // lock poisoning — 안전한 최후 폴백
     claude_plugin_registry::is_plugin_installed()
+}
+
+/// 사용자가 설치한 플러그인의 hooks.json 이 본체에 번들된 최신 hooks.json 과
+/// 다르면 true. 본체 업데이트로 hook 정의가 바뀌었음을 사용자에게 안내해 재설치를
+/// 유도하는 UI 분기에서 사용한다. 미설치 상태이거나 디스크/JSON 비교 비용은
+/// `is_plugin_installed` 와 동일 TTL 로 가드된다.
+pub fn plugin_needs_reinstall(_cx: &App) -> bool {
+    let now = Instant::now();
+    if let Ok(mut cache) = PLUGIN_REINSTALL_CACHE.lock() {
+        if let Some((at, value)) = *cache
+            && now.duration_since(at) < PLUGIN_INSTALLED_TTL
+        {
+            return value;
+        }
+        let value = claude_plugin_registry::needs_reinstall();
+        *cache = Some((now, value));
+        return value;
+    }
+    // lock poisoning — 안전한 최후 폴백
+    claude_plugin_registry::needs_reinstall()
 }
 
 /// 플러그인을 `~/.claude/settings.json`에 등록.

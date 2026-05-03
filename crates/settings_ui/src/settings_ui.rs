@@ -393,11 +393,6 @@ pub fn init(cx: &mut App) {
     let queue = ProjectSettingsUpdateQueue::new(cx);
     cx.set_global(queue);
 
-    // 마이그레이션: 과거 claude_code_bell 토글이 ~/.claude/settings.json에 주입했던
-    // 마커 파일 hook을 부팅 시 1회 자동 정리. 새 IPC 알림 시스템(dokkaebi-notify-bridge
-    // 플러그인) 도입에 따른 정리 단계로, 다음 메이저 버전에서 제거 예정.
-    pages::cleanup_legacy_marker_hook(cx);
-
     cx.on_action(|_: &OpenSettings, cx| {
         open_settings_editor(None, None, None, cx);
     });
@@ -1200,6 +1195,14 @@ impl SettingsPageItem {
                     plugin_action.on_install.clone()
                 };
 
+                // 재설치 필요 안내 — needs_reinstall == Some 이고 호출 결과 true 일 때만 표시.
+                // 미설치 상태(Some 이어도 needs_reinstall 이 false 반환)나 미지정(None)이면
+                // 안내 문구는 렌더되지 않는다.
+                let reinstall_label_text = plugin_action
+                    .needs_reinstall
+                    .filter(|check| check(cx))
+                    .map(|_| t(plugin_action.reinstall_warning_label.as_ref(), cx));
+
                 v_flex()
                     .group("setting-item")
                     .px_8()
@@ -1223,6 +1226,16 @@ impl SettingsPageItem {
                                                 Label::new(t(description.as_ref(), cx))
                                                     .size(LabelSize::Small)
                                                     .color(Color::Muted),
+                                            )
+                                        },
+                                    )
+                                    .when_some(
+                                        reinstall_label_text,
+                                        |this, warning_text| {
+                                            this.child(
+                                                Label::new(warning_text)
+                                                    .size(LabelSize::Small)
+                                                    .color(Color::Warning),
                                             )
                                         },
                                     ),
@@ -1520,6 +1533,10 @@ struct PluginAction {
     description: Option<SharedString>,
     /// 외부 상태 조회 (예: `~/.claude/settings.json` 검사)
     is_installed: fn(&App) -> bool,
+    /// 설치 상태에서 "재설치 필요" 안내 표시 여부 결정. None 이면 안내 안 함.
+    /// Some(fn) 이고 호출 결과가 true 일 때만 description 아래에 Warning 라벨 노출.
+    /// 본체 업데이트로 hook 정의가 바뀌었을 때 사용자에게 재설치 유도용.
+    needs_reinstall: Option<fn(&App) -> bool>,
     /// 미설치 상태에서 좌측에 표시할 라벨 i18n 키 (예: "settings_page.label.not_installed")
     not_installed_label: SharedString,
     /// 설치 상태에서 좌측에 표시할 라벨 i18n 키 (예: "settings_page.label.installed")
@@ -1528,6 +1545,8 @@ struct PluginAction {
     install_button_text: SharedString,
     /// 설치 상태일 때 버튼 텍스트 i18n 키 (예: "settings_page.action.uninstall")
     uninstall_button_text: SharedString,
+    /// 재설치 안내 라벨 i18n 키. needs_reinstall == Some 일 때만 사용된다.
+    reinstall_warning_label: SharedString,
     on_install: Arc<dyn Fn(&mut SettingsWindow, &mut Window, &mut App) + Send + Sync>,
     on_uninstall: Arc<dyn Fn(&mut SettingsWindow, &mut Window, &mut App) + Send + Sync>,
     files: FileMask,

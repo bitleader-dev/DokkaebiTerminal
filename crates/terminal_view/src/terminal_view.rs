@@ -744,6 +744,7 @@ impl TerminalView {
         let workspace_handle = self.workspace.clone();
         // 번역 문자열 미리 생성 (내부 클로저에서 cx 접근 불가)
         let label_new_terminal = t("terminal.menu.new_terminal", cx);
+        let label_new_center_terminal = t("terminal.menu.new_center_terminal", cx);
         let label_spawn_task = t("terminal.menu.spawn_task", cx);
         let label_copy = t("terminal.menu.copy", cx);
         let label_paste = t("terminal.menu.paste", cx);
@@ -759,6 +760,10 @@ impl TerminalView {
         let context_menu = ContextMenu::build(window, cx, |menu, _, _| {
             menu.context(self.focus_handle.clone())
                 .action(label_new_terminal, Box::new(NewTerminal::default()))
+                .action(
+                    label_new_center_terminal,
+                    Box::new(NewCenterTerminal::default()),
+                )
                 .entry(
                     label_spawn_task,
                     Some(Spawn::modal().boxed_clone()),
@@ -2380,7 +2385,12 @@ impl SearchableItem for TerminalView {
     }
 
     /// Returns the selection content to pre-load into this search
-    fn query_suggestion(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> String {
+    fn query_suggestion(
+        &mut self,
+        _ignore_settings: bool,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> String {
         self.terminal()
             .read(cx)
             .last_content

@@ -1655,8 +1655,19 @@ impl SearchableItem for Editor {
         }
     }
 
-    fn query_suggestion(&mut self, window: &mut Window, cx: &mut Context<Self>) -> String {
-        let setting = EditorSettings::get_global(cx).seed_search_query_from_cursor;
+    fn query_suggestion(
+        &mut self,
+        ignore_settings: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> String {
+        // ignore_settings=true 면 sed_search_query_from_cursor 설정과 관계없이 항상 커서 위치
+        // 의 단어/선택을 사용. UseSelectionForFind 같은 명시적 액션에 사용.
+        let setting = if ignore_settings {
+            SeedQuerySetting::Always
+        } else {
+            EditorSettings::get_global(cx).seed_search_query_from_cursor
+        };
         let snapshot = self.snapshot(window, cx);
         let selection = self.selections.newest_adjusted(&snapshot.display_snapshot);
         let buffer_snapshot = snapshot.buffer_snapshot();

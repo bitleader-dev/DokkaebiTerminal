@@ -2664,6 +2664,9 @@ impl Drop for Terminal {
         if let TerminalType::Pty { pty_handle, info } =
             std::mem::replace(&mut self.terminal_type, TerminalType::DisplayOnly)
         {
+            // 자식 프로세스에 SIGTERM 을 동기적으로 보낸다. Unix 에서 Zed 종료 후에도
+            // 자식 프로세스가 살아남는 문제 차단. Windows 빌드는 stub 으로 noop.
+            info.terminate_child_process();
             // 자식 프로세스를 종료한다. PTY handle의 drop으로 reader EOF가 발생한다.
             let timer = self.background_executor.timer(Duration::from_millis(100));
             self.background_executor

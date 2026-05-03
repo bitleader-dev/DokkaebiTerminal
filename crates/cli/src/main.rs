@@ -175,10 +175,6 @@ struct Args {
     #[cfg(target_os = "windows")]
     #[arg(long, value_name = "USER@DISTRO")]
     wsl: Option<String>,
-    /// Not supported in Zed CLI, only supported on Zed binary
-    /// Will attempt to give the correct command to run
-    #[arg(long)]
-    system_specs: bool,
     /// Pairs of file paths to diff. Can be specified multiple times.
     /// When directories are provided, recurses into them and shows all changed files in a single multi-diff view.
     #[arg(long, action = clap::ArgAction::Append, num_args = 2, value_names = ["OLD_PATH", "NEW_PATH"])]
@@ -700,16 +696,6 @@ fn main() -> Result<()> {
     if args.version {
         println!("{}", app.zed_version_string());
         return Ok(());
-    }
-
-    if args.system_specs {
-        let path = app.path();
-        let msg = [
-            "The `--system-specs` argument is not supported in the Zed CLI, only on Zed binary.",
-            "To retrieve the system specs on the command line, run the following command:",
-            &format!("{} --system-specs", path.display()),
-        ];
-        anyhow::bail!(msg.join("\n"));
     }
 
     #[cfg(all(

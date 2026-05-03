@@ -385,6 +385,20 @@ impl PtyProcessInfo {
         self.get_child().is_some_and(|process| process.kill())
     }
 
+    /// 터미널 종료 시 child 프로세스에 SIGTERM 을 동기적으로 보낸다.
+    /// Drop 경로에서 호출되어 Zed 종료 후에도 자식 프로세스가 살아남는 문제를 차단.
+    #[cfg(unix)]
+    pub(crate) fn terminate_child_process(&self) -> bool {
+        let pid = self.pid_getter.fallback_pid();
+        unsafe { libc::killpg(pid.as_u32() as i32, libc::SIGTERM) == 0 }
+    }
+
+    #[cfg(not(unix))]
+    pub(crate) fn terminate_child_process(&self) -> bool {
+        // Windows 빌드는 별도 자식 종료 흐름이 있어 stub
+        false
+    }
+
     /// Windows에서 PID 또는 핸들을 통해 PEB에서 CWD를 읽는다.
     /// `pid`가 0이 아니면 해당 PID로 시도하고, 0이면 보유 핸들로 폴백한다.
     #[cfg(target_os = "windows")]

@@ -585,6 +585,8 @@ pub trait ItemHandle: 'static + Send {
     fn show_toolbar(&self, cx: &App) -> bool;
     fn pixel_position_of_cursor(&self, cx: &App) -> Option<Point<Pixels>>;
     fn downgrade_item(&self) -> Box<dyn WeakItemHandle>;
+    /// `downgrade_item` 의 Arc 버전. NavigationEntry 가 Arc 로 저장하기 때문에 분리.
+    fn weak_item_arc(&self) -> Arc<dyn WeakItemHandle + Send + Sync>;
     fn workspace_settings<'a>(&self, cx: &'a App) -> &'a WorkspaceSettings;
     fn preserve_preview(&self, cx: &App) -> bool;
     fn include_in_nav_history(&self) -> bool;
@@ -1167,6 +1169,10 @@ impl<T: Item> ItemHandle for Entity<T> {
 
     fn downgrade_item(&self) -> Box<dyn WeakItemHandle> {
         Box::new(self.downgrade())
+    }
+
+    fn weak_item_arc(&self) -> Arc<dyn WeakItemHandle + Send + Sync> {
+        Arc::new(self.downgrade())
     }
 
     fn to_serializable_item_handle(&self, cx: &App) -> Option<Box<dyn SerializableItemHandle>> {

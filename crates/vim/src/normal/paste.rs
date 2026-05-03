@@ -25,7 +25,7 @@ pub struct Paste {
     #[serde(default)]
     before: bool,
     #[serde(default)]
-    preserve_clipboard: bool,
+    pub(crate) preserve_clipboard: bool,
 }
 
 impl Vim {

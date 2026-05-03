@@ -7,7 +7,7 @@ use gpui::ObjectFit;
 use serde::Deserialize;
 use settings::settings_content::WallpaperFitContent;
 pub use settings::{
-    AutosaveSetting, BottomDockLayout, EncodingDisplayOptions, InactiveOpacity,
+    ActionName, AutosaveSetting, BottomDockLayout, EncodingDisplayOptions, InactiveOpacity,
     PaneSplitDirectionHorizontal, PaneSplitDirectionVertical, RegisterSetting,
     RestoreOnStartupBehavior, Settings,
 };
@@ -30,7 +30,7 @@ pub struct WorkspaceSettings {
     pub system_monitoring: bool,
     /// Windows 로그인 시 자동 실행 여부.
     pub auto_start: bool,
-    pub command_aliases: HashMap<String, String>,
+    pub command_aliases: HashMap<String, ActionName>,
     pub max_tabs: Option<NonZeroUsize>,
     pub when_closing_with_no_tabs: settings::CloseWindowWhenNoItems,
     pub on_last_window_closed: settings::OnLastWindowClosed,

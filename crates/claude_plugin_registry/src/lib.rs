@@ -131,3 +131,57 @@ pub fn is_plugin_installed() -> bool {
         .and_then(|p| p.as_object())
         .is_some_and(|plugins| plugins.keys().any(|k| k.starts_with(&plugin_prefix)))
 }
+
+/// 본체 빌드 시점의 hooks.json 원본. 컴파일 타임에 임베드되어 본체와 사용자가
+/// 설치한 플러그인 디렉터리의 hooks.json 내용 비교에 사용된다.
+pub const BUNDLED_HOOKS_JSON: &str =
+    include_str!("../../../assets/claude-plugins/dokkaebi-notify-bridge/hooks/hooks.json");
+
+/// 사용자가 설치한 플러그인의 hooks.json 이 본체에 번들된 최신 hooks.json 과
+/// 다른지 검사한다. 다르면 본체 업데이트로 hook 정의가 바뀐 것이므로 사용자가
+/// 플러그인을 재설치해 새 hooks 를 적용해야 한다.
+///
+/// 판정 규약:
+/// - 미설치 상태(`is_plugin_installed() == false`)면 안내 불필요 → `false`
+/// - settings.json 의 `extraKnownMarketplaces.{MARKETPLACE_NAME}.source.path` 누락이거나
+///   해당 path 의 hooks.json 을 읽지 못하면 비정상 install 상태 → `true`
+/// - 양쪽 hooks.json 을 `serde_json::Value` 로 파싱해 비교. 다르면 `true`,
+///   같으면 `false` (whitespace/trailing newline 차이는 무시됨)
+///
+/// 디스크 I/O + JSON 파싱이 발생하므로 렌더 경로에서 반복 호출하는 쪽은 별도
+/// TTL 캐시를 덧입혀 사용한다(호출자 책임).
+pub fn needs_reinstall() -> bool {
+    if !is_plugin_installed() {
+        return false;
+    }
+    let Some(settings) = read_settings() else {
+        return true;
+    };
+    let path_str = settings
+        .get("extraKnownMarketplaces")
+        .and_then(|m| m.get(MARKETPLACE_NAME))
+        .and_then(|m| m.get("source"))
+        .and_then(|s| s.get("path"))
+        .and_then(|p| p.as_str());
+    let Some(path_str) = path_str else {
+        return true;
+    };
+    let installed_hooks_path = std::path::Path::new(path_str)
+        .join(PLUGIN_NAME)
+        .join("hooks")
+        .join("hooks.json");
+    let Ok(installed_content) = std::fs::read_to_string(&installed_hooks_path) else {
+        return true;
+    };
+    let installed_value: Value = match serde_json::from_str(&installed_content) {
+        Ok(v) => v,
+        Err(_) => return true,
+    };
+    let bundled_value: Value = match serde_json::from_str(BUNDLED_HOOKS_JSON) {
+        Ok(v) => v,
+        // 본체 임베드 JSON 이 깨져 있을 가능성은 컴파일 타임에 차단되므로
+        // 이 분기는 실질적으로 도달 불가. 도달 시 안내 표시 안 함(보수적).
+        Err(_) => return false,
+    };
+    installed_value != bundled_value
+}

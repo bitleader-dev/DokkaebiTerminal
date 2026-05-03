@@ -400,6 +400,7 @@ impl LanguageModel for OpenAiLanguageModel {
                 self.model.supports_prompt_cache_key(),
                 self.max_output_tokens(),
                 self.model.reasoning_effort(),
+                false,
             );
             let completions = self.stream_completion(request, cx);
             async move {
@@ -418,13 +419,19 @@ pub fn into_open_ai(
     supports_prompt_cache_key: bool,
     max_output_tokens: Option<u64>,
     reasoning_effort: Option<ReasoningEffort>,
+    interleaved_reasoning: bool,
 ) -> open_ai::Request {
     let stream = !model_id.starts_with("o1-");
 
     let mut messages = Vec::new();
+    let mut current_reasoning: Option<String> = None;
     for message in request.messages {
         for content in message.content {
             match content {
+                // interleaved_reasoning 옵션: thinking 텍스트를 본문이 아닌 reasoning_content 필드로 분리
+                MessageContent::Thinking { text, .. } if interleaved_reasoning => {
+                    current_reasoning.get_or_insert_default().push_str(&text);
+                }
                 MessageContent::Text(text) | MessageContent::Thinking { text, .. } => {
                     let should_add = if message.role == Role::User {
                         // Including whitespace-only user messages can cause error with OpenAI compatible APIs
@@ -439,6 +446,15 @@ pub fn into_open_ai(
                             message.role,
                             &mut messages,
                         );
+                        if let Some(reasoning) = current_reasoning.take() {
+                            if let Some(open_ai::RequestMessage::Assistant {
+                                reasoning_content,
+                                ..
+                            }) = messages.last_mut()
+                            {
+                                *reasoning_content = Some(reasoning);
+                            }
+                        }
                     }
                 }
                 MessageContent::RedactedThinking(_) => {}
@@ -474,6 +490,7 @@ pub fn into_open_ai(
                         messages.push(open_ai::RequestMessage::Assistant {
                             content: None,
                             tool_calls: vec![tool_call],
+                            reasoning_content: current_reasoning.take(),
                         });
                     }
                 }
@@ -751,6 +768,7 @@ fn add_message_content_part(
                 Role::Assistant => open_ai::RequestMessage::Assistant {
                     content: Some(open_ai::MessageContent::from(vec![new_part])),
                     tool_calls: Vec::new(),
+                    reasoning_content: None,
                 },
                 Role::System => open_ai::RequestMessage::System {
                     content: open_ai::MessageContent::from(vec![new_part]),

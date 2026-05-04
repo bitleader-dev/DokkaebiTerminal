@@ -1590,7 +1590,12 @@ impl TerminalView {
     }
 
     fn focus_in(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.clear_task_completed(cx);
+        // 주의: 여기서 `clear_task_completed` 를 호출하면 안 된다.
+        // `is_dirty()` 는 `task_completed.is_some()` 일 때 false 를 반환하여 dot 인디케이터를
+        // 가려주는 마스크 역할을 한다. 포커스 이동만으로 task_completed 를 지우면 마스크가 풀리고
+        // 그 아래 남아있는 `has_bell = true` 가 노출되어 dot 이 늦게 나타난다. 다른 입력 핸들러
+        // (`key_down`, `send_text`, `send_keystroke`) 와 동일하게 사용자 입력이 발생할 때만
+        // 양쪽 상태를 함께 클리어한다.
         self.terminal.update(cx, |terminal, _| {
             terminal.set_cursor_shape(self.cursor_shape);
             terminal.focus_in();
